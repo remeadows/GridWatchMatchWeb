@@ -41,6 +41,42 @@ test("boss timer fail is surfaced", async ({ page }) => {
   await expect(page.locator(".modal").getByText("Boss timer expired.")).toBeVisible();
 });
 
+test("booster tray requires a deliberate board target", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  const booster = page.getByTestId("booster-tnt");
+  await expect(booster.locator("strong")).toHaveText("3");
+  await booster.click();
+  await expect(page.getByText("Choose a grid tile.")).toBeVisible();
+  await expect(booster.locator("strong")).toHaveText("3");
+  await expect(page.getByText(/Last clear:/)).not.toBeVisible();
+
+  const board = await page.getByTestId("board-canvas").boundingBox();
+  expect(board).not.toBeNull();
+  await page.mouse.click(board!.x + board!.width / 2, board!.y + board!.height / 2);
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect(booster.locator("strong")).toHaveText("2");
+});
+
+test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  const booster = page.getByTestId("booster-rocket");
+  await booster.scrollIntoViewIfNeeded();
+  const boosterBox = await booster.boundingBox();
+  const board = await page.getByTestId("board-canvas").boundingBox();
+  expect(boosterBox).not.toBeNull();
+  expect(board).not.toBeNull();
+
+  await page.mouse.move(boosterBox!.x + boosterBox!.width / 2, boosterBox!.y + boosterBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(board!.x + board!.width / 2, board!.y + board!.height / 2, { steps: 8 });
+  await page.mouse.up();
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect(booster.locator("strong")).toHaveText("2");
+});
+
 test("store stub never grants coins", async ({ page }) => {
   await page.goto("/?gwTestMode=1");
   await expect(page.getByLabel("0 coins")).toBeVisible();

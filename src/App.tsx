@@ -8,7 +8,7 @@ import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
 import type { BoardAnimationEvent } from "./game/BoardScene";
-import { GameCanvas } from "./game/GameCanvas";
+import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import {
@@ -40,6 +40,12 @@ type Screen =
   | { name: "store" };
 
 const boosterTypes: BoosterType[] = ["rocket", "rocketVertical", "tnt", "propeller", "lightBall"];
+
+interface BoosterDragState {
+  booster: BoosterType;
+  x: number;
+  y: number;
+}
 
 export default function App() {
   const [save, setSave] = useState<SaveState | null>(null);
@@ -230,9 +236,20 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   const [tutorialStep, setTutorialStep] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const [runId, setRunId] = useState(0);
+  const [selectedBooster, setSelectedBooster] = useState<BoosterType | null>(null);
+  const [boosterDrag, setBoosterDrag] = useState<BoosterDragState | null>(null);
+  const gameCanvasRef = useRef<GameCanvasHandle | null>(null);
   const engineRef = useRef<BoardEngine | null>(null);
   const queueRef = useRef<BoardAction[]>([]);
   const processingRef = useRef(false);
+  const boosterPointerRef = useRef<{
+    booster: BoosterType;
+    dragging: boolean;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const suppressNextBoosterClickRef = useRef(false);
   const statusRef = useRef(status);
   const saveRef = useRef(save);
   const scoreRef = useRef(score);
@@ -242,6 +259,10 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
 
   useEffect(() => {
     statusRef.current = status;
+    if (status !== "running") {
+      setSelectedBooster(null);
+      setBoosterDrag(null);
+    }
   }, [status]);
 
   useEffect(() => {
@@ -260,6 +281,8 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     setLastDelta(null);
     setAnimationEvent(null);
     setPlayOnUsed(false);
+    setSelectedBooster(null);
+    setBoosterDrag(null);
     finalRef.current = false;
     queueRef.current = [];
     setQueueDepth(0);
@@ -323,18 +346,23 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     const engine = engineRef.current;
     if (!engine || !level || statusRef.current !== "running") return;
     try {
+      let consumedBooster: BoosterType | null = null;
       if (action.kind === "activateBooster") {
         const available = saveRef.current.boosters[action.booster] ?? 0;
         if (available <= 0) {
           setMessage("No booster inventory remaining.");
           return;
         }
+        consumedBooster = action.booster;
+      }
+      const delta = engine.apply(action);
+      if (consumedBooster) {
+        const available = saveRef.current.boosters[consumedBooster] ?? 0;
         const nextSave = cloneSave(saveRef.current);
-        nextSave.boosters[action.booster] = available - 1;
+        nextSave.boosters[consumedBooster] = Math.max(0, available - 1);
         commitSave(nextSave);
         saveRef.current = nextSave;
       }
-      const delta = engine.apply(action);
       animationIdRef.current += 1;
       setAnimationEvent({ id: animationIdRef.current, kind: "resolved", action, delta });
       const nextScore = scoreRef.current + delta.scoreGained;
@@ -356,6 +384,8 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
       if (action.kind === "swap") {
         animationIdRef.current += 1;
         setAnimationEvent({ id: animationIdRef.current, kind: "invalid", action });
+      } else if (action.kind === "activateBooster") {
+        setSelectedBooster(action.booster);
       }
     }
   }, [commitSave, finishWin, level]);
@@ -371,7 +401,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         return;
       }
       applyAction(next);
-      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 260);
+      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 520);
     };
     run();
   }, [applyAction]);
@@ -386,6 +416,90 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     setQueueDepth(queueRef.current.length);
     drainQueue();
   }, [drainQueue]);
+
+  const handleBoardAction = useCallback((action: BoardAction) => {
+    if (action.kind === "activateBooster") {
+      setSelectedBooster(null);
+      setBoosterDrag(null);
+      setMessage("");
+    }
+    enqueueAction(action);
+  }, [enqueueAction]);
+
+  const isBoosterPlayable = useCallback((booster: BoosterType) => (
+    statusRef.current === "running" && (saveRef.current.boosters[booster] ?? 0) > 0
+  ), []);
+
+  const handleBoosterClick = (booster: BoosterType) => {
+    if (suppressNextBoosterClickRef.current) {
+      suppressNextBoosterClickRef.current = false;
+      return;
+    }
+    if (!isBoosterPlayable(booster)) return;
+    setSelectedBooster((current) => {
+      const next = current === booster ? null : booster;
+      setMessage(next ? "Choose a grid tile." : "");
+      return next;
+    });
+  };
+
+  const handleBoosterPointerDown = (event: React.PointerEvent<HTMLButtonElement>, booster: BoosterType) => {
+    if (!isBoosterPlayable(booster)) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    boosterPointerRef.current = {
+      booster,
+      dragging: false,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is unavailable for some synthetic/mobile browser events.
+    }
+  };
+
+  const handleBoosterPointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = boosterPointerRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+    if (!drag.dragging && distance < 7) return;
+    drag.dragging = true;
+    event.preventDefault();
+    setSelectedBooster(drag.booster);
+    setBoosterDrag({ booster: drag.booster, x: event.clientX, y: event.clientY });
+  };
+
+  const handleBoosterPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = boosterPointerRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    boosterPointerRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture may already be gone after browser cancellation.
+    }
+    if (!drag.dragging) return;
+    event.preventDefault();
+    suppressNextBoosterClickRef.current = true;
+    setBoosterDrag(null);
+    const placed = gameCanvasRef.current?.activateBoosterAtClientPoint(drag.booster, event.clientX, event.clientY) ?? false;
+    if (placed) {
+      setSelectedBooster(null);
+      setMessage("");
+    } else {
+      setSelectedBooster(drag.booster);
+      setMessage("Choose an open grid tile.");
+    }
+  };
+
+  const handleBoosterPointerCancel = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = boosterPointerRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    boosterPointerRef.current = null;
+    setBoosterDrag(null);
+  };
 
   const acceptPlayOn = () => {
     const engine = engineRef.current;
@@ -448,20 +562,37 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
 
       <div className="game-board-panel">
         <GameCanvas
+          ref={gameCanvasRef}
           snapshot={snapshot}
           animationEvent={animationEvent}
           reducedMotion={save.settings.reducedMotion}
-          onAction={enqueueAction}
+          pendingBooster={selectedBooster}
+          onAction={handleBoardAction}
         />
       </div>
 
       <div className="booster-tray">
-        {boosterTypes.map((booster) => (
-          <button key={booster} disabled={status !== "running" || (save.boosters[booster] ?? 0) <= 0} onClick={() => enqueueAction({ kind: "activateBooster", booster })}>
-            <span>{boosterLabel(booster)}</span>
-            <strong>{save.boosters[booster] ?? 0}</strong>
-          </button>
-        ))}
+        {boosterTypes.map((booster) => {
+          const available = save.boosters[booster] ?? 0;
+          const selected = selectedBooster === booster;
+          return (
+            <button
+              key={booster}
+              className={selected ? "selected" : ""}
+              aria-pressed={selected}
+              data-testid={`booster-${booster}`}
+              disabled={status !== "running" || available <= 0}
+              onClick={() => handleBoosterClick(booster)}
+              onPointerDown={(event) => handleBoosterPointerDown(event, booster)}
+              onPointerMove={handleBoosterPointerMove}
+              onPointerUp={handleBoosterPointerUp}
+              onPointerCancel={handleBoosterPointerCancel}
+            >
+              <span>{boosterLabel(booster)}</span>
+              <strong>{available}</strong>
+            </button>
+          );
+        })}
         <div className="queue-meter">Queue {queueDepth}/3</div>
         {isTestMode && <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>}
         {isTestMode && <button data-testid="qa-win" onClick={qaWin}>QA Win</button>}
@@ -472,6 +603,12 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
           setStatus("failed");
         }}>QA Boss Timeout</button>}
       </div>
+
+      {boosterDrag && (
+        <div className="booster-drag-ghost" aria-hidden="true" style={{ left: boosterDrag.x, top: boosterDrag.y }}>
+          {boosterLabel(boosterDrag.booster)}
+        </div>
+      )}
 
       {message && <div className="toast" role="status">{message}</div>}
       {lastDelta && <div className="delta-line">Last clear: {lastDelta.clears.length} tiles, {lastDelta.powerUpEvents.length} power-up event(s)</div>}

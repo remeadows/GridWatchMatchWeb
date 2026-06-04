@@ -130,7 +130,7 @@ export class BoardEngine {
         initialResolution = this.performTap(action.at);
         break;
       case "activateBooster":
-        initialResolution = this.performBooster(action.booster);
+        initialResolution = this.performBooster(action.booster, action.at);
         break;
     }
 
@@ -240,10 +240,15 @@ export class BoardEngine {
     return triggerSinglePowerUp(powerUp, position, this.grid, this.level.objectives, this.objectiveProgressValue, this.rng, { kind: "tap" });
   }
 
-  private performBooster(booster: BoosterType): PowerUpResolution {
+  private performBooster(booster: BoosterType, origin: GridPosition): PowerUpResolution {
+    if (!this.grid.isValid(origin)) {
+      throw new BoardEngineError("invalidTap", "Booster target out of bounds");
+    }
     const powerUp = mapBoosterToPowerUp(booster);
-    const origin = this.chooseBoosterPlacementOrigin();
     const cell = this.grid.get(origin);
+    if (!cell.isMovable || cell.generator !== null || !hasOccupant(cell)) {
+      throw new BoardEngineError("invalidTap", "Booster target is blocked");
+    }
     setPowerUp(cell, powerUp);
     if (cell.debugTileId === null) {
       cell.debugTileId = this.nextDebugTileId;
@@ -484,15 +489,6 @@ export class BoardEngine {
       if (detectMatches(this.grid).length === 0 && this.validMovesForGrid(this.grid).length > 0) return attempt;
     }
     throw new BoardEngineError("noMovesAvailable", "No valid moves available.");
-  }
-
-  private chooseBoosterPlacementOrigin(): GridPosition {
-    const center = { row: Math.trunc(this.grid.rows / 2), col: Math.trunc(this.grid.cols / 2) };
-    for (const position of this.grid.allPositions) {
-      const cell = this.grid.get(position);
-      if (cell.isMovable && cell.generator === null && hasOccupant(cell)) return position;
-    }
-    return center;
   }
 
   private assignDebugTileIds(): void {
@@ -782,7 +778,7 @@ function compareActions(lhs: BoardAction, rhs: BoardAction): number {
   const key = (action: BoardAction): [number, number, number, number, number] => {
     if (action.kind === "swap") return [0, action.from.row, action.from.col, action.to.row, action.to.col];
     if (action.kind === "tap") return [1, action.at.row, action.at.col, 0, 0];
-    return [2, 0, 0, 0, 0];
+    return [2, action.at.row, action.at.col, 0, 0];
   };
   const left = key(lhs);
   const right = key(rhs);
@@ -795,5 +791,5 @@ function compareActions(lhs: BoardAction, rhs: BoardAction): number {
 function cloneAction(action: BoardAction): BoardAction {
   if (action.kind === "swap") return { kind: "swap", from: { ...action.from }, to: { ...action.to } };
   if (action.kind === "tap") return { kind: "tap", at: { ...action.at } };
-  return { kind: "activateBooster", booster: action.booster };
+  return { kind: "activateBooster", booster: action.booster, at: { ...action.at } };
 }

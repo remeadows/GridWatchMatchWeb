@@ -61,7 +61,7 @@ export interface LevelDefinition {
 export type BoardAction =
   | { kind: "swap"; from: GridPosition; to: GridPosition }
   | { kind: "tap"; at: GridPosition }
-  | { kind: "activateBooster"; booster: BoosterType };
+  | { kind: "activateBooster"; booster: BoosterType; at: GridPosition };
 
 export interface ClearEvent {
   position: GridPosition;
@@ -238,4 +238,3 @@ export function serializePowerUp(powerUp: PowerUpType | null): string | null {
   if (powerUp.kind === "rocket") return powerUp.orientation === "horizontal" ? "rocket_h" : "rocket_v";
   return powerUp.kind;
 }
-

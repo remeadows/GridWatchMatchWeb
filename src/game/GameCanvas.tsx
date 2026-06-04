@@ -1,16 +1,24 @@
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import Phaser from "phaser";
 import { BoardScene, type BoardAnimationEvent } from "./BoardScene";
-import type { BoardAction, BoardSnapshot } from "../engine";
+import type { BoardAction, BoardSnapshot, BoosterType } from "../engine";
 
 interface GameCanvasProps {
   snapshot: BoardSnapshot | null;
   animationEvent: BoardAnimationEvent | null;
   reducedMotion: boolean;
+  pendingBooster: BoosterType | null;
   onAction: (action: BoardAction) => void;
 }
 
-export function GameCanvas({ snapshot, animationEvent, reducedMotion, onAction }: GameCanvasProps) {
+export interface GameCanvasHandle {
+  activateBoosterAtClientPoint: (booster: BoosterType, clientX: number, clientY: number) => boolean;
+}
+
+export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
+  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction },
+  ref
+) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onActionRef = useRef(onAction);
@@ -18,6 +26,13 @@ export function GameCanvas({ snapshot, animationEvent, reducedMotion, onAction }
   useEffect(() => {
     onActionRef.current = onAction;
   }, [onAction]);
+
+  useImperativeHandle(ref, () => ({
+    activateBoosterAtClientPoint: (booster, clientX, clientY) => {
+      const scene = gameRef.current?.scene.getScene("BoardScene") as BoardScene | undefined;
+      return scene?.activateBoosterAtClientPoint(booster, clientX, clientY) ?? false;
+    }
+  }), []);
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return;
@@ -39,7 +54,7 @@ export function GameCanvas({ snapshot, animationEvent, reducedMotion, onAction }
         postBoot: () => {
           const scene = game.scene.getScene("BoardScene") as BoardScene;
           scene.events.once(Phaser.Scenes.Events.CREATE, () => {
-            if (snapshot) scene.sync(snapshot, animationEvent, reducedMotion);
+            if (snapshot) scene.sync(snapshot, animationEvent, reducedMotion, pendingBooster);
           });
         }
       }
@@ -55,8 +70,8 @@ export function GameCanvas({ snapshot, animationEvent, reducedMotion, onAction }
   useEffect(() => {
     if (!snapshot || !gameRef.current) return;
     const scene = gameRef.current.scene.getScene("BoardScene") as BoardScene | undefined;
-    if (scene) scene.sync(snapshot, animationEvent, reducedMotion);
-  }, [snapshot, animationEvent, reducedMotion]);
+    if (scene) scene.sync(snapshot, animationEvent, reducedMotion, pendingBooster);
+  }, [snapshot, animationEvent, reducedMotion, pendingBooster]);
 
   return <div ref={containerRef} className="board-canvas" data-testid="board-canvas" />;
-}
+});

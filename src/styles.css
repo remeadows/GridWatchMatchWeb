@@ -369,6 +369,10 @@ button:disabled {
   touch-action: none;
 }
 
+.board-canvas canvas.booster-targeting {
+  cursor: crosshair;
+}
+
 .booster-tray {
   justify-content: center;
 }
@@ -377,6 +381,26 @@ button:disabled {
   display: grid;
   gap: 2px;
   min-width: 104px;
+  touch-action: none;
+}
+
+.booster-tray button.selected {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--gold), transparent 66%), 0 0 20px color-mix(in srgb, var(--gold), transparent 72%);
+}
+
+.booster-drag-ghost {
+  position: fixed;
+  z-index: 80;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--gold), transparent 24%);
+  border-radius: 8px;
+  padding: 10px 13px;
+  color: #061018;
+  background: var(--gold);
+  font-weight: 900;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
 }
 
 .toast {

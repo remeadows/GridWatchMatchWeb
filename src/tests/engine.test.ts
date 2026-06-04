@@ -58,11 +58,16 @@ describe("BoardEngine actions", () => {
   it("treats boosters as free actions and Play On as a move-limit extension", () => {
     const engine = new BoardEngine(readLevel("level_001.json"), 77n);
     const before = engine.snapshot.moveCount;
-    engine.apply({ kind: "activateBooster", booster: "tnt" });
+    engine.apply({ kind: "activateBooster", booster: "tnt", at: firstBoosterTarget(engine.snapshot) });
     expect(engine.snapshot.moveCount).toBe(before);
     const limit = engine.snapshot.moveLimit;
     engine.extendMoveLimit(5);
     expect(engine.snapshot.moveLimit).toBe(limit + 5);
+  });
+
+  it("rejects boosters without a valid player-selected target", () => {
+    const engine = new BoardEngine(comboLevel("rocket_h", "tnt"), 77n);
+    expect(() => engine.apply({ kind: "activateBooster", booster: "rocket", at: { row: 0, col: 0 } })).toThrow("Booster target is blocked");
   });
 
   it.each(comboCases())("resolves combo %s", (_name, left, right) => {
@@ -89,6 +94,15 @@ function firstSwapAfter(engine: BoardEngine, _previous: BoardAction): BoardActio
   if (!action) return null;
   engine.apply(action);
   return action;
+}
+
+function firstBoosterTarget(snapshot: BoardSnapshot) {
+  const target = snapshot.grid.allPositions.find((position) => {
+    const cell = snapshot.grid.get(position);
+    return cell.isMovable && cell.generator === null && (cell.baseTile !== null || cell.powerUp !== null);
+  });
+  if (!target) throw new Error("No booster target available");
+  return target;
 }
 
 function snapshotKey(snapshot: BoardSnapshot): string {

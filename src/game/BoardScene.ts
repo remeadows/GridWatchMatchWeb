@@ -6,6 +6,7 @@ import {
   type BoardAction,
   type BoardDelta,
   type BoardSnapshot,
+  type BoosterType,
   type CellState,
   type GridPosition,
   type PowerUpEvent,
@@ -78,6 +79,19 @@ const powerUpImageKeys = {
   lightBall: "powerup-lightBall"
 } as const;
 
+const motionTiming = {
+  blockedJiggle: 72,
+  blockedFlash: 230,
+  cascadeMove: 340,
+  clearFlash: 300,
+  invalidSwap: 170,
+  powerUpEffect: 560,
+  snapBack: 150,
+  spawnFlash: 230,
+  spawnMove: 390,
+  swap: 300
+} as const;
+
 export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
   private onAction: ((action: BoardAction) => void) | null = null;
@@ -92,6 +106,7 @@ export class BoardScene extends Phaser.Scene {
   private selected: GridPosition | null = null;
   private lastAnimationId = 0;
   private reducedMotion = false;
+  private pendingBooster: BoosterType | null = null;
 
   constructor() {
     super("BoardScene");
@@ -125,8 +140,10 @@ export class BoardScene extends Phaser.Scene {
     this.renderSnapshot();
   }
 
-  sync(snapshot: BoardSnapshot, animation?: BoardAnimationEvent | null, reducedMotion = false): void {
+  sync(snapshot: BoardSnapshot, animation?: BoardAnimationEvent | null, reducedMotion = false, pendingBooster: BoosterType | null = null): void {
     this.reducedMotion = reducedMotion;
+    this.pendingBooster = pendingBooster;
+    this.game.canvas.classList.toggle("booster-targeting", pendingBooster !== null);
     this.clearDragPreview(false);
     if (animation && animation.id > this.lastAnimationId) {
       this.lastAnimationId = animation.id;
@@ -143,7 +160,12 @@ export class BoardScene extends Phaser.Scene {
 
   update(): void {
     if (!this.dragPreview) return;
-    this.applyDragPreviewPositions(0.34);
+    this.applyDragPreviewPositions(0.46);
+  }
+
+  activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
+    const pointer = this.pointerFromClientPoint(clientX, clientY);
+    return this.activateBoosterAtPointer(booster, pointer);
   }
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
@@ -228,8 +250,8 @@ export class BoardScene extends Phaser.Scene {
             targets: ghost.object,
             x: ghost.to.x,
             y: ghost.to.y,
-            duration: 190,
-            ease: "Cubic.easeOut",
+            duration: motionTiming.swap,
+            ease: "Sine.easeInOut",
             onComplete: () => {
               ghost.object.destroy();
               remaining -= 1;
@@ -265,7 +287,7 @@ export class BoardScene extends Phaser.Scene {
         targets: ghost.object,
         x: Phaser.Math.Linear(start.x, ghost.to.x, 0.42),
         y: Phaser.Math.Linear(start.y, ghost.to.y, 0.42),
-        duration: 105,
+        duration: motionTiming.invalidSwap,
         yoyo: true,
         ease: "Sine.easeOut",
         onComplete: () => {
@@ -277,7 +299,7 @@ export class BoardScene extends Phaser.Scene {
     }
     if (ghosts.length === 0) this.renderSnapshot();
     for (const position of [action.from, action.to]) {
-      this.flashCell(position, 0xff4968, 160);
+      this.flashCell(position, 0xff4968, 190);
     }
   }
 
@@ -301,12 +323,12 @@ export class BoardScene extends Phaser.Scene {
   private playDeltaEffects(delta: BoardDelta): void {
     if (this.reducedMotion) return;
     for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
-    for (const clear of delta.clears) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, 210);
-    for (const move of delta.moves.slice(0, 24)) this.playMoveGhost(move.from, move.to, move.tileType, 210, 0.82);
+    for (const clear of delta.clears) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, motionTiming.clearFlash);
+    for (const move of delta.moves.slice(0, 24)) this.playMoveGhost(move.from, move.to, move.tileType, motionTiming.cascadeMove, 0.82);
     for (const spawn of delta.spawns.slice(0, 24)) {
       const from = { row: -1, col: spawn.position.col };
-      this.playMoveGhost(from, spawn.position, spawn.tileType, 240, 0.74);
-      this.flashCell(spawn.position, 0x38d9ff, 170);
+      this.playMoveGhost(from, spawn.position, spawn.tileType, motionTiming.spawnMove, 0.74);
+      this.flashCell(spawn.position, 0x38d9ff, motionTiming.spawnFlash);
     }
   }
 
@@ -364,7 +386,7 @@ export class BoardScene extends Phaser.Scene {
     this.tweens.add({
       targets: graphics,
       alpha: 0,
-      duration: 360,
+      duration: motionTiming.powerUpEffect,
       ease: "Sine.easeOut",
       onComplete: () => graphics.destroy()
     });
@@ -397,7 +419,13 @@ export class BoardScene extends Phaser.Scene {
     const canvas = this.game.canvas;
     const down = (event: PointerEvent) => {
       if (this.activePointerId !== null || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
-      const didStart = this.handlePointerDown(this.pointerFromDomEvent(event));
+      const pointer = this.pointerFromDomEvent(event);
+      if (this.pendingBooster) {
+        const didTarget = this.activateBoosterAtPointer(this.pendingBooster, pointer);
+        if (didTarget) event.preventDefault();
+        return;
+      }
+      const didStart = this.handlePointerDown(pointer);
       if (!didStart) return;
       this.activePointerId = event.pointerId;
       event.preventDefault();
@@ -459,10 +487,14 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private pointerFromDomEvent(event: PointerEvent): BoardPointer {
+    return this.pointerFromClientPoint(event.clientX, event.clientY);
+  }
+
+  private pointerFromClientPoint(clientX: number, clientY: number): BoardPointer {
     const rect = this.game.canvas.getBoundingClientRect();
     return {
-      x: ((event.clientX - rect.left) / Math.max(1, rect.width)) * this.scale.width,
-      y: ((event.clientY - rect.top) / Math.max(1, rect.height)) * this.scale.height
+      x: ((clientX - rect.left) / Math.max(1, rect.width)) * this.scale.width,
+      y: ((clientY - rect.top) / Math.max(1, rect.height)) * this.scale.height
     };
   }
 
@@ -568,8 +600,23 @@ export class BoardScene extends Phaser.Scene {
     this.dragPreview.desiredOffset = intent.offset;
     this.dragPreview.targetOffset = intent.targetOffset;
     this.updateTargetPreview(intent);
-    this.applyDragPreviewPositions(0.62);
+    this.applyDragPreviewPositions(0.84);
     this.requestImmediateRender();
+  }
+
+  private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
+    if (!this.snapshot || !this.onAction) return false;
+    const position = this.positionForPointer(pointer.x, pointer.y);
+    if (!position) return false;
+    const cell = this.snapshot.grid.get(position);
+    if (!canTargetBooster(cell)) {
+      this.playBlockedCellFeedback(position, cell);
+      return false;
+    }
+    this.clearDragPreview(false);
+    this.flashCell(position, 0xf7d154, 180);
+    this.onAction({ kind: "activateBooster", booster, at: position });
+    return true;
   }
 
   private handlePointerUp(pointer: BoardPointer): void {
@@ -774,7 +821,7 @@ export class BoardScene extends Phaser.Scene {
       targets: preview.ghost,
       x: preview.startCenter.x,
       y: preview.startCenter.y,
-      duration: 90,
+      duration: motionTiming.snapBack,
       ease: "Sine.easeOut",
       onComplete: () => {
         preview.ghost.destroy();
@@ -787,7 +834,7 @@ export class BoardScene extends Phaser.Scene {
 
   private playBlockedCellFeedback(position: GridPosition, cell: CellState): void {
     if (!this.fxLayer || !this.snapshot?.grid.isValid(position)) return;
-    this.flashCell(position, 0xff4968, 180);
+    this.flashCell(position, 0xff4968, motionTiming.blockedFlash);
     const ghost = this.addOccupant(position, cell, this.fxLayer, 0.82);
     if (!ghost) return;
     const center = this.cellCenter(position);
@@ -795,7 +842,7 @@ export class BoardScene extends Phaser.Scene {
       targets: ghost,
       alpha: 0.15,
       x: center.x + this.tileSize * 0.055,
-      duration: 48,
+      duration: motionTiming.blockedJiggle,
       ease: "Sine.easeOut",
       repeat: 1,
       yoyo: true,
@@ -871,6 +918,10 @@ function canDragCell(cell: CellState): boolean {
 }
 
 function canPreviewTarget(cell: CellState): boolean {
+  return cell.isMovable && !cell.generator && Boolean(cell.baseTile || cell.powerUp);
+}
+
+function canTargetBooster(cell: CellState): boolean {
   return cell.isMovable && !cell.generator && Boolean(cell.baseTile || cell.powerUp);
 }
 
