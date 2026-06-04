@@ -1,0 +1,68 @@
+# GridWatch Match Web
+
+Browser port of GridWatch Match, a cyberpunk match-3 puzzle game by WarSignalLabs.
+
+Built for the Community Dev Challenge: "Make a game we can play."
+
+## What You Made
+
+GridWatch Match Web is a playable browser version of GridWatch Match. Players clear cybersecurity-themed match-3 objectives across hand-authored levels, using rockets, propellers, TNT, light balls, boosters, and move extensions to defend the grid.
+
+## How Codex Helped
+
+Codex helped port the iOS game plan into a static web app, scaffold the React/Phaser/Vite project, sync assets and level data, implement the TypeScript board engine and Phaser board renderer, and debug playability issues across desktop and mobile viewports.
+
+## How To Play
+
+- Select and drag a tile into an adjacent tile to swap.
+- Match 3 or more tiles to clear them and advance objectives.
+- Match 4 or more tiles to create power-ups.
+- Swap or activate power-ups for larger clears and combos.
+- Finish the listed objectives before moves or boss timers run out.
+- Use boosters from the in-game tray when available.
+
+Controls:
+
+- Mouse: click, hold, and drag a tile toward an adjacent tile.
+- Touch: press and drag a tile toward an adjacent tile.
+- Keyboard: menus and buttons follow normal browser focus behavior.
+
+## Stack
+
+- React 19 + TypeScript + Vite 8
+- Phaser 4 board renderer
+- Pure TypeScript board engine
+- Static GitHub Pages deployment
+
+## Local Setup
+
+```sh
+npm ci
+npm run sync:assets
+npm run validate:levels
+npm run dev
+```
+
+The sync script expects the sibling iOS repository at:
+
+`/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatch`
+
+## Scripts
+
+```sh
+npm run dev
+npm run build
+npm run preview
+npm run sync:assets
+npm run validate:levels
+npm run test
+npm run test:e2e
+```
+
+## Deployment
+
+GitHub Actions builds and deploys `dist/` to GitHub Pages from `main`.
+
+## Monetization
+
+The web store is a playable stub. It shows the current coin packs and Security Clearance Pass surfaces, but real purchase fulfillment is disabled until a secure backend is added.
