@@ -1,6 +1,8 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
 import {
+  cloneCell,
+  detectMatches,
   powerUpKey,
   serializePowerUp,
   type BoardAction,
@@ -85,6 +87,9 @@ const motionTiming = {
   cascadeMove: 340,
   clearFlash: 300,
   invalidSwap: 170,
+  matchLock: 200,
+  matchPop: 170,
+  matchPopAnticipation: 70,
   powerUpEffect: 560,
   snapBack: 150,
   spawnFlash: 230,
@@ -240,11 +245,15 @@ export class BoardScene extends Phaser.Scene {
     }
 
     if (animation.action.kind === "swap" && previousSnapshot) {
+      const postSwapSnapshot = visualSnapshotAfterSwap(previousSnapshot, animation.action);
       this.snapshot = previousSnapshot;
       this.renderSnapshot(hidden);
       const ghosts = this.createSwapGhosts(animation.action, previousSnapshot);
       if (ghosts.length > 0) {
         let remaining = ghosts.length;
+        const finishSwap = () => {
+          this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
+        };
         for (const ghost of ghosts) {
           this.tweens.add({
             targets: ghost.object,
@@ -256,20 +265,33 @@ export class BoardScene extends Phaser.Scene {
               ghost.object.destroy();
               remaining -= 1;
               if (remaining === 0) {
-                this.snapshot = nextSnapshot;
-                this.renderSnapshot();
-                this.playDeltaEffects(animation.delta);
+                finishSwap();
               }
             }
           });
         }
         return;
       }
+      this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
+      return;
     }
 
     this.snapshot = nextSnapshot;
     this.renderSnapshot();
     this.playDeltaEffects(animation.delta);
+  }
+
+  private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
+    this.snapshot = postSwapSnapshot;
+    this.renderSnapshot();
+    const popKeys = initialMatchKeys(postSwapSnapshot);
+    this.time.delayedCall(motionTiming.matchLock, () => {
+      this.playTilePops(postSwapSnapshot, popKeys, () => {
+        this.snapshot = nextSnapshot;
+        this.renderSnapshot();
+        this.playDeltaEffects(delta, popKeys);
+      });
+    });
   }
 
   private playInvalidAnimation(action: BoardAction): void {
@@ -320,15 +342,67 @@ export class BoardScene extends Phaser.Scene {
     return ghosts;
   }
 
-  private playDeltaEffects(delta: BoardDelta): void {
+  private playDeltaEffects(delta: BoardDelta, skipClearKeys = new Set<string>()): void {
     if (this.reducedMotion) return;
     for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
-    for (const clear of delta.clears) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, motionTiming.clearFlash);
+    for (const clear of delta.clears) {
+      if (!skipClearKeys.has(positionKey(clear.position))) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, motionTiming.clearFlash);
+    }
     for (const move of delta.moves.slice(0, 24)) this.playMoveGhost(move.from, move.to, move.tileType, motionTiming.cascadeMove, 0.82);
     for (const spawn of delta.spawns.slice(0, 24)) {
       const from = { row: -1, col: spawn.position.col };
       this.playMoveGhost(from, spawn.position, spawn.tileType, motionTiming.spawnMove, 0.74);
       this.flashCell(spawn.position, 0x38d9ff, motionTiming.spawnFlash);
+    }
+  }
+
+  private playTilePops(sourceSnapshot: BoardSnapshot, popKeys: Set<string>, onComplete: () => void): void {
+    if (!this.fxLayer || popKeys.size === 0) {
+      onComplete();
+      return;
+    }
+    this.snapshot = sourceSnapshot;
+    this.renderSnapshot(popKeys);
+
+    const popObjects: Phaser.GameObjects.Container[] = [];
+    for (const position of sourceSnapshot.grid.allPositions) {
+      if (!popKeys.has(positionKey(position))) continue;
+      const ghost = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
+      if (!ghost) continue;
+      popObjects.push(ghost);
+      this.flashCell(position, 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation);
+    }
+
+    if (popObjects.length === 0) {
+      onComplete();
+      return;
+    }
+
+    let remaining = popObjects.length;
+    for (const object of popObjects) {
+      this.tweens.add({
+        targets: object,
+        scaleX: 1.18,
+        scaleY: 1.18,
+        duration: motionTiming.matchPopAnticipation,
+        ease: "Back.easeOut",
+        onComplete: () => {
+          this.tweens.add({
+            targets: object,
+            alpha: 0,
+            scaleX: 0.12,
+            scaleY: 0.12,
+            angle: object.angle + Phaser.Math.Between(-10, 10),
+            duration: motionTiming.matchPop,
+            ease: "Back.easeIn",
+            onComplete: () => {
+              object.destroy();
+              remaining -= 1;
+              if (remaining === 0) onComplete();
+            }
+          });
+        }
+      });
     }
   }
 
@@ -898,6 +972,23 @@ export class BoardScene extends Phaser.Scene {
 function hiddenPositionsFor(action: BoardAction): Set<string> {
   if (action.kind !== "swap") return new Set();
   return new Set([positionKey(action.from), positionKey(action.to)]);
+}
+
+function visualSnapshotAfterSwap(snapshot: BoardSnapshot, action: Extract<BoardAction, { kind: "swap" }>): BoardSnapshot {
+  const grid = snapshot.grid.clone(cloneCell);
+  if (grid.isValid(action.from) && grid.isValid(action.to)) grid.swap(action.from, action.to);
+  return {
+    ...snapshot,
+    grid
+  };
+}
+
+function initialMatchKeys(snapshot: BoardSnapshot): Set<string> {
+  const keys = new Set<string>();
+  for (const group of detectMatches(snapshot.grid)) {
+    for (const key of group.positions) keys.add(key);
+  }
+  return keys;
 }
 
 function emptyVisualCell(tileType: TileType): CellState {
