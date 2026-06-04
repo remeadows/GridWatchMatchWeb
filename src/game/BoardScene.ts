@@ -87,7 +87,7 @@ const motionTiming = {
   cascadeMove: 340,
   clearFlash: 300,
   invalidSwap: 170,
-  matchLock: 200,
+  matchLock: 500,
   matchPop: 170,
   matchPopAnticipation: 70,
   powerUpEffect: 560,
