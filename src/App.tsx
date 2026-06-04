@@ -401,7 +401,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         return;
       }
       applyAction(next);
-      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 1140);
+      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 1290);
     };
     run();
   }, [applyAction]);

@@ -58,6 +58,12 @@ interface BoardPointer {
   y: number;
 }
 
+interface SwapAnimationObject {
+  object: Phaser.GameObjects.Container;
+  to: { x: number; y: number };
+  home: { x: number; y: number };
+}
+
 interface DomPointerHandlers {
   cancel: (event: PointerEvent) => void;
   down: (event: PointerEvent) => void;
@@ -87,7 +93,7 @@ const motionTiming = {
   cascadeMove: 340,
   clearFlash: 300,
   invalidSwap: 170,
-  matchLock: 500,
+  matchLock: 650,
   matchPop: 170,
   matchPopAnticipation: 70,
   powerUpEffect: 560,
@@ -102,6 +108,7 @@ export class BoardScene extends Phaser.Scene {
   private onAction: ((action: BoardAction) => void) | null = null;
   private layer: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
+  private occupantNodes = new Map<string, Phaser.GameObjects.Container>();
   private boardBounds = new Phaser.Geom.Rectangle(0, 0, 0, 0);
   private tileSize = 72;
   private activePointerId: number | null = null;
@@ -109,6 +116,7 @@ export class BoardScene extends Phaser.Scene {
   private pointerStart: { position: GridPosition; x: number; y: number } | null = null;
   private dragPreview: DragPreview | null = null;
   private selected: GridPosition | null = null;
+  private activeAnimationId: number | null = null;
   private lastAnimationId = 0;
   private reducedMotion = false;
   private pendingBooster: BoosterType | null = null;
@@ -149,9 +157,11 @@ export class BoardScene extends Phaser.Scene {
     this.reducedMotion = reducedMotion;
     this.pendingBooster = pendingBooster;
     this.game.canvas.classList.toggle("booster-targeting", pendingBooster !== null);
-    this.clearDragPreview(false);
+    if (animation && animation.id === this.activeAnimationId) return;
+    if (!animation && this.activeAnimationId !== null) return;
     if (animation && animation.id > this.lastAnimationId) {
       this.lastAnimationId = animation.id;
+      this.activeAnimationId = animation.id;
       if (animation.kind === "invalid") {
         this.playInvalidAnimation(animation.action);
         return;
@@ -159,8 +169,13 @@ export class BoardScene extends Phaser.Scene {
       this.playResolvedAnimation(snapshot, animation);
       return;
     }
+    this.clearDragPreview(false);
     this.snapshot = snapshot;
     this.renderSnapshot();
+  }
+
+  private finishAnimation(): void {
+    this.activeAnimationId = null;
   }
 
   update(): void {
@@ -176,6 +191,7 @@ export class BoardScene extends Phaser.Scene {
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
     if (!this.layer || !this.snapshot) return;
     this.layer.removeAll(true);
+    this.occupantNodes.clear();
     if (clearFx) this.fxLayer?.removeAll(true);
     this.updateGeometry();
 
@@ -216,7 +232,8 @@ export class BoardScene extends Phaser.Scene {
     this.layer.add(graphics);
 
     if (!hiddenPositions.has(positionKey(position))) {
-      this.addOccupant(position, cell, this.layer, 1);
+      const occupant = this.addOccupant(position, cell, this.layer, 1);
+      if (occupant) this.occupantNodes.set(positionKey(position), occupant);
     }
 
     if (cell.overlay) {
@@ -236,33 +253,33 @@ export class BoardScene extends Phaser.Scene {
 
   private playResolvedAnimation(nextSnapshot: BoardSnapshot, animation: Extract<BoardAnimationEvent, { kind: "resolved" }>): void {
     const previousSnapshot = this.snapshot;
-    const hidden = hiddenPositionsFor(animation.action);
 
     if (this.reducedMotion) {
+      this.clearDragPreview(false);
       this.snapshot = nextSnapshot;
       this.renderSnapshot();
+      this.finishAnimation();
       return;
     }
 
     if (animation.action.kind === "swap" && previousSnapshot) {
       const postSwapSnapshot = visualSnapshotAfterSwap(previousSnapshot, animation.action);
-      this.snapshot = previousSnapshot;
-      this.renderSnapshot(hidden);
-      const ghosts = this.createSwapGhosts(animation.action, previousSnapshot);
-      if (ghosts.length > 0) {
-        let remaining = ghosts.length;
+      const dragSwapObjects = this.consumeDragPreviewForSwap(animation.action);
+      const liveSwapObjects = dragSwapObjects.length === 2 ? dragSwapObjects : this.createLiveSwapObjects(animation.action);
+      const swapObjects = liveSwapObjects.length === 2 ? liveSwapObjects : this.createSwapGhosts(animation.action, previousSnapshot);
+      if (swapObjects.length > 0) {
+        let remaining = swapObjects.length;
         const finishSwap = () => {
           this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
         };
-        for (const ghost of ghosts) {
+        for (const swapObject of swapObjects) {
           this.tweens.add({
-            targets: ghost.object,
-            x: ghost.to.x,
-            y: ghost.to.y,
+            targets: swapObject.object,
+            x: swapObject.to.x,
+            y: swapObject.to.y,
             duration: motionTiming.swap,
             ease: "Sine.easeInOut",
             onComplete: () => {
-              ghost.object.destroy();
               remaining -= 1;
               if (remaining === 0) {
                 finishSwap();
@@ -276,9 +293,11 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
+    this.clearDragPreview(false);
     this.snapshot = nextSnapshot;
     this.renderSnapshot();
     this.playDeltaEffects(animation.delta);
+    this.finishAnimation();
   }
 
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
@@ -290,14 +309,45 @@ export class BoardScene extends Phaser.Scene {
         this.snapshot = nextSnapshot;
         this.renderSnapshot();
         this.playDeltaEffects(delta, popKeys);
+        this.finishAnimation();
       });
     });
   }
 
   private playInvalidAnimation(action: BoardAction): void {
-    if (action.kind !== "swap" || !this.snapshot || !this.fxLayer) return;
+    if (action.kind !== "swap" || !this.snapshot || !this.fxLayer) {
+      this.clearDragPreview(false);
+      this.finishAnimation();
+      return;
+    }
     if (this.reducedMotion) {
+      this.clearDragPreview(true);
       for (const position of [action.from, action.to]) this.flashCell(position, 0xff4968, 160);
+      this.finishAnimation();
+      return;
+    }
+    const dragSwapObjects = this.consumeDragPreviewForSwap(action);
+    if (dragSwapObjects.length > 0) {
+      let remaining = dragSwapObjects.length;
+      for (const swapObject of dragSwapObjects) {
+        this.tweens.add({
+          targets: swapObject.object,
+          x: swapObject.home.x,
+          y: swapObject.home.y,
+          duration: motionTiming.snapBack,
+          ease: "Sine.easeOut",
+          onComplete: () => {
+            remaining -= 1;
+            if (remaining === 0) {
+              this.renderSnapshot();
+              this.finishAnimation();
+            }
+          }
+        });
+      }
+      for (const position of [action.from, action.to]) {
+        this.flashCell(position, 0xff4968, 190);
+      }
       return;
     }
     this.renderSnapshot(hiddenPositionsFor(action));
@@ -313,21 +363,26 @@ export class BoardScene extends Phaser.Scene {
         yoyo: true,
         ease: "Sine.easeOut",
         onComplete: () => {
-          ghost.object.destroy();
           remaining -= 1;
-          if (remaining === 0) this.renderSnapshot();
+          if (remaining === 0) {
+            this.renderSnapshot();
+            this.finishAnimation();
+          }
         }
       });
     }
-    if (ghosts.length === 0) this.renderSnapshot();
+    if (ghosts.length === 0) {
+      this.renderSnapshot();
+      this.finishAnimation();
+    }
     for (const position of [action.from, action.to]) {
       this.flashCell(position, 0xff4968, 190);
     }
   }
 
-  private createSwapGhosts(action: Extract<BoardAction, { kind: "swap" }>, sourceSnapshot: BoardSnapshot): { object: Phaser.GameObjects.Container; to: { x: number; y: number } }[] {
+  private createSwapGhosts(action: Extract<BoardAction, { kind: "swap" }>, sourceSnapshot: BoardSnapshot): SwapAnimationObject[] {
     if (!this.fxLayer) return [];
-    const ghosts: { object: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
+    const ghosts: SwapAnimationObject[] = [];
     const pairs = [
       { from: action.from, to: action.to },
       { from: action.to, to: action.from }
@@ -337,9 +392,53 @@ export class BoardScene extends Phaser.Scene {
       const cell = sourceSnapshot.grid.get(pair.from);
       const ghost = this.addOccupant(pair.from, cell, this.fxLayer, 1);
       if (!ghost) continue;
-      ghosts.push({ object: ghost, to: this.cellCenter(pair.to) });
+      ghosts.push({ object: ghost, to: this.cellCenter(pair.to), home: this.cellCenter(pair.from) });
     }
     return ghosts;
+  }
+
+  private createLiveSwapObjects(action: Extract<BoardAction, { kind: "swap" }>): SwapAnimationObject[] {
+    if (!this.snapshot || !this.layer) return [];
+    const pairs = [
+      { from: action.from, to: action.to },
+      { from: action.to, to: action.from }
+    ];
+    const objects: SwapAnimationObject[] = [];
+    for (const pair of pairs) {
+      if (!this.snapshot.grid.isValid(pair.from) || !this.snapshot.grid.isValid(pair.to)) continue;
+      const object = this.occupantNodes.get(positionKey(pair.from));
+      if (!object) continue;
+      this.layer.bringToTop(object);
+      objects.push({ object, to: this.cellCenter(pair.to), home: this.cellCenter(pair.from) });
+    }
+    return objects;
+  }
+
+  private consumeDragPreviewForSwap(action: Extract<BoardAction, { kind: "swap" }>): SwapAnimationObject[] {
+    const preview = this.dragPreview;
+    if (!preview || !this.fxLayer || !this.snapshot) return [];
+    if (!positionsEqual(preview.start, action.from)) return [];
+    if (!preview.targetPosition || !positionsEqual(preview.targetPosition, action.to)) return [];
+
+    const targetCell = this.snapshot.grid.isValid(action.to) ? this.snapshot.grid.get(action.to) : null;
+    let targetObject = preview.targetGhost;
+    if (!targetObject && targetCell) {
+      targetObject = this.addOccupant(action.to, targetCell, this.fxLayer, 0.92);
+    }
+    if (!targetObject) return [];
+
+    this.tweens.killTweensOf(preview.ghost);
+    this.tweens.killTweensOf(targetObject);
+    preview.blockedMarker?.destroy();
+    this.dragPreview = null;
+    this.pointerStart = null;
+    this.activePointerId = null;
+    this.selected = null;
+
+    return [
+      { object: preview.ghost, to: this.cellCenter(action.to), home: this.cellCenter(action.from) },
+      { object: targetObject, to: this.cellCenter(action.from), home: this.cellCenter(action.to) }
+    ];
   }
 
   private playDeltaEffects(delta: BoardDelta, skipClearKeys = new Set<string>()): void {
@@ -361,15 +460,15 @@ export class BoardScene extends Phaser.Scene {
       onComplete();
       return;
     }
+
     this.snapshot = sourceSnapshot;
     this.renderSnapshot(popKeys);
-
     const popObjects: Phaser.GameObjects.Container[] = [];
     for (const position of sourceSnapshot.grid.allPositions) {
       if (!popKeys.has(positionKey(position))) continue;
-      const ghost = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
-      if (!ghost) continue;
-      popObjects.push(ghost);
+      const object = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
+      if (!object) continue;
+      popObjects.push(object);
       this.flashCell(position, 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation);
     }
 
@@ -700,9 +799,13 @@ export class BoardScene extends Phaser.Scene {
       ? this.dragIntentFor(pointer, this.dragPreview)
       : this.intentFromDelta(pointer.x - start.x, pointer.y - start.y, start.position, null);
     if (intent.canCommit && intent.commitTarget) {
-      this.clearDragPreview(true);
-      this.selected = null;
-      this.pointerStart = null;
+      if (this.activeAnimationId === null && this.dragPreview) {
+        this.prepareDragPreviewForCommit(intent.commitTarget);
+      } else {
+        this.clearDragPreview(true);
+        this.selected = null;
+        this.pointerStart = null;
+      }
       this.onAction({ kind: "swap", from: start.position, to: intent.commitTarget });
     } else {
       const cell = this.snapshot?.grid.get(start.position);
@@ -717,6 +820,25 @@ export class BoardScene extends Phaser.Scene {
         this.snapBackDragPreview();
       }
     }
+  }
+
+  private prepareDragPreviewForCommit(target: GridPosition): void {
+    const preview = this.dragPreview;
+    if (!preview) return;
+
+    this.applyDragPreviewPositions(1);
+    preview.blockedMarker?.destroy();
+    preview.blockedMarker = null;
+    this.selected = null;
+    this.pointerStart = null;
+    this.activePointerId = null;
+    const hidden = new Set([positionKey(preview.start), positionKey(target)]);
+    this.renderSnapshot(hidden, false);
+    this.requestImmediateRender();
+
+    this.time.delayedCall(220, () => {
+      if (this.dragPreview === preview) this.snapBackDragPreview();
+    });
   }
 
   private dragIntentFor(pointer: BoardPointer, preview: DragPreview): DragIntent {
@@ -771,7 +893,7 @@ export class BoardScene extends Phaser.Scene {
       commitTarget: previewTarget,
       offset,
       previewTarget,
-      targetOffset: previewTarget ? { x: -offset.x * 0.42, y: -offset.y * 0.42 } : { x: 0, y: 0 },
+      targetOffset: previewTarget ? { x: -offset.x, y: -offset.y } : { x: 0, y: 0 },
       travel
     };
   }
@@ -815,8 +937,8 @@ export class BoardScene extends Phaser.Scene {
     if (preview.targetGhost && preview.targetPosition) {
       const targetCenter = this.cellCenter(preview.targetPosition);
       preview.targetGhost.setPosition(
-        targetCenter.x - preview.currentOffset.x * 0.42,
-        targetCenter.y - preview.currentOffset.y * 0.42
+        targetCenter.x - preview.currentOffset.x,
+        targetCenter.y - preview.currentOffset.y
       );
     }
   }
@@ -1018,6 +1140,10 @@ function canTargetBooster(cell: CellState): boolean {
 
 function positionKey(position: GridPosition): string {
   return `${position.row},${position.col}`;
+}
+
+function positionsEqual(a: GridPosition, b: GridPosition): boolean {
+  return a.row === b.row && a.col === b.col;
 }
 
 function imageKeyForPowerUp(powerUp: PowerUpType): string {
