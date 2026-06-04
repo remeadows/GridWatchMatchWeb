@@ -19,6 +19,17 @@ test("navigates Home to Operations to Level 1 and applies a deterministic swap",
   await expect(page.getByText(/Last clear:/)).toBeVisible();
 });
 
+test("dragging a board tile into a deterministic match applies a swap", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+
+  await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+
+  await expect(page.getByText("24/25")).toBeVisible();
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect(page.getByText("Collect 20 Packets: 3/20")).toBeVisible();
+});
+
 test("handles fail, Play On decline path, forced win, and next level unlock", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -125,4 +136,31 @@ async function clearStorage(page: Page): Promise<void> {
       request.onblocked = () => resolve();
     });
   });
+}
+
+async function dragBoardCells(page: Page, from: { row: number; col: number }, to: { row: number; col: number }): Promise<void> {
+  await page.locator('[data-testid="board-canvas"] canvas').waitFor({ state: "visible" });
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const points = await page.evaluate(({ from, to }) => {
+    const host = document.querySelector<HTMLElement>('[data-testid="board-canvas"]');
+    const canvas = host?.querySelector("canvas");
+    if (!host || !canvas) throw new Error("Board canvas not found");
+
+    const rect = host.getBoundingClientRect();
+    const rows = 7;
+    const cols = 7;
+    const tileSize = Math.floor((Math.min(rect.width, rect.height) - 24) / Math.max(rows, cols));
+    const boardLeft = rect.left + (rect.width - tileSize * cols) / 2;
+    const boardTop = rect.top + (rect.height - tileSize * rows) / 2;
+    const center = (position: { row: number; col: number }) => ({
+      x: boardLeft + position.col * tileSize + tileSize / 2,
+      y: boardTop + position.row * tileSize + tileSize / 2
+    });
+    return { end: center(to), start: center(from) };
+  }, { from, to });
+
+  await page.mouse.move(points.start.x, points.start.y);
+  await page.mouse.down();
+  await page.mouse.move(points.end.x, points.end.y, { steps: 12 });
+  await page.mouse.up();
 }

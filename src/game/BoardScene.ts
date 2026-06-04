@@ -26,20 +26,26 @@ export type BoardAnimationEvent =
 
 type DragAxis = "horizontal" | "vertical";
 
-interface DragPreview {
-  axis: DragAxis | null;
-  blockedMarker: Phaser.GameObjects.Graphics | null;
-  currentOffset: { x: number; y: number };
-  desiredOffset: { x: number; y: number };
-  ghost: Phaser.GameObjects.Container;
-  lastBlockedKey: string | null;
+interface DragNeighbor {
+  position: GridPosition;
+  sprite: Phaser.GameObjects.Container;
+  home: { x: number; y: number };
+}
+
+// Single source of truth for an in-flight drag. The dragged object is the REAL
+// occupant container (lifted to the top of the board layer), not a ghost. This
+// guarantees exactly one animation path for a swap from gesture through resolve.
+interface ActiveDrag {
   start: GridPosition;
   startCenter: { x: number; y: number };
-  startPointer: { x: number; y: number };
-  targetGhost: Phaser.GameObjects.Container | null;
-  targetKey: string | null;
-  targetPosition: GridPosition | null;
-  targetOffset: { x: number; y: number };
+  pointerStart: { x: number; y: number };
+  sprite: Phaser.GameObjects.Container;
+  axis: DragAxis | null;
+  offset: { x: number; y: number };
+  neighbor: DragNeighbor | null;
+  blockedMarker: Phaser.GameObjects.Graphics | null;
+  blockedKey: string | null;
+  committed: boolean;
 }
 
 interface DragIntent {
@@ -100,8 +106,12 @@ const motionTiming = {
   snapBack: 150,
   spawnFlash: 230,
   spawnMove: 390,
-  swap: 300
+  swap: 210
 } as const;
+
+// Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
+// so a one-cell move reads as a crisp snap, not a bounce.
+const swapEaseParams = [1.1];
 
 export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
@@ -113,8 +123,9 @@ export class BoardScene extends Phaser.Scene {
   private tileSize = 72;
   private activePointerId: number | null = null;
   private domPointerHandlers: DomPointerHandlers | null = null;
-  private pointerStart: { position: GridPosition; x: number; y: number } | null = null;
-  private dragPreview: DragPreview | null = null;
+  private drag: ActiveDrag | null = null;
+  private commitSettled = false;
+  private pendingCommitCb: (() => void) | null = null;
   private selected: GridPosition | null = null;
   private activeAnimationId: number | null = null;
   private lastAnimationId = 0;
@@ -147,7 +158,7 @@ export class BoardScene extends Phaser.Scene {
     this.fxLayer = this.add.container(0, 0);
     this.installDomPointerHandlers();
     this.scale.on("resize", () => {
-      this.clearDragPreview(false);
+      this.hardClearDrag();
       this.renderSnapshot();
     });
     this.renderSnapshot();
@@ -169,23 +180,13 @@ export class BoardScene extends Phaser.Scene {
       this.playResolvedAnimation(snapshot, animation);
       return;
     }
-    this.clearDragPreview(false);
+    this.hardClearDrag();
     this.snapshot = snapshot;
     this.renderSnapshot();
   }
 
   private finishAnimation(): void {
     this.activeAnimationId = null;
-  }
-
-  update(): void {
-    if (!this.dragPreview) return;
-    this.applyDragPreviewPositions(0.46);
-  }
-
-  activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
-    const pointer = this.pointerFromClientPoint(clientX, clientY);
-    return this.activateBoosterAtPointer(booster, pointer);
   }
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
@@ -213,7 +214,6 @@ export class BoardScene extends Phaser.Scene {
     if (!this.layer || !this.snapshot) return;
     const cell = this.snapshot.grid.get(position);
     const topLeft = this.cellTopLeft(position);
-    const center = this.cellCenter(position);
     const radius = Math.max(6, this.tileSize * 0.1);
 
     const graphics = this.add.graphics();
@@ -251,11 +251,16 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
+  activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
+    const pointer = this.pointerFromClientPoint(clientX, clientY);
+    return this.activateBoosterAtPointer(booster, pointer);
+  }
+
   private playResolvedAnimation(nextSnapshot: BoardSnapshot, animation: Extract<BoardAnimationEvent, { kind: "resolved" }>): void {
     const previousSnapshot = this.snapshot;
 
     if (this.reducedMotion) {
-      this.clearDragPreview(false);
+      this.hardClearDrag();
       this.snapshot = nextSnapshot;
       this.renderSnapshot();
       this.finishAnimation();
@@ -263,27 +268,41 @@ export class BoardScene extends Phaser.Scene {
     }
 
     if (animation.action.kind === "swap" && previousSnapshot) {
-      const postSwapSnapshot = visualSnapshotAfterSwap(previousSnapshot, animation.action);
-      const dragSwapObjects = this.consumeDragPreviewForSwap(animation.action);
-      const liveSwapObjects = dragSwapObjects.length === 2 ? dragSwapObjects : this.createLiveSwapObjects(animation.action);
-      const swapObjects = liveSwapObjects.length === 2 ? liveSwapObjects : this.createSwapGhosts(animation.action, previousSnapshot);
-      if (swapObjects.length > 0) {
-        let remaining = swapObjects.length;
-        const finishSwap = () => {
+      const action = animation.action;
+      const postSwapSnapshot = visualSnapshotAfterSwap(previousSnapshot, action);
+
+      // Primary path: the committed live drag IS the swap animation. Wait for
+      // its settle tween, then hand off to match resolution. No second swap leg,
+      // no ghosts, no race timer.
+      if (this.drag && this.drag.committed && this.dragMatchesSwap(this.drag, action)) {
+        const run = () => {
+          this.drag = null;
+          this.pendingCommitCb = null;
           this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
         };
-        for (const swapObject of swapObjects) {
+        if (this.commitSettled) run();
+        else this.pendingCommitCb = run;
+        return;
+      }
+
+      // Fallback: programmatic swap with no live drag. Single ghost tween.
+      this.hardClearDrag();
+      this.renderSnapshot(hiddenPositionsFor(action));
+      const ghosts = this.createSwapGhosts(action, previousSnapshot);
+      if (ghosts.length > 0) {
+        let remaining = ghosts.length;
+        for (const ghost of ghosts) {
           this.tweens.add({
-            targets: swapObject.object,
-            x: swapObject.to.x,
-            y: swapObject.to.y,
+            targets: ghost.object,
+            x: ghost.to.x,
+            y: ghost.to.y,
             duration: motionTiming.swap,
-            ease: "Sine.easeInOut",
+            ease: "Back.easeOut",
+            easeParams: swapEaseParams,
             onComplete: () => {
+              ghost.object.destroy();
               remaining -= 1;
-              if (remaining === 0) {
-                finishSwap();
-              }
+              if (remaining === 0) this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
             }
           });
         }
@@ -293,7 +312,7 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
-    this.clearDragPreview(false);
+    this.hardClearDrag();
     this.snapshot = nextSnapshot;
     this.renderSnapshot();
     this.playDeltaEffects(animation.delta);
@@ -316,38 +335,70 @@ export class BoardScene extends Phaser.Scene {
 
   private playInvalidAnimation(action: BoardAction): void {
     if (action.kind !== "swap" || !this.snapshot || !this.fxLayer) {
-      this.clearDragPreview(false);
+      this.hardClearDrag();
+      this.renderSnapshot();
       this.finishAnimation();
       return;
     }
-    if (this.reducedMotion) {
-      this.clearDragPreview(true);
-      for (const position of [action.from, action.to]) this.flashCell(position, 0xff4968, 160);
-      this.finishAnimation();
-      return;
-    }
-    const dragSwapObjects = this.consumeDragPreviewForSwap(action);
-    if (dragSwapObjects.length > 0) {
-      let remaining = dragSwapObjects.length;
-      for (const swapObject of dragSwapObjects) {
+
+    const drag = this.drag;
+    // Primary: snap the committed live sprites back to their homes -- the tile
+    // visibly tries the swap then rejects.
+    if (drag && drag.committed && this.dragMatchesSwap(drag, action)) {
+      this.tweens.killTweensOf(drag.sprite);
+      if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
+      this.flashCell(action.from, 0xff4968, 190);
+      this.flashCell(action.to, 0xff4968, 190);
+      const neighbor = drag.neighbor;
+      this.drag = null;
+      this.commitSettled = false;
+      this.pendingCommitCb = null;
+      drag.blockedMarker?.destroy();
+
+      if (this.reducedMotion) {
+        this.renderSnapshot();
+        this.finishAnimation();
+        return;
+      }
+
+      let remaining = neighbor ? 2 : 1;
+      const done = () => {
+        remaining -= 1;
+        if (remaining === 0) {
+          this.renderSnapshot();
+          this.finishAnimation();
+        }
+      };
+      this.tweens.add({
+        targets: drag.sprite,
+        x: drag.startCenter.x,
+        y: drag.startCenter.y,
+        scaleX: 1,
+        scaleY: 1,
+        duration: motionTiming.snapBack,
+        ease: "Sine.easeOut",
+        onComplete: done
+      });
+      if (neighbor) {
         this.tweens.add({
-          targets: swapObject.object,
-          x: swapObject.home.x,
-          y: swapObject.home.y,
+          targets: neighbor.sprite,
+          x: neighbor.home.x,
+          y: neighbor.home.y,
           duration: motionTiming.snapBack,
           ease: "Sine.easeOut",
-          onComplete: () => {
-            remaining -= 1;
-            if (remaining === 0) {
-              this.renderSnapshot();
-              this.finishAnimation();
-            }
-          }
+          onComplete: done
         });
       }
-      for (const position of [action.from, action.to]) {
-        this.flashCell(position, 0xff4968, 190);
-      }
+      return;
+    }
+
+    // Fallback: no live drag -- ghost nudge.
+    this.hardClearDrag();
+    if (this.reducedMotion) {
+      this.renderSnapshot();
+      this.flashCell(action.from, 0xff4968, 160);
+      this.flashCell(action.to, 0xff4968, 160);
+      this.finishAnimation();
       return;
     }
     this.renderSnapshot(hiddenPositionsFor(action));
@@ -363,6 +414,7 @@ export class BoardScene extends Phaser.Scene {
         yoyo: true,
         ease: "Sine.easeOut",
         onComplete: () => {
+          ghost.object.destroy();
           remaining -= 1;
           if (remaining === 0) {
             this.renderSnapshot();
@@ -380,6 +432,11 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
+  private dragMatchesSwap(drag: ActiveDrag, action: Extract<BoardAction, { kind: "swap" }>): boolean {
+    if (!positionsEqual(drag.start, action.from)) return false;
+    return Boolean(drag.neighbor && positionsEqual(drag.neighbor.position, action.to));
+  }
+
   private createSwapGhosts(action: Extract<BoardAction, { kind: "swap" }>, sourceSnapshot: BoardSnapshot): SwapAnimationObject[] {
     if (!this.fxLayer) return [];
     const ghosts: SwapAnimationObject[] = [];
@@ -395,50 +452,6 @@ export class BoardScene extends Phaser.Scene {
       ghosts.push({ object: ghost, to: this.cellCenter(pair.to), home: this.cellCenter(pair.from) });
     }
     return ghosts;
-  }
-
-  private createLiveSwapObjects(action: Extract<BoardAction, { kind: "swap" }>): SwapAnimationObject[] {
-    if (!this.snapshot || !this.layer) return [];
-    const pairs = [
-      { from: action.from, to: action.to },
-      { from: action.to, to: action.from }
-    ];
-    const objects: SwapAnimationObject[] = [];
-    for (const pair of pairs) {
-      if (!this.snapshot.grid.isValid(pair.from) || !this.snapshot.grid.isValid(pair.to)) continue;
-      const object = this.occupantNodes.get(positionKey(pair.from));
-      if (!object) continue;
-      this.layer.bringToTop(object);
-      objects.push({ object, to: this.cellCenter(pair.to), home: this.cellCenter(pair.from) });
-    }
-    return objects;
-  }
-
-  private consumeDragPreviewForSwap(action: Extract<BoardAction, { kind: "swap" }>): SwapAnimationObject[] {
-    const preview = this.dragPreview;
-    if (!preview || !this.fxLayer || !this.snapshot) return [];
-    if (!positionsEqual(preview.start, action.from)) return [];
-    if (!preview.targetPosition || !positionsEqual(preview.targetPosition, action.to)) return [];
-
-    const targetCell = this.snapshot.grid.isValid(action.to) ? this.snapshot.grid.get(action.to) : null;
-    let targetObject = preview.targetGhost;
-    if (!targetObject && targetCell) {
-      targetObject = this.addOccupant(action.to, targetCell, this.fxLayer, 0.92);
-    }
-    if (!targetObject) return [];
-
-    this.tweens.killTweensOf(preview.ghost);
-    this.tweens.killTweensOf(targetObject);
-    preview.blockedMarker?.destroy();
-    this.dragPreview = null;
-    this.pointerStart = null;
-    this.activePointerId = null;
-    this.selected = null;
-
-    return [
-      { object: preview.ghost, to: this.cellCenter(action.to), home: this.cellCenter(action.from) },
-      { object: targetObject, to: this.cellCenter(action.from), home: this.cellCenter(action.to) }
-    ];
   }
 
   private playDeltaEffects(delta: BoardDelta, skipClearKeys = new Set<string>()): void {
@@ -620,7 +633,7 @@ export class BoardScene extends Phaser.Scene {
       if (this.activePointerId !== event.pointerId) return;
       this.activePointerId = null;
       this.releaseDomPointerCapture(canvas, event.pointerId);
-      this.snapBackDragPreview();
+      if (this.drag && !this.drag.committed) this.snapBackDrag(this.drag);
     };
 
     this.domPointerHandlers = { cancel, down, move, up };
@@ -722,8 +735,12 @@ export class BoardScene extends Phaser.Scene {
     targetLayer.add(label);
   }
 
+  // --- Drag lifecycle (single source of truth) ------------------------------
+
   private handlePointerDown(pointer: BoardPointer): boolean {
-    if (!this.snapshot || !this.fxLayer) return false;
+    if (!this.snapshot || !this.layer) return false;
+    // Ignore new gestures while a committed swap is still settling/resolving.
+    if (this.drag) return false;
     const position = this.positionForPointer(pointer.x, pointer.y);
     if (!position) return false;
     const cell = this.snapshot.grid.get(position);
@@ -731,123 +748,163 @@ export class BoardScene extends Phaser.Scene {
       this.playBlockedCellFeedback(position, cell);
       return false;
     }
+    const sprite = this.occupantNodes.get(positionKey(position));
+    if (!sprite) return false;
 
-    this.clearDragPreview(false);
-    this.pointerStart = { position, x: pointer.x, y: pointer.y };
-    this.selected = position;
-    this.fxLayer.removeAll(true);
-
-    const hidden = new Set([positionKey(position)]);
-    this.renderSnapshot(hidden, false);
-    const ghost = this.addOccupant(position, cell, this.fxLayer, 1);
-    if (!ghost) {
-      this.pointerStart = null;
-      this.selected = null;
-      this.renderSnapshot();
-      return false;
-    }
-
-    ghost.setScale(1.04);
-    this.dragPreview = {
-      axis: null,
-      blockedMarker: null,
-      currentOffset: { x: 0, y: 0 },
-      desiredOffset: { x: 0, y: 0 },
-      ghost,
-      lastBlockedKey: null,
+    this.layer.bringToTop(sprite);
+    sprite.setScale(1.06);
+    this.drag = {
       start: position,
       startCenter: this.cellCenter(position),
-      startPointer: { x: pointer.x, y: pointer.y },
-      targetGhost: null,
-      targetKey: null,
-      targetPosition: null,
-      targetOffset: { x: 0, y: 0 }
+      pointerStart: { x: pointer.x, y: pointer.y },
+      sprite,
+      axis: null,
+      offset: { x: 0, y: 0 },
+      neighbor: null,
+      blockedMarker: null,
+      blockedKey: null,
+      committed: false
     };
-    this.requestImmediateRender();
     return true;
   }
 
   private handlePointerMove(pointer: BoardPointer): void {
-    if (!this.dragPreview || !this.snapshot) return;
-    const intent = this.dragIntentFor(pointer, this.dragPreview);
-    this.dragPreview.desiredOffset = intent.offset;
-    this.dragPreview.targetOffset = intent.targetOffset;
-    this.updateTargetPreview(intent);
-    this.applyDragPreviewPositions(0.84);
-    this.requestImmediateRender();
-  }
+    const drag = this.drag;
+    if (!drag || drag.committed || !this.snapshot) return;
+    const intent = this.dragIntentForActive(pointer, drag);
+    drag.offset = intent.offset;
 
-  private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
-    if (!this.snapshot || !this.onAction) return false;
-    const position = this.positionForPointer(pointer.x, pointer.y);
-    if (!position) return false;
-    const cell = this.snapshot.grid.get(position);
-    if (!canTargetBooster(cell)) {
-      this.playBlockedCellFeedback(position, cell);
-      return false;
+    const wantKey = intent.previewTarget ? positionKey(intent.previewTarget) : null;
+    const haveKey = drag.neighbor ? positionKey(drag.neighbor.position) : null;
+    if (wantKey !== haveKey) {
+      if (drag.neighbor) {
+        drag.neighbor.sprite.setPosition(drag.neighbor.home.x, drag.neighbor.home.y);
+        drag.neighbor = null;
+      }
+      if (intent.previewTarget && wantKey) {
+        const sprite = this.occupantNodes.get(wantKey);
+        if (sprite) {
+          drag.neighbor = { position: intent.previewTarget, sprite, home: this.cellCenter(intent.previewTarget) };
+          this.layer?.bringToTop(sprite);
+          this.layer?.bringToTop(drag.sprite);
+        }
+      }
     }
-    this.clearDragPreview(false);
-    this.flashCell(position, 0xf7d154, 180);
-    this.onAction({ kind: "activateBooster", booster, at: position });
-    return true;
+
+    this.updateBlockedMarker(intent.blockedTarget);
+    this.positionDragSprites();
   }
 
   private handlePointerUp(pointer: BoardPointer): void {
-    if (!this.pointerStart || !this.onAction) return;
-    const start = this.pointerStart;
-    const intent = this.dragPreview
-      ? this.dragIntentFor(pointer, this.dragPreview)
-      : this.intentFromDelta(pointer.x - start.x, pointer.y - start.y, start.position, null);
+    const drag = this.drag;
+    if (!drag || drag.committed || !this.onAction) return;
+    const intent = this.dragIntentForActive(pointer, drag);
+
     if (intent.canCommit && intent.commitTarget) {
-      if (this.activeAnimationId === null && this.dragPreview) {
-        this.prepareDragPreviewForCommit(intent.commitTarget);
-      } else {
-        this.clearDragPreview(true);
-        this.selected = null;
-        this.pointerStart = null;
-      }
-      this.onAction({ kind: "swap", from: start.position, to: intent.commitTarget });
-    } else {
-      const cell = this.snapshot?.grid.get(start.position);
-      const movedDistance = Phaser.Math.Distance.Between(pointer.x, pointer.y, start.x, start.y);
-      if (cell?.powerUp && movedDistance < this.tileSize * 0.16) {
-        this.clearDragPreview(true);
-        this.selected = null;
-        this.pointerStart = null;
-        this.onAction({ kind: "tap", at: start.position });
-      } else {
-        if (intent.blockedTarget) this.playBlockedCellFeedback(intent.blockedTarget, this.snapshot!.grid.get(intent.blockedTarget));
-        this.snapBackDragPreview();
-      }
+      this.commitSwap(drag, intent.commitTarget);
+      this.onAction({ kind: "swap", from: drag.start, to: intent.commitTarget });
+      return;
     }
+
+    const cell = this.snapshot?.grid.get(drag.start);
+    const movedDistance = Phaser.Math.Distance.Between(pointer.x, pointer.y, drag.pointerStart.x, drag.pointerStart.y);
+    if (cell?.powerUp && movedDistance < this.tileSize * 0.16) {
+      this.releaseDrag(drag);
+      this.onAction({ kind: "tap", at: drag.start });
+      return;
+    }
+
+    if (intent.blockedTarget) this.playBlockedCellFeedback(intent.blockedTarget, this.snapshot!.grid.get(intent.blockedTarget));
+    this.snapBackDrag(drag);
   }
 
-  private prepareDragPreviewForCommit(target: GridPosition): void {
-    const preview = this.dragPreview;
-    if (!preview) return;
-
-    this.applyDragPreviewPositions(1);
-    preview.blockedMarker?.destroy();
-    preview.blockedMarker = null;
+  // Commit optimistically: the lifted sprite and its partner tween to the
+  // swapped centers. The engine round-trip then confirms (match -> continue from
+  // these exact positions) or rejects (invalid -> snap back). No fixed-delay
+  // fallback; the resolve event drives the handoff.
+  private commitSwap(drag: ActiveDrag, target: GridPosition): void {
+    drag.committed = true;
+    drag.blockedMarker?.destroy();
+    drag.blockedMarker = null;
+    this.commitSettled = false;
     this.selected = null;
-    this.pointerStart = null;
-    this.activePointerId = null;
-    const hidden = new Set([positionKey(preview.start), positionKey(target)]);
-    this.renderSnapshot(hidden, false);
-    this.requestImmediateRender();
 
-    this.time.delayedCall(220, () => {
-      if (this.dragPreview === preview) this.snapBackDragPreview();
+    if (!drag.neighbor || !positionsEqual(drag.neighbor.position, target)) {
+      const sprite = this.occupantNodes.get(positionKey(target));
+      drag.neighbor = sprite ? { position: target, sprite, home: this.cellCenter(target) } : null;
+    }
+    if (drag.neighbor) {
+      this.layer?.bringToTop(drag.neighbor.sprite);
+      this.layer?.bringToTop(drag.sprite);
+    }
+
+    const spriteTo = this.cellCenter(target);
+    const neighborTo = this.cellCenter(drag.start);
+    const neighbor = drag.neighbor;
+
+    const onSettle = () => {
+      this.commitSettled = true;
+      drag.sprite.setScale(1);
+      const cb = this.pendingCommitCb;
+      this.pendingCommitCb = null;
+      if (cb) cb();
+    };
+
+    if (this.reducedMotion) {
+      drag.sprite.setPosition(spriteTo.x, spriteTo.y);
+      drag.sprite.setScale(1);
+      if (neighbor) neighbor.sprite.setPosition(neighborTo.x, neighborTo.y);
+      onSettle();
+      return;
+    }
+
+    let remaining = neighbor ? 2 : 1;
+    const done = () => {
+      remaining -= 1;
+      if (remaining === 0) onSettle();
+    };
+    this.tweens.add({
+      targets: drag.sprite,
+      x: spriteTo.x,
+      y: spriteTo.y,
+      scaleX: 1,
+      scaleY: 1,
+      duration: motionTiming.swap,
+      ease: "Back.easeOut",
+      easeParams: swapEaseParams,
+      onComplete: done
     });
+    if (neighbor) {
+      this.tweens.add({
+        targets: neighbor.sprite,
+        x: neighborTo.x,
+        y: neighborTo.y,
+        duration: motionTiming.swap,
+        ease: "Back.easeOut",
+        easeParams: swapEaseParams,
+        onComplete: done
+      });
+    }
   }
 
-  private dragIntentFor(pointer: BoardPointer, preview: DragPreview): DragIntent {
-    const dx = pointer.x - preview.startPointer.x;
-    const dy = pointer.y - preview.startPointer.y;
-    if (!preview.axis && Math.max(Math.abs(dx), Math.abs(dy)) >= 4) {
-      preview.axis = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
+  // Drag the real occupant sprite 1:1 with the finger (no lerp -> zero
+  // rubber-banding, frame-rate independent). The partner mirrors the offset.
+  private positionDragSprites(): void {
+    const drag = this.drag;
+    if (!drag) return;
+    drag.sprite.setPosition(drag.startCenter.x + drag.offset.x, drag.startCenter.y + drag.offset.y);
+    if (drag.neighbor) {
+      drag.neighbor.sprite.setPosition(drag.neighbor.home.x - drag.offset.x, drag.neighbor.home.y - drag.offset.y);
     }
-    return this.intentFromDelta(dx, dy, preview.start, preview.axis);
+  }
+
+  private dragIntentForActive(pointer: BoardPointer, drag: ActiveDrag): DragIntent {
+    const dx = pointer.x - drag.pointerStart.x;
+    const dy = pointer.y - drag.pointerStart.y;
+    if (!drag.axis && Math.max(Math.abs(dx), Math.abs(dy)) >= 4) {
+      drag.axis = Math.abs(dx) >= Math.abs(dy) ? "horizontal" : "vertical";
+    }
+    return this.intentFromDelta(dx, dy, drag.start, drag.axis);
   }
 
   private intentFromDelta(dx: number, dy: number, start: GridPosition, lockedAxis: DragAxis | null): DragIntent {
@@ -898,59 +955,14 @@ export class BoardScene extends Phaser.Scene {
     };
   }
 
-  private updateTargetPreview(intent: DragIntent): void {
-    if (!this.dragPreview || !this.snapshot || !this.fxLayer) return;
-    const previewKey = intent.previewTarget ? positionKey(intent.previewTarget) : null;
-    if (previewKey !== this.dragPreview.targetKey) {
-      this.dragPreview.targetGhost?.destroy();
-      this.dragPreview.targetGhost = null;
-      this.dragPreview.targetKey = previewKey;
-      this.dragPreview.targetPosition = intent.previewTarget;
-
-      const hidden = new Set([positionKey(this.dragPreview.start)]);
-      if (intent.previewTarget) hidden.add(positionKey(intent.previewTarget));
-      this.renderSnapshot(hidden, false);
-
-      if (intent.previewTarget) {
-        const targetCell = this.snapshot.grid.get(intent.previewTarget);
-        this.dragPreview.targetGhost = this.addOccupant(intent.previewTarget, targetCell, this.fxLayer, 0.92);
-      }
-    }
-
-    this.updateBlockedMarker(intent.blockedTarget);
-  }
-
-  private applyDragPreviewPositions(smoothing: number): void {
-    const preview = this.dragPreview;
-    if (!preview) return;
-    preview.currentOffset = {
-      x: Phaser.Math.Linear(preview.currentOffset.x, preview.desiredOffset.x, smoothing),
-      y: Phaser.Math.Linear(preview.currentOffset.y, preview.desiredOffset.y, smoothing)
-    };
-    if (Math.abs(preview.currentOffset.x - preview.desiredOffset.x) < 0.18) preview.currentOffset.x = preview.desiredOffset.x;
-    if (Math.abs(preview.currentOffset.y - preview.desiredOffset.y) < 0.18) preview.currentOffset.y = preview.desiredOffset.y;
-    preview.ghost.setPosition(
-      preview.startCenter.x + preview.currentOffset.x,
-      preview.startCenter.y + preview.currentOffset.y
-    );
-
-    if (preview.targetGhost && preview.targetPosition) {
-      const targetCenter = this.cellCenter(preview.targetPosition);
-      preview.targetGhost.setPosition(
-        targetCenter.x - preview.currentOffset.x,
-        targetCenter.y - preview.currentOffset.y
-      );
-    }
-  }
-
   private updateBlockedMarker(position: GridPosition | null): void {
-    const preview = this.dragPreview;
-    if (!preview || !this.fxLayer) return;
+    const drag = this.drag;
+    if (!drag || !this.fxLayer) return;
     const nextKey = position ? positionKey(position) : null;
-    if (preview.lastBlockedKey === nextKey) return;
-    preview.blockedMarker?.destroy();
-    preview.blockedMarker = null;
-    preview.lastBlockedKey = nextKey;
+    if (drag.blockedKey === nextKey) return;
+    drag.blockedMarker?.destroy();
+    drag.blockedMarker = null;
+    drag.blockedKey = nextKey;
     if (!position) return;
 
     const topLeft = this.cellTopLeft(position);
@@ -960,72 +972,87 @@ export class BoardScene extends Phaser.Scene {
     marker.fillStyle(0xff4968, 0.12);
     marker.fillRoundedRect(topLeft.x + 7, topLeft.y + 7, this.tileSize - 14, this.tileSize - 14, Math.max(6, this.tileSize * 0.1));
     this.fxLayer.add(marker);
-    preview.blockedMarker = marker;
+    drag.blockedMarker = marker;
   }
 
-  private clearDragPreview(render = false): void {
-    if (!this.dragPreview) {
-      this.pointerStart = null;
-      this.activePointerId = null;
-      this.selected = null;
-      if (render) {
-        this.renderSnapshot();
-        this.requestImmediateRender();
-      }
-      return;
-    }
-    this.tweens.killTweensOf(this.dragPreview.ghost);
-    if (this.dragPreview.targetGhost) this.tweens.killTweensOf(this.dragPreview.targetGhost);
-    if (this.dragPreview.blockedMarker) this.tweens.killTweensOf(this.dragPreview.blockedMarker);
-    this.dragPreview.ghost.destroy();
-    this.dragPreview.targetGhost?.destroy();
-    this.dragPreview.blockedMarker?.destroy();
-    this.dragPreview = null;
-    this.pointerStart = null;
-    this.activePointerId = null;
+  private snapBackDrag(drag: ActiveDrag): void {
+    drag.blockedMarker?.destroy();
+    drag.blockedMarker = null;
+    const neighbor = drag.neighbor;
+    this.drag = null;
     this.selected = null;
-    if (render) this.renderSnapshot();
-    if (render) this.requestImmediateRender();
-  }
+    this.commitSettled = false;
+    this.pendingCommitCb = null;
 
-  private snapBackDragPreview(): void {
-    const preview = this.dragPreview;
-    if (!preview) {
-      this.pointerStart = null;
-      this.selected = null;
-      this.renderSnapshot();
-      this.requestImmediateRender();
-      return;
-    }
-
-    this.dragPreview = null;
-    this.pointerStart = null;
-    this.activePointerId = null;
-    preview.targetGhost?.destroy();
-    preview.blockedMarker?.destroy();
-    this.tweens.killTweensOf(preview.ghost);
-
+    const finish = () => this.renderSnapshot();
     if (this.reducedMotion) {
-      preview.ghost.destroy();
-      this.selected = null;
-      this.renderSnapshot();
-      this.requestImmediateRender();
+      finish();
       return;
     }
-
+    let remaining = neighbor ? 2 : 1;
+    const done = () => {
+      remaining -= 1;
+      if (remaining === 0) finish();
+    };
     this.tweens.add({
-      targets: preview.ghost,
-      x: preview.startCenter.x,
-      y: preview.startCenter.y,
+      targets: drag.sprite,
+      x: drag.startCenter.x,
+      y: drag.startCenter.y,
+      scaleX: 1,
+      scaleY: 1,
       duration: motionTiming.snapBack,
       ease: "Sine.easeOut",
-      onComplete: () => {
-        preview.ghost.destroy();
-        this.selected = null;
-        this.renderSnapshot();
-        this.requestImmediateRender();
-      }
+      onComplete: done
     });
+    if (neighbor) {
+      this.tweens.add({
+        targets: neighbor.sprite,
+        x: neighbor.home.x,
+        y: neighbor.home.y,
+        duration: motionTiming.snapBack,
+        ease: "Sine.easeOut",
+        onComplete: done
+      });
+    }
+  }
+
+  private releaseDrag(drag: ActiveDrag): void {
+    this.tweens.killTweensOf(drag.sprite);
+    if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
+    drag.blockedMarker?.destroy();
+    this.drag = null;
+    this.selected = null;
+    this.commitSettled = false;
+    this.pendingCommitCb = null;
+    this.renderSnapshot();
+  }
+
+  private hardClearDrag(): void {
+    const drag = this.drag;
+    if (drag) {
+      this.tweens.killTweensOf(drag.sprite);
+      if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
+      drag.blockedMarker?.destroy();
+    }
+    this.drag = null;
+    this.selected = null;
+    this.commitSettled = false;
+    this.pendingCommitCb = null;
+  }
+
+  private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
+    if (!this.snapshot || !this.onAction) return false;
+    const position = this.positionForPointer(pointer.x, pointer.y);
+    if (!position) return false;
+    const cell = this.snapshot.grid.get(position);
+    if (!canTargetBooster(cell)) {
+      this.playBlockedCellFeedback(position, cell);
+      return false;
+    }
+    if (this.drag) this.releaseDrag(this.drag);
+    this.flashCell(position, 0xf7d154, 180);
+    this.onAction({ kind: "activateBooster", booster, at: position });
+    return true;
   }
 
   private playBlockedCellFeedback(position: GridPosition, cell: CellState): void {
@@ -1044,11 +1071,6 @@ export class BoardScene extends Phaser.Scene {
       yoyo: true,
       onComplete: () => ghost.destroy()
     });
-  }
-
-  private requestImmediateRender(): void {
-    if (!this.game.loop.running) this.game.loop.wake();
-    this.game.loop.tick();
   }
 
   private updateGeometry(): void {
