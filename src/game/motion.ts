@@ -31,3 +31,23 @@ export function computeCentroidStagger(
   }
   return result;
 }
+
+/**
+ * Deterministic angle (degrees) in [-amplitude, +amplitude] derived from a
+ * position + seed. Used in place of Phaser.Math.Between so Playwright snapshots
+ * of pop animations stay reproducible.
+ */
+export function seededAngleJitter(
+  position: GridPosition,
+  seed: string,
+  amplitudeDeg: number
+): number {
+  let hash = 2166136261 >>> 0; // FNV-1a basis
+  const input = `${seed}|${position.row},${position.col}`;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  const normalized = (hash / 0xffffffff) * 2 - 1; // [-1, 1]
+  return normalized * amplitudeDeg;
+}

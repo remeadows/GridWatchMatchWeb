@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { computeCentroidStagger } from "../game/motion";
+import { seededAngleJitter } from "../game/motion";
 
 describe("computeCentroidStagger", () => {
   it("returns an empty map for no positions", () => {
@@ -33,5 +34,29 @@ describe("computeCentroidStagger", () => {
     );
     expect(result.get("0,0")).toBe(75);
     expect(result.get("0,10")).toBe(75);
+  });
+});
+
+describe("seededAngleJitter", () => {
+  it("returns the same value for the same (position, seed)", () => {
+    const a = seededAngleJitter({ row: 2, col: 5 }, "abc", 12);
+    const b = seededAngleJitter({ row: 2, col: 5 }, "abc", 12);
+    expect(a).toBe(b);
+  });
+
+  it("differs across positions for a fixed seed", () => {
+    const a = seededAngleJitter({ row: 0, col: 0 }, "seed", 20);
+    const b = seededAngleJitter({ row: 0, col: 1 }, "seed", 20);
+    expect(a).not.toBe(b);
+  });
+
+  it("stays within [-amplitude, +amplitude]", () => {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const v = seededAngleJitter({ row: r, col: c }, "x", 15);
+        expect(v).toBeGreaterThanOrEqual(-15);
+        expect(v).toBeLessThanOrEqual(15);
+      }
+    }
   });
 });
