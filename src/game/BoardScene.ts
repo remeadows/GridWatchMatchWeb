@@ -15,6 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
+import { computeCentroidStagger, seededAngleJitter } from "./motion";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -476,12 +477,18 @@ export class BoardScene extends Phaser.Scene {
 
     this.snapshot = sourceSnapshot;
     this.renderSnapshot(popKeys);
-    const popObjects: Phaser.GameObjects.Container[] = [];
+    const positions: GridPosition[] = [];
     for (const position of sourceSnapshot.grid.allPositions) {
-      if (!popKeys.has(positionKey(position))) continue;
+      if (popKeys.has(positionKey(position))) positions.push(position);
+    }
+
+    const stagger = computeCentroidStagger(positions, { perUnitMs: 28, maxMs: 110 });
+    const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition }[] = [];
+    for (const position of positions) {
       const object = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
       if (!object) continue;
-      popObjects.push(object);
+      const delay = stagger.get(positionKey(position)) ?? 0;
+      popObjects.push({ object, delay, position });
       this.flashCell(position, 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation);
     }
 
@@ -491,30 +498,36 @@ export class BoardScene extends Phaser.Scene {
     }
 
     let remaining = popObjects.length;
-    for (const object of popObjects) {
-      this.tweens.add({
-        targets: object,
-        scaleX: 1.18,
-        scaleY: 1.18,
-        duration: motionTiming.matchPopAnticipation,
-        ease: "Back.easeOut",
-        onComplete: () => {
-          this.tweens.add({
-            targets: object,
-            alpha: 0,
-            scaleX: 0.12,
-            scaleY: 0.12,
-            angle: object.angle + Phaser.Math.Between(-10, 10),
-            duration: motionTiming.matchPop,
-            ease: "Back.easeIn",
-            onComplete: () => {
-              object.destroy();
-              remaining -= 1;
-              if (remaining === 0) onComplete();
-            }
-          });
-        }
-      });
+    const seed = this.snapshot?.rngSeed ?? "0";
+    for (const entry of popObjects) {
+      const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
+      const startPop = () => {
+        this.tweens.add({
+          targets: entry.object,
+          scaleX: 1.18,
+          scaleY: 1.18,
+          duration: motionTiming.matchPopAnticipation,
+          ease: "Back.easeOut",
+          onComplete: () => {
+            this.tweens.add({
+              targets: entry.object,
+              alpha: 0,
+              scaleX: 0.12,
+              scaleY: 0.12,
+              angle,
+              duration: motionTiming.matchPop,
+              ease: "Back.easeIn",
+              onComplete: () => {
+                entry.object.destroy();
+                remaining -= 1;
+                if (remaining === 0) onComplete();
+              }
+            });
+          }
+        });
+      };
+      if (entry.delay > 0) this.time.delayedCall(entry.delay, startPop);
+      else startPop();
     }
   }
 
