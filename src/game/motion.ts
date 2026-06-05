@@ -1,4 +1,4 @@
-import type { GridPosition } from "../engine";
+import { cloneCell, type BoardSnapshot, type GridPosition } from "../engine";
 
 export interface CentroidStaggerOptions {
   perUnitMs: number;
@@ -50,4 +50,28 @@ export function seededAngleJitter(
   }
   const normalized = (hash / 0xffffffff) * 2 - 1; // [-1, 1]
   return normalized * amplitudeDeg;
+}
+
+/**
+ * Returns a snapshot equal to `source` but with every position in `poppedKeys`
+ * stripped of its baseTile and powerUp (clears do not remove the cell's
+ * generator/overlay/underlay/isMovable, matching engine semantics).
+ *
+ * Caller uses this as the visual "after clears, before cascade" state so that
+ * real occupant containers can animate from their original cells down into the
+ * post-cascade arrangement instead of materializing as ghosts.
+ */
+export function buildPostClearSnapshot(
+  source: BoardSnapshot,
+  poppedKeys: ReadonlySet<string>
+): BoardSnapshot {
+  const grid = source.grid.clone(cloneCell);
+  for (const key of poppedKeys) {
+    const [rowStr, colStr] = key.split(",");
+    const position = { row: Number(rowStr), col: Number(colStr) };
+    if (!grid.isValid(position)) continue;
+    const cell = grid.get(position);
+    grid.set(position, { ...cell, baseTile: null, powerUp: null });
+  }
+  return { ...source, grid };
 }
