@@ -101,6 +101,7 @@ const motionTiming = {
   cascadeSettle: 0.22,
   cascadeMove: 340,
   clearFlash: 300,
+  dragLift: 80,
   invalidStretch: 70,
   invalidSettle: 60,
   invalidSwap: 170,
@@ -875,7 +876,18 @@ export class BoardScene extends Phaser.Scene {
     if (!sprite) return false;
 
     this.layer.bringToTop(sprite);
-    sprite.setScale(1.06);
+    sprite.setScale(1);
+    if (this.reducedMotion) {
+      sprite.setScale(1.06);
+    } else {
+      this.tweens.add({
+        targets: sprite,
+        scaleX: 1.06,
+        scaleY: 1.06,
+        duration: motionTiming.dragLift,
+        ease: "Sine.easeOut"
+      });
+    }
     this.drag = {
       start: position,
       startCenter: this.cellCenter(position),
