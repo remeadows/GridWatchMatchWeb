@@ -1075,7 +1075,7 @@ export class BoardScene extends Phaser.Scene {
     const travel = previewTarget
       ? Phaser.Math.Clamp(rawTravel, -this.tileSize, this.tileSize)
       : Math.sign(rawTravel) * Math.min(Math.abs(rawTravel) * 0.38, this.tileSize * 0.24);
-    const threshold = this.tileSize * 0.32;
+    const threshold = this.tileSize * 0.45;
     const offset = axis === "horizontal" ? { x: travel, y: 0 } : { x: 0, y: travel };
 
     return {
