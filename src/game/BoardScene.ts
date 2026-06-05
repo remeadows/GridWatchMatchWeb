@@ -318,10 +318,22 @@ export class BoardScene extends Phaser.Scene {
     }
 
     this.hardClearDrag();
-    this.snapshot = nextSnapshot;
-    this.renderSnapshot();
-    this.playDeltaEffects(animation.delta);
-    this.finishAnimation();
+    const delta = animation.delta;
+    if (delta.moves.length === 0 && delta.spawns.length === 0) {
+      this.snapshot = nextSnapshot;
+      this.renderSnapshot();
+      this.playDeltaEffects(delta);
+      this.finishAnimation();
+      return;
+    }
+    // Use the current snapshot as the "post-clear" baseline. For tap/booster paths
+    // there were no clears in this delta tick, so post-clear equals current.
+    const baseline = this.snapshot ?? nextSnapshot;
+    const postClear = buildPostClearSnapshot(baseline, new Set());
+    this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
+      this.playDeltaEffects(delta);
+      this.finishAnimation();
+    });
   }
 
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
@@ -330,10 +342,11 @@ export class BoardScene extends Phaser.Scene {
     const popKeys = initialMatchKeys(postSwapSnapshot);
     this.time.delayedCall(motionTiming.matchLock, () => {
       this.playTilePops(postSwapSnapshot, popKeys, () => {
-        this.snapshot = nextSnapshot;
-        this.renderSnapshot();
-        this.playDeltaEffects(delta, popKeys);
-        this.finishAnimation();
+        const postClear = buildPostClearSnapshot(postSwapSnapshot, popKeys);
+        this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
+          this.playDeltaEffects(delta, popKeys);
+          this.finishAnimation();
+        });
       });
     });
   }
@@ -486,12 +499,6 @@ export class BoardScene extends Phaser.Scene {
     for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
     for (const clear of delta.clears) {
       if (!skipClearKeys.has(positionKey(clear.position))) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, motionTiming.clearFlash);
-    }
-    for (const move of delta.moves.slice(0, 24)) this.playMoveGhost(move.from, move.to, move.tileType, motionTiming.cascadeMove, 0.82);
-    for (const spawn of delta.spawns.slice(0, 24)) {
-      const from = { row: -1, col: spawn.position.col };
-      this.playMoveGhost(from, spawn.position, spawn.tileType, motionTiming.spawnMove, 0.74);
-      this.flashCell(spawn.position, 0x38d9ff, motionTiming.spawnFlash);
     }
   }
 
@@ -652,26 +659,6 @@ export class BoardScene extends Phaser.Scene {
         }
       });
     }
-  }
-
-  private playMoveGhost(from: GridPosition, to: GridPosition, tileType: TileType, duration: number, alpha: number): void {
-    if (!this.fxLayer) return;
-    const start = from.row < 0
-      ? { x: this.cellCenter(to).x, y: this.boardBounds.y - this.tileSize * 0.45 }
-      : this.cellCenter(from);
-    const end = this.cellCenter(to);
-    const ghostCell = emptyVisualCell(tileType);
-    const ghost = this.addOccupantAt(start.x, start.y, ghostCell, this.fxLayer, alpha);
-    if (!ghost) return;
-    this.tweens.add({
-      targets: ghost,
-      x: end.x,
-      y: end.y,
-      alpha: 0,
-      duration,
-      ease: "Cubic.easeOut",
-      onComplete: () => ghost.destroy()
-    });
   }
 
   private playPowerUpEffect(event: PowerUpEvent): void {
