@@ -12,28 +12,24 @@ The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`.
 
 ## Latest Work Completed
 
-- Applied the suggested drag/swap feel fix from `/Users/russmeadows/Downloads/fix-drag-swap-feel.patch`.
-- Replaced the player-drag ghost preview path with a live occupant drag path in `src/game/BoardScene.ts`.
-- The real dragged tile now follows the pointer directly.
-- The neighboring tile mirrors the drag offset.
-- Valid swaps settle before match resolution starts.
-- Invalid swaps snap the real sprites back.
-- Programmatic/QA swaps still use a fallback ghost tween.
-- Added Playwright coverage for dragging a deterministic level 1 tile into a match.
-- Confirmed booster behavior: clicking a booster selects it but does not consume or fire it until a board target is chosen; dragging a booster onto the board activates at the drop point.
+- Closed motion-feel gap with the iOS Swift reference:
+  - Cascade and spawn now animate the real occupant containers with a two-phase fall+settle curve. The previous ghost-fade-to-zero path is removed.
+  - Match pops are staggered by centroid distance so clears read as a wave.
+  - Invalid swap snap-back uses a two-phase stretch+settle bounce.
+  - Drag lift is tweened in over 80 ms instead of jumping.
+  - Swap commit threshold raised from 0.32 to 0.45 of tile size to match iOS weight.
+  - Pop angle randomness replaced with a seeded jitter so Playwright snapshots stay reproducible.
+- Pure motion helpers extracted to `src/game/motion.ts` with vitest coverage.
 
 ## Verification
 
-Last full verification after commit `6578026`:
+Last full verification after the motion-parity commits:
 
-- `npm run test`: passed, 115 tests.
+- `npm run test`: passed.
 - `npm run test:e2e`: passed, 20 tests.
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.
 - `npm audit --audit-level=high`: passed, 0 vulnerabilities.
-- GitHub Pages deploy: success.
-- CodeQL: success.
-- Public URL returned HTTP 200.
 
 ## Important Files
 
