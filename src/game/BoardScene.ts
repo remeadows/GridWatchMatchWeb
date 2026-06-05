@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { computeCentroidStagger, seededAngleJitter } from "./motion";
+import { buildPostClearSnapshot, computeCentroidStagger, seededAngleJitter } from "./motion";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -97,6 +97,8 @@ const powerUpImageKeys = {
 const motionTiming = {
   blockedJiggle: 72,
   blockedFlash: 230,
+  cascadeFall: 0.78,
+  cascadeSettle: 0.22,
   cascadeMove: 340,
   clearFlash: 300,
   invalidStretch: 70,
@@ -552,6 +554,103 @@ export class BoardScene extends Phaser.Scene {
       };
       if (entry.delay > 0) this.time.delayedCall(entry.delay, startPop);
       else startPop();
+    }
+  }
+
+  private playCascadeAndSpawn(
+    postClearSnapshot: BoardSnapshot,
+    nextSnapshot: BoardSnapshot,
+    delta: BoardDelta,
+    onComplete: () => void
+  ): void {
+    if (this.reducedMotion) {
+      this.snapshot = nextSnapshot;
+      this.renderSnapshot();
+      onComplete();
+      return;
+    }
+
+    this.snapshot = postClearSnapshot;
+    // Hide the destination cells of all moves/spawns so renderSnapshot leaves them
+    // empty - the real (for moves) or freshly-created (for spawns) sprites will
+    // settle into them at the end of their tweens.
+    const destinationKeys = new Set<string>();
+    for (const move of delta.moves) destinationKeys.add(positionKey(move.to));
+    for (const spawn of delta.spawns) destinationKeys.add(positionKey(spawn.position));
+    this.renderSnapshot(destinationKeys, false);
+
+    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
+    for (const move of delta.moves) {
+      const sprite = this.occupantNodes.get(positionKey(move.from));
+      if (!sprite) continue;
+      this.layer?.bringToTop(sprite);
+      moveTweens.push({ sprite, to: this.cellCenter(move.to) });
+      // Reattach under the destination key so subsequent renders find it.
+      this.occupantNodes.delete(positionKey(move.from));
+      this.occupantNodes.set(positionKey(move.to), sprite);
+    }
+
+    const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
+    for (const spawn of delta.spawns) {
+      if (!this.layer) continue;
+      const targetCell = nextSnapshot.grid.get(spawn.position);
+      const startX = this.cellCenter(spawn.position).x;
+      const startY = this.boardBounds.y - this.tileSize * 0.5;
+      const sprite = this.addOccupantAt(startX, startY, targetCell, this.layer, 0);
+      if (!sprite) continue;
+      this.tweens.add({ targets: sprite, alpha: 1, duration: Math.min(110, motionTiming.spawnMove * 0.3) });
+      spawnTweens.push({ sprite, to: this.cellCenter(spawn.position) });
+      this.occupantNodes.set(positionKey(spawn.position), sprite);
+    }
+
+    const allTweens = [
+      ...moveTweens.map((t) => ({ ...t, total: motionTiming.cascadeMove })),
+      ...spawnTweens.map((t) => ({ ...t, total: motionTiming.spawnMove }))
+    ];
+
+    if (allTweens.length === 0) {
+      this.snapshot = nextSnapshot;
+      this.renderSnapshot();
+      onComplete();
+      return;
+    }
+
+    let remaining = allTweens.length;
+    const done = () => {
+      remaining -= 1;
+      if (remaining === 0) {
+        this.snapshot = nextSnapshot;
+        this.renderSnapshot();
+        onComplete();
+      }
+    };
+
+    for (const entry of allTweens) {
+      const start = { x: entry.sprite.x, y: entry.sprite.y };
+      const fallDuration = Math.max(40, Math.round(entry.total * motionTiming.cascadeFall));
+      const settleDuration = Math.max(20, Math.round(entry.total * motionTiming.cascadeSettle));
+      const bounceFromY = entry.to.y + Math.min(14, Math.abs(entry.to.y - start.y) * 0.08);
+      this.tweens.add({
+        targets: entry.sprite,
+        x: entry.to.x,
+        y: bounceFromY,
+        scaleX: 0.96,
+        scaleY: 1.05,
+        duration: fallDuration,
+        ease: "Sine.easeIn",
+        onComplete: () => {
+          this.tweens.add({
+            targets: entry.sprite,
+            x: entry.to.x,
+            y: entry.to.y,
+            scaleX: 1,
+            scaleY: 1,
+            duration: settleDuration,
+            ease: "Sine.easeOut",
+            onComplete: done
+          });
+        }
+      });
     }
   }
 
