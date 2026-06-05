@@ -140,27 +140,50 @@ async function clearStorage(page: Page): Promise<void> {
 
 async function dragBoardCells(page: Page, from: { row: number; col: number }, to: { row: number; col: number }): Promise<void> {
   await page.locator('[data-testid="board-canvas"] canvas').waitFor({ state: "visible" });
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  const points = await page.evaluate(({ from, to }) => {
-    const host = document.querySelector<HTMLElement>('[data-testid="board-canvas"]');
-    const canvas = host?.querySelector("canvas");
-    if (!host || !canvas) throw new Error("Board canvas not found");
+  await page.waitForFunction(() => {
+    const w = window as Window & {
+      __gwBoardReady?: boolean;
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
+  });
 
-    const rect = host.getBoundingClientRect();
-    const rows = 7;
-    const cols = 7;
-    const tileSize = Math.floor((Math.min(rect.width, rect.height) - 24) / Math.max(rows, cols));
-    const boardLeft = rect.left + (rect.width - tileSize * cols) / 2;
-    const boardTop = rect.top + (rect.height - tileSize * rows) / 2;
-    const center = (position: { row: number; col: number }) => ({
-      x: boardLeft + position.col * tileSize + tileSize / 2,
-      y: boardTop + position.row * tileSize + tileSize / 2
-    });
-    return { end: center(to), start: center(from) };
+  await page.evaluate(({ from, to }) => {
+    const w = window as Window & {
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    const start = w.__gwBoardCellClientPoint?.(from.row, from.col);
+    const end = w.__gwBoardCellClientPoint?.(to.row, to.col);
+    if (!start || !end) throw new Error("Board cell client points unavailable");
+
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="board-canvas"] canvas');
+    if (!canvas) throw new Error("Board canvas not found");
+
+    const dispatch = (type: "pointerdown" | "pointermove" | "pointerup", point: { x: number; y: number }, buttons: number) => {
+      canvas.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        clientX: point.x,
+        clientY: point.y,
+        button: 0,
+        buttons,
+        view: window
+      }));
+    };
+
+    dispatch("pointerdown", start, 1);
+    const steps = 12;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      dispatch("pointermove", {
+        x: start.x + (end.x - start.x) * t,
+        y: start.y + (end.y - start.y) * t
+      }, 1);
+    }
+    dispatch("pointerup", end, 0);
   }, { from, to });
-
-  await page.mouse.move(points.start.x, points.start.y);
-  await page.mouse.down();
-  await page.mouse.move(points.end.x, points.end.y, { steps: 12 });
-  await page.mouse.up();
 }

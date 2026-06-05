@@ -31,6 +31,58 @@ Last full verification after the motion-parity commits:
 - `npm run build`: passed.
 - `npm audit --audit-level=high`: passed, 0 vulnerabilities.
 
+### Flake-prone tests: 20-run methodology required
+
+`tests/e2e/app.spec.ts` "dragging a board tile into a deterministic match applies a swap" was
+empirically flaky on cold loads (chromium project). A single passing run does NOT prove this
+test passes. Verify with at least 20 consecutive runs (`chromium` + `mobile` projects each
+iteration, no Playwright retries) and require 100% pass rate before treating it as green.
+
+Run the loop against a single warm preview server so the result reflects the test, not
+server cold-start variance:
+
+```
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4173 --strictPort &
+# wait until http://127.0.0.1:4173 returns 200
+for i in $(seq 1 20); do
+  npx playwright test tests/e2e/app.spec.ts \
+    --grep "dragging a board tile into a deterministic match" --reporter=line \
+    || echo "Run $i FAILED"
+done
+```
+
+The race had two compounding sources:
+
+1. DOM `pointer*` listeners on the canvas in `BoardScene.installDomPointerHandlers` are
+   attached after `create()`, which finishes some time after the React host div first becomes
+   visible. The test's old `requestAnimationFrame` × 2 wait was not always long enough.
+2. Phaser's `Phaser.Scale.RESIZE` mode can fire a `resize` event mid-gesture on cold load
+   (host's layout settling). `BoardScene.create()` installs a resize listener that calls
+   `hardClearDrag()`, which kills any in-flight swap. Couple that with stale `scale.width`
+   vs. the canvas's actual client width and the test's host-rect-derived tile centers point
+   at the wrong column, so any swap that does start is rejected as an invalid match.
+
+Production fix (shipped, behind no flag):
+- `BoardScene` exposes `window.__gwBoardReady: boolean` once DOM pointer handlers are
+  installed AND `this.snapshot` is set; cleared on scene SHUTDOWN/DESTROY.
+- `BoardScene` exposes `window.__gwBoardCellClientPoint(row, col)` returning the cell's
+  center in client coords, computed from the scene's own `scale.width/height` so the
+  round-trip through `pointerFromClientPoint` is internally consistent regardless of any
+  pending resize.
+
+Test fix:
+- `dragBoardCells` waits for both the ready flag and the helper, then dispatches
+  `PointerEvent`s (`pointerdown`/`pointermove`/`pointerup`) directly to the canvas inside a
+  single `page.evaluate`. The whole gesture completes in one microtask, before any pending
+  resize event can fire `hardClearDrag()`. Using the helper for coords avoids host-rect
+  guesses. Do NOT switch this helper back to `page.mouse` — the chromium flake will return.
+
+Previously flaky drag-test loop from supervisor verification:
+
+- 20-run loop of the previously-flaky drag test: 20 passed, 0 failed (40 test instances
+  across chromium + mobile projects).
+
 ## Important Files
 
 - `AGENTS.md`: repo rules and future-agent instructions.
@@ -57,3 +109,4 @@ Last full verification after the motion-parity commits:
 - Do not introduce a backend for store or telemetry; the store remains a playable stub.
 - Keep `src/engine` renderer-free and deterministic.
 - For visible gameplay changes, run Playwright and inspect the browser manually before declaring the fix done.
+- When a Playwright test races against Phaser boot or layout settle, do not paper over it with retries, timeouts, or relaxed assertions. The fix must make the race deterministic — usually a readiness flag plus synchronous in-page dispatch — and must be verified with the 20-run loop above.
