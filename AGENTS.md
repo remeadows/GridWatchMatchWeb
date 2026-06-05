@@ -4,6 +4,8 @@ GridWatch Match Web is the browser port of the iOS GridWatchMatch game.
 
 Challenge context is recorded in `CHALLENGE_CONTEXT.md`. Treat "public link, immediately playable" as a release requirement for this repo.
 
+Read `MEMORY.md` and `HANDOFF.md` before making changes. `MEMORY.md` holds durable project facts and user preferences; `HANDOFF.md` holds the latest implementation state, verification, and next work.
+
 ## Stack
 
 - React + TypeScript + Vite for app shell, HUD, modals, meta screens, settings, account, intel, and store stub.
@@ -32,6 +34,16 @@ Challenge context is recorded in `CHALLENGE_CONTEXT.md`. Treat "public link, imm
 - Do not commit `.env*`, Firebase private files, Stripe keys, generated `dist/`, or local cache files.
 - Keep README submission-ready with what was made, how Codex helped, and how to play/controls.
 
+## Gameplay Feel Rules
+
+- Player tile drag must move the real tile sprite under the pointer, not a ghost clone.
+- The adjacent target tile should visibly mirror the drag offset while the player crosses into a neighboring cell.
+- A valid drag swap should settle into the swapped grid before match resolution starts; never let the moved matching tile slide back before popping.
+- Invalid swaps should visibly attempt the swap and then snap both real sprites back.
+- All seven board rows must remain reachable on desktop and mobile viewports.
+- Booster tray power-ups require deliberate player placement on the board. Clicking a booster selects it; it must not randomly fire without a board target.
+- When changing board input or animation, add or update Playwright coverage and manually inspect the browser feel.
+
 ## Commands
 
 - `npm ci`
@@ -47,3 +59,4 @@ Challenge context is recorded in `CHALLENGE_CONTEXT.md`. Treat "public link, imm
 - Run unit tests for engine changes.
 - Run Playwright for visible UI/gameplay changes.
 - For release/deploy changes run build, preview, dependency audit, and screenshot checks for desktop and mobile.
+- For docs-only changes, `git diff --check` is enough unless the docs alter commands, deployment, or gameplay expectations.
