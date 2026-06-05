@@ -99,6 +99,8 @@ const motionTiming = {
   blockedFlash: 230,
   cascadeMove: 340,
   clearFlash: 300,
+  invalidStretch: 70,
+  invalidSettle: 60,
   invalidSwap: 170,
   matchLock: 650,
   matchPop: 170,
@@ -370,25 +372,47 @@ export class BoardScene extends Phaser.Scene {
           this.finishAnimation();
         }
       };
-      this.tweens.add({
-        targets: drag.sprite,
-        x: drag.startCenter.x,
-        y: drag.startCenter.y,
-        scaleX: 1,
-        scaleY: 1,
-        duration: motionTiming.snapBack,
-        ease: "Sine.easeOut",
-        onComplete: done
-      });
-      if (neighbor) {
+      const startBounce = (
+        sprite: Phaser.GameObjects.Container,
+        home: { x: number; y: number },
+        travelX: number,
+        travelY: number
+      ) => {
+        const overshoot = this.tileSize * 0.025;
+        const axisX = travelX !== 0 ? Math.sign(travelX) : 0;
+        const axisY = travelY !== 0 ? Math.sign(travelY) : 0;
+        const overshootX = home.x - axisX * overshoot;
+        const overshootY = home.y - axisY * overshoot;
         this.tweens.add({
-          targets: neighbor.sprite,
-          x: neighbor.home.x,
-          y: neighbor.home.y,
-          duration: motionTiming.snapBack,
+          targets: sprite,
+          x: overshootX,
+          y: overshootY,
+          scaleX: axisX !== 0 ? 0.94 : 1,
+          scaleY: axisY !== 0 ? 0.94 : 1,
+          duration: motionTiming.invalidStretch,
           ease: "Sine.easeOut",
-          onComplete: done
+          onComplete: () => {
+            this.tweens.add({
+              targets: sprite,
+              x: home.x,
+              y: home.y,
+              scaleX: 1,
+              scaleY: 1,
+              duration: motionTiming.invalidSettle,
+              ease: "Sine.easeInOut",
+              onComplete: done
+            });
+          }
         });
+      };
+
+      const dragTravelX = drag.sprite.x - drag.startCenter.x;
+      const dragTravelY = drag.sprite.y - drag.startCenter.y;
+      startBounce(drag.sprite, drag.startCenter, dragTravelX, dragTravelY);
+      if (neighbor) {
+        const nbTravelX = neighbor.sprite.x - neighbor.home.x;
+        const nbTravelY = neighbor.sprite.y - neighbor.home.y;
+        startBounce(neighbor.sprite, neighbor.home, nbTravelX, nbTravelY);
       }
       return;
     }
