@@ -189,6 +189,7 @@ export class BoardScene extends Phaser.Scene {
     this.hardClearDrag();
     this.snapshot = snapshot;
     this.renderSnapshot();
+    this.signalBoardReady();
   }
 
   private finishAnimation(): void {
@@ -765,8 +766,44 @@ export class BoardScene extends Phaser.Scene {
     canvas.addEventListener("pointermove", move, { passive: false });
     canvas.addEventListener("pointerup", up, { passive: false });
     canvas.addEventListener("pointercancel", cancel, { passive: false });
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.removeDomPointerHandlers());
-    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.removeDomPointerHandlers());
+    const shutdown = () => {
+      this.removeDomPointerHandlers();
+      this.setBoardReadyFlag(false);
+    };
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
+    this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);
+    this.signalBoardReady();
+  }
+
+  private signalBoardReady(): void {
+    if (!this.domPointerHandlers || !this.snapshot) return;
+    this.setBoardReadyFlag(true);
+  }
+
+  private setBoardReadyFlag(ready: boolean): void {
+    if (typeof window === "undefined") return;
+    // Test-only hooks. Gated on the same `?gwTestMode=1` query the rest of App.tsx
+    // uses so production ship builds never leak these globals onto window.
+    if (!new URLSearchParams(window.location.search).has("gwTestMode")) return;
+    const target = window as Window & {
+      __gwBoardReady?: boolean;
+      __gwBoardCellClientPoint?: ((row: number, col: number) => { x: number; y: number } | null) | null;
+    };
+    target.__gwBoardReady = ready;
+    target.__gwBoardCellClientPoint = ready ? (row, col) => this.cellClientPoint(row, col) : null;
+  }
+
+  private cellClientPoint(row: number, col: number): { x: number; y: number } | null {
+    if (!this.snapshot) return null;
+    if (row < 0 || row >= this.snapshot.grid.rows || col < 0 || col >= this.snapshot.grid.cols) return null;
+    const center = this.cellCenter({ row, col });
+    const rect = this.game.canvas.getBoundingClientRect();
+    const sceneWidth = Math.max(1, this.scale.width);
+    const sceneHeight = Math.max(1, this.scale.height);
+    return {
+      x: rect.left + (center.x / sceneWidth) * rect.width,
+      y: rect.top + (center.y / sceneHeight) * rect.height
+    };
   }
 
   private setDomPointerCapture(canvas: HTMLCanvasElement, pointerId: number): void {
