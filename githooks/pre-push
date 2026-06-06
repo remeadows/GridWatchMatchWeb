@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# githooks/pre-push — Universal merge gate.
+# Detects which agent is driving and dispatches to the right gate.
+#
+# Activation (matches the bundle's actual directory name — no leading dot):
+#   git config core.hooksPath githooks
+#   chmod +x githooks/pre-push
+#
+# Override (single push only):
+#   git push --no-verify
+#
+# Override (permanent for a branch):
+#   touch .coderabbit/skip-gate && git push
+#   Bypasses are logged to .coderabbit/skip-log.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "${REPO_ROOT}"
+
+log()  { printf '\e[1;36m[pre-push]\e[0m %s\n' "$1"; }
+warn() { printf '\e[1;33m[pre-push]\e[0m %s\n' "$1" >&2; }
+fail() { printf '\e[1;31m[pre-push]\e[0m %s\n' "$1" >&2; exit "${2:-1}"; }
+
+# ---- Skip-gate sentinel (logged)
+if [[ -f .coderabbit/skip-gate ]]; then
+  warn "Skip sentinel present — bypassing CodeRabbit gate."
+  warn "Logging override to .coderabbit/skip-log"
+  mkdir -p .coderabbit
+  printf '%s\t%s\t%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" "$(whoami)" "$(git rev-parse HEAD)" >> .coderabbit/skip-log
+  exit 0
+fi
+
+# ---- Pick gate.
+# Detection priority (high → low):
+#   1. CR_GATE_AGENT env var set explicitly to "codex" or "claude" (manual override).
+#   2. Codex CLI: CODEX_CLI / CODEX_HOME (documented Codex env vars).
+#   3. Claude Code: CLAUDECODE / CLAUDE_CODE_ENTRYPOINT (Claude Code's documented signals).
+#   4. Default: claude-code-gate.sh (human-driven or unknown agent).
+# Agent detection via env vars is best-effort; gate behavior is functionally
+# identical, only the emitted prompt format differs (Codex prompt vs human).
+CLAUDE_GATE="cli/claude-code-gate.sh"
+CODEX_GATE="cli/codex-gate.sh"
+
+select_gate() {
+  case "${CR_GATE_AGENT:-}" in
+    codex)  echo "${CODEX_GATE}";  return ;;
+    claude) echo "${CLAUDE_GATE}"; return ;;
+  esac
+
+  if [[ -n "${CODEX_CLI:-}" || -n "${CODEX_HOME:-}" ]]; then
+    echo "${CODEX_GATE}";  return
+  fi
+
+  if [[ -n "${CLAUDECODE:-}" || -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]]; then
+    echo "${CLAUDE_GATE}"; return
+  fi
+
+  echo "${CLAUDE_GATE}"
+}
+
+GATE="$(select_gate)"
+case "${GATE}" in
+  "${CODEX_GATE}")  AGENT_LABEL="Codex" ;;
+  "${CLAUDE_GATE}") AGENT_LABEL="Claude Code or human" ;;
+esac
+
+log "Dispatching to ${GATE} (${AGENT_LABEL:-unknown})"
+[[ -f "${GATE}" ]] || fail "${GATE} not found. Ensure the gate script exists and is committed." 2
+exec bash "${GATE}"

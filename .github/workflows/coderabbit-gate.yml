@@ -1,0 +1,93 @@
+name: CodeRabbit Gate (Web)
+# Server-side enforcement matching the local pre-push hook.
+
+# CI gate trigger DISABLED — current free-tier CODERABBIT_API_KEY cannot
+# authenticate headless cr CLI auth (Agentic key requires paid plan).
+# Local pre-push gate + CodeRabbit GitHub App review still active.
+# To re-enable: restore the pull_request trigger and set a valid
+# CODERABBIT_API_KEY repo secret (Agentic API key from app.coderabbit.ai).
+on:
+  workflow_dispatch:
+    inputs:
+      base_ref:
+        description: 'Base branch to diff against (defaults to main)'
+        required: false
+        default: 'main'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coderabbit-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: CodeRabbit CLI gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      CR_BASE: ${{ github.base_ref || inputs.base_ref || 'main' }}
+      CR_MAX_SEVERITY: major
+      CR_MAX_LOOPS: 1
+      CR_INSTALL_MIN_BYTES: 1000
+      CR_INSTALL_MAX_BYTES: 200000
+
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install jq
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq jq
+
+      - name: Fetch + size-verify CodeRabbit installer
+        run: |
+          set -euo pipefail
+          mkdir -p .coderabbit/installer
+          curl -fsSL https://cli.coderabbit.ai/install.sh -o .coderabbit/installer/install.sh
+          BYTES=$(wc -c < .coderabbit/installer/install.sh | tr -d ' ')
+          echo "installer size: ${BYTES} bytes"
+          if [[ "${BYTES}" -lt "${CR_INSTALL_MIN_BYTES}" || "${BYTES}" -gt "${CR_INSTALL_MAX_BYTES}" ]]; then
+            echo "::error::CodeRabbit installer size ${BYTES} outside expected ${CR_INSTALL_MIN_BYTES}..${CR_INSTALL_MAX_BYTES} bytes — refusing to execute"
+            exit 1
+          fi
+          sha256sum .coderabbit/installer/install.sh
+
+      - name: Install CodeRabbit CLI
+        run: |
+          set -euo pipefail
+          bash .coderabbit/installer/install.sh
+          echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+
+      - name: Headless auth
+        env:
+          CR_API_KEY: ${{ secrets.CODERABBIT_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${CR_API_KEY:-}" ]]; then
+            echo "::error::CODERABBIT_API_KEY secret missing"
+            exit 1
+          fi
+          coderabbit auth login --api-key "${CR_API_KEY}"
+
+      - name: Run gate
+        run: |
+          set -euo pipefail
+          mkdir -p .coderabbit/local
+          if [[ ! -f cli/claude-code-gate.sh ]]; then
+            echo "::error::cli/claude-code-gate.sh missing — bootstrap commit may be incomplete"
+            exit 1
+          fi
+          bash cli/claude-code-gate.sh
+
+      - name: Upload review artifacts
+        if: always()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: coderabbit-review-${{ github.run_id }}
+          path: .coderabbit/local/
+          retention-days: 14

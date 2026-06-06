@@ -14,3 +14,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+
+# CodeRabbit local review artifacts — runtime state, never commit
+.coderabbit/local/
+.coderabbit/installer/
+.coderabbit/skip-gate
+.coderabbit/skip-log
+.coderabbit/codex-prompt.md
+# NOTE: .coderabbit/overrides.md is intentionally NOT ignored — it's the
+# audit trail for review-override decisions and should be tracked in git.
