@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 # .coderabbit.yaml — GridWatchMatchWeb
 # Stack:  Vite 8 + React 19 + Phaser 4 + TypeScript 6 (strict)
 # Target: browser port of GridWatchMatch (iOS Swift). Animation parity is a
@@ -13,13 +14,8 @@ language: en-US
 early_access: false
 enable_free_tier: false
 
-tone_instructions: >
-  Direct, principal-engineer tone for a funded studio. No filler.
-  This is a browser game with iOS parity as a release requirement.
-  Surface: animation regressions vs the iOS source of truth, Phaser
-  frame-budget violations, React 19 concurrent-rendering hazards,
-  engine-purity breaches (DOM/React/Phaser in src/engine), save-data
-  corruption risks, determinism breaks in the cascade engine.
+# Max 250 chars (CodeRabbit schema limit). Detailed direction lives in path_instructions.
+tone_instructions: "Direct, principal-engineer tone. Surface animation regressions vs iOS source of truth, Phaser frame-budget violations, React 19 render hazards, engine-purity breaches (DOM/React/Phaser in src/engine), cascade determinism breaks."
 
 # ---------------------------------------------------------------------------
 # Reviews
