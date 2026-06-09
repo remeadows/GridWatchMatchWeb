@@ -55,17 +55,6 @@ export function seededAngleJitter(
 }
 
 /**
- * Returns a snapshot equal to `source` but with every position in `poppedKeys`
- * stripped of its baseTile and powerUp (clears do not remove the cell's
- * generator/overlay/underlay/isMovable, matching engine semantics).
- *
- * Caller uses this as the visual "after clears, before cascade" state so that
- * real occupant containers can animate from their original cells down into the
- * post-cascade arrangement instead of materializing as ghosts.
- * Mirrors iOS BoardNode.swift apply(delta:to:completion:) phase boundary.
- * iOS: BoardNode.swift — apply(delta:to:completion:)
- */
-/**
  * Returns `moves` ordered so the renderer can safely remap occupant sprites in
  * place — deleting the `from` key and setting the `to` key one move at a time.
  *
@@ -82,6 +71,9 @@ export function seededAngleJitter(
  * move. The engine already emits bottom-first today, but this keeps the
  * renderer correct regardless of engine emission order. Returns a new array;
  * the input is not mutated.
+ *
+ * Web-only: guards the Phaser occupant-sprite remap; no iOS analog. Kept here
+ * (not in BoardScene) so it stays a pure, unit-tested function.
  */
 export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] {
   return [...moves].sort((a, b) => b.to.row - a.to.row);
@@ -102,6 +94,9 @@ export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] 
  * Hiding such a cell drops the occupant sprite the move needs, so the tile pops
  * into place after the final render instead of animating. The cell is vacated by
  * its own move anyway, so leaving it visible is correct.
+ *
+ * Web-only: render-layer concern tied to the Phaser occupant map; no iOS analog.
+ * Kept here (not in BoardScene) so it stays a pure, unit-tested function.
  */
 export function cascadeHiddenDestinations(
   moves: ReadonlyArray<MoveEvent>,
@@ -117,6 +112,17 @@ export function cascadeHiddenDestinations(
   return hidden;
 }
 
+/**
+ * Returns a snapshot equal to `source` but with every position in `poppedKeys`
+ * stripped of its baseTile and powerUp (clears do not remove the cell's
+ * generator/overlay/underlay/isMovable, matching engine semantics).
+ *
+ * Caller uses this as the visual "after clears, before cascade" state so that
+ * real occupant containers can animate from their original cells down into the
+ * post-cascade arrangement instead of materializing as ghosts.
+ * Mirrors iOS BoardNode.swift apply(delta:to:completion:) phase boundary.
+ * iOS: BoardNode.swift — apply(delta:to:completion:)
+ */
 export function buildPostClearSnapshot(
   source: BoardSnapshot,
   poppedKeys: ReadonlySet<string>
