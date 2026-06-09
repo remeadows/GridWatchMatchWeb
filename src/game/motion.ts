@@ -72,8 +72,10 @@ export function seededAngleJitter(
  * renderer correct regardless of engine emission order. Returns a new array;
  * the input is not mutated.
  *
- * Web-only: guards the Phaser occupant-sprite remap; no iOS analog. Kept here
- * (not in BoardScene) so it stays a pure, unit-tested function.
+ * iOS: BoardNode.swift — apply(delta:to:completion:) (cascade phase owner).
+ * Web adaptation: enforces deterministic Phaser occupant-remap order for that
+ * phase; iOS reassigns nodes directly and needs no equivalent. Kept here (not in
+ * BoardScene) so it stays a pure, unit-tested function.
  */
 export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] {
   return [...moves].sort((a, b) => b.to.row - a.to.row);
@@ -95,8 +97,10 @@ export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] 
  * into place after the final render instead of animating. The cell is vacated by
  * its own move anyway, so leaving it visible is correct.
  *
- * Web-only: render-layer concern tied to the Phaser occupant map; no iOS analog.
- * Kept here (not in BoardScene) so it stays a pure, unit-tested function.
+ * iOS: BoardNode.swift — apply(delta:to:completion:) (cascade phase owner).
+ * Web adaptation: computes the Phaser hide-set for the post-clear/pre-cascade
+ * render; iOS has no equivalent render step. Kept here (not in BoardScene) so it
+ * stays a pure, unit-tested function.
  */
 export function cascadeHiddenDestinations(
   moves: ReadonlyArray<MoveEvent>,
