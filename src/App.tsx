@@ -7,7 +7,7 @@ import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
-import type { BoardAnimationEvent } from "./game/BoardScene";
+import { RESOLVE_ANIMATION_BUDGET_MS, type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
@@ -405,11 +405,12 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         return;
       }
       applyAction(next);
-      // NOTE: this pacing is coupled to the BoardScene resolve chain
-      // (matchLock + pop + cascade in src/game/BoardScene.ts). It must stay >=
-      // the worst-case animation duration or the next action starts mid-anim.
-      // If you retune those timings, retune this in lockstep.
-      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 800);
+      // Pace the next queued action past the previous swap's full resolve
+      // animation, or it starts while BoardScene tweens are still running and
+      // renders over in-flight pops/cascades. RESOLVE_ANIMATION_BUDGET_MS is
+      // derived from the BoardScene motionTiming constants, so this stays
+      // correct if those timings change.
+      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : RESOLVE_ANIMATION_BUDGET_MS);
     };
     run();
   }, [applyAction]);

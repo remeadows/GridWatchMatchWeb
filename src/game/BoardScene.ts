@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -106,6 +106,9 @@ const CASCADE_SQUASH_SCALE_Y = 1.05;
 // tween scales up past the cell while fading to alpha 0.
 const MATCH_BURST_SCALE = 1.7;
 
+// Largest per-tile centroid-stagger delay applied to match pops.
+const MATCH_POP_STAGGER_MAX_MS = 110;
+
 // Mirrors iOS BoardNode.swift springyReturnAction stretch phase.
 const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
 const INVALID_SWAP_SQUASH_SCALE = 0.94;
@@ -135,6 +138,21 @@ const motionTiming = {
   spawnMove: 390,
   swap: 210
 } as const;
+
+// Worst-case wall-clock for one resolved swap's animation chain: swap settle →
+// match lock → pop (max centroid stagger + anticipation + pop) → cascade/spawn
+// fall+settle. The action queue must pace SLOWER than this so a queued action
+// never starts while the previous BoardScene tweens are still running (which
+// would render over in-flight pops/cascades). Derived from motionTiming so it
+// stays correct when those timings change.
+export const RESOLVE_ANIMATION_BUDGET_MS =
+  motionTiming.swap +
+  motionTiming.matchLock +
+  MATCH_POP_STAGGER_MAX_MS +
+  motionTiming.matchPopAnticipation +
+  motionTiming.matchPop +
+  motionTiming.spawnMove +
+  120; // safety margin for scheduling / render jitter
 
 // Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
 // so a one-cell move reads as a crisp snap, not a bounce.
@@ -538,7 +556,7 @@ export class BoardScene extends Phaser.Scene {
       if (popKeys.has(positionKey(position))) positions.push(position);
     }
 
-    const stagger = computeCentroidStagger(positions, { perUnitMs: 28, maxMs: 110 });
+    const stagger = computeCentroidStagger(positions, { perUnitMs: 28, maxMs: MATCH_POP_STAGGER_MAX_MS });
     const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition }[] = [];
     for (const position of positions) {
       const object = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
@@ -603,12 +621,12 @@ export class BoardScene extends Phaser.Scene {
     }
 
     this.snapshot = postClearSnapshot;
-    // Hide the destination cells of all moves/spawns so renderSnapshot leaves them
-    // empty - the real (for moves) or freshly-created (for spawns) sprites will
-    // settle into them at the end of their tweens.
-    const destinationKeys = new Set<string>();
-    for (const move of delta.moves) destinationKeys.add(positionKey(move.to));
-    for (const spawn of delta.spawns) destinationKeys.add(positionKey(spawn.position));
+    // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty
+    // - the real (for moves) or freshly-created (for spawns) sprites settle into
+    // them at the end of their tweens. A destination that is also a move source
+    // (collapsing column) is NOT hidden, so its occupant sprite still exists to
+    // animate the lower move. See cascadeHiddenDestinations.
+    const destinationKeys = cascadeHiddenDestinations(delta.moves, delta.spawns);
     this.renderSnapshot(destinationKeys, false);
 
     const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];

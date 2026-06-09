@@ -1,4 +1,4 @@
-import { cloneCell, type BoardSnapshot, type GridPosition, type MoveEvent } from "../engine";
+import { cloneCell, type BoardSnapshot, type GridPosition, type MoveEvent, type SpawnEvent } from "../engine";
 
 export interface CentroidStaggerOptions {
   perUnitMs: number;
@@ -85,6 +85,36 @@ export function seededAngleJitter(
  */
 export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] {
   return [...moves].sort((a, b) => b.to.row - a.to.row);
+}
+
+/**
+ * Cells to hide (`${row},${col}`) when rendering the post-clear snapshot before
+ * a cascade animates. A cell is hidden so the animating sprite can settle into
+ * an empty cell instead of overlapping a statically-drawn occupant.
+ *
+ * Exception: a landing cell that is ALSO a move source must NOT be hidden. This
+ * happens two ways in a collapsing column:
+ *   - move-on-move: 0->1, 1->2, 2->3 — the middle cells are both a landing spot
+ *     and the source of the move below them.
+ *   - spawn-on-source: a tile falls out of a top cell (0->3) and gravity refills
+ *     that now-empty cell with a fresh spawn — the spawn target equals the move
+ *     source.
+ * Hiding such a cell drops the occupant sprite the move needs, so the tile pops
+ * into place after the final render instead of animating. The cell is vacated by
+ * its own move anyway, so leaving it visible is correct.
+ */
+export function cascadeHiddenDestinations(
+  moves: ReadonlyArray<MoveEvent>,
+  spawns: ReadonlyArray<SpawnEvent>
+): Set<string> {
+  const sources = new Set(moves.map((move) => `${move.from.row},${move.from.col}`));
+  const hidden = new Set<string>();
+  const hideIfNotSource = (key: string) => {
+    if (!sources.has(key)) hidden.add(key);
+  };
+  for (const move of moves) hideIfNotSource(`${move.to.row},${move.to.col}`);
+  for (const spawn of spawns) hideIfNotSource(`${spawn.position.row},${spawn.position.col}`);
+  return hidden;
 }
 
 export function buildPostClearSnapshot(

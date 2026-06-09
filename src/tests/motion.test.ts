@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { BoardSnapshot, CellState, MoveEvent } from "../engine";
+import type { BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
 import { Grid2D } from "../engine/grid";
 import { buildPostClearSnapshot } from "../game/motion";
+import { cascadeHiddenDestinations } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
@@ -148,6 +149,10 @@ function move(from: [number, number], to: [number, number]): MoveEvent {
   };
 }
 
+function spawn(position: [number, number]): SpawnEvent {
+  return { position: { row: position[0], col: position[1] }, tileType: "packet", asPowerUp: null };
+}
+
 /**
  * Replays the in-place occupant remap that BoardScene.playCascadeAndSpawn runs.
  * Each "sprite" is identified by the key of the cell it starts in, so a correct
@@ -195,5 +200,36 @@ describe("orderCascadeMoves", () => {
     const before = [...moves];
     orderCascadeMoves(moves);
     expect(moves).toEqual(before);
+  });
+});
+
+describe("cascadeHiddenDestinations", () => {
+  it("hides a pure landing cell", () => {
+    const hidden = cascadeHiddenDestinations([move([0, 0], [3, 0])], []);
+    expect(hidden).toEqual(new Set(["3,0"]));
+  });
+
+  it("does not hide a destination that is also a move source (collapsing column)", () => {
+    // 0->1, 1->2, 2->3: cells 1 and 2 are both a landing spot and a source, so
+    // hiding them would drop the occupant sprites the lower moves need.
+    const moves = [move([0, 0], [1, 0]), move([1, 0], [2, 0]), move([2, 0], [3, 0])];
+    const hidden = cascadeHiddenDestinations(moves, []);
+    expect(hidden.has("1,0")).toBe(false);
+    expect(hidden.has("2,0")).toBe(false);
+    // Only the bottom, pure-destination cell is hidden.
+    expect(hidden).toEqual(new Set(["3,0"]));
+  });
+
+  it("hides spawn target cells", () => {
+    const hidden = cascadeHiddenDestinations([], [spawn([0, 0]), spawn([1, 0])]);
+    expect(hidden).toEqual(new Set(["0,0", "1,0"]));
+  });
+
+  it("does not hide a spawn target that is also a move source (column refill)", () => {
+    // Tile at row 0 falls to row 3, and a fresh tile spawns into the vacated
+    // row 0. Row 0 must stay visible so the falling tile keeps its real sprite.
+    const hidden = cascadeHiddenDestinations([move([0, 0], [3, 0])], [spawn([0, 0])]);
+    expect(hidden.has("0,0")).toBe(false);
+    expect(hidden).toEqual(new Set(["3,0"]));
   });
 });
