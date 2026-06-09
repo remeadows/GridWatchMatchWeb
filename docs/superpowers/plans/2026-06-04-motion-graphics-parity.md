@@ -11,7 +11,7 @@
 
 **Tech Stack:** TypeScript, Phaser 3 tweens, Vitest for unit tests, Playwright for e2e regression.
 
-**Reference:** iOS implementation lives at `/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatch/GridWatchMatch/GridWatchMatch/View/Game/BoardNode.swift` — consult its `animateClears`, `animateMoves`, `animateSpawns`, `animateInvalidSwapBounceBack`, `springyReturnAction`, and `polishedSwapAction` methods for behavioral parity. Do **not** import from the iOS repo or modify it.
+**Reference:** Consult the iOS `BoardNode.swift` methods `animateClears`, `animateMoves`, `animateSpawns`, `animateInvalidSwapBounceBack`, `springyReturnAction`, and `polishedSwapAction` for behavioral parity. Do **not** import from the iOS repo or modify it.
 
 **Hard constraints (from `AGENTS.md` and `MEMORY.md`):**
 - `src/engine` stays renderer-free; do not import Phaser/DOM/React there.

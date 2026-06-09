@@ -1,4 +1,4 @@
-import { cloneCell, type BoardSnapshot, type GridPosition } from "../engine";
+import { cloneCell, type BoardSnapshot, type GridPosition, type MoveEvent } from "../engine";
 
 export interface CentroidStaggerOptions {
   perUnitMs: number;
@@ -36,6 +36,8 @@ export function computeCentroidStagger(
  * Deterministic angle (degrees) in [-amplitude, +amplitude] derived from a
  * position + seed. Used in place of Phaser.Math.Between so Playwright snapshots
  * of pop animations stay reproducible.
+ * Mirrors iOS BoardNode.swift animateRowDestruction rotation jitter.
+ * iOS: BoardNode.swift — animateRowDestruction()
  */
 export function seededAngleJitter(
   position: GridPosition,
@@ -60,7 +62,31 @@ export function seededAngleJitter(
  * Caller uses this as the visual "after clears, before cascade" state so that
  * real occupant containers can animate from their original cells down into the
  * post-cascade arrangement instead of materializing as ghosts.
+ * Mirrors iOS BoardNode.swift apply(delta:to:completion:) phase boundary.
+ * iOS: BoardNode.swift — apply(delta:to:completion:)
  */
+/**
+ * Returns `moves` ordered so the renderer can safely remap occupant sprites in
+ * place — deleting the `from` key and setting the `to` key one move at a time.
+ *
+ * The remap reads `occupantNodes[from]` then writes `occupantNodes[to]`. When a
+ * column collapses, one move's source cell is another move's destination cell
+ * (e.g. 2->3 and 1->2 share cell 2). The read of a shared cell must happen
+ * before the write that clobbers it, or the renderer picks up the wrong sprite
+ * and tiles visibly leak/duplicate during cascades.
+ *
+ * Sorting by descending `to.row` guarantees that ordering: gravity only moves
+ * tiles downward, so whenever cell C is move A's source and move B's
+ * destination, A's tile lands strictly below C (A.to.row > C.row == B.to.row).
+ * The source-read move therefore always sorts ahead of the destination-write
+ * move. The engine already emits bottom-first today, but this keeps the
+ * renderer correct regardless of engine emission order. Returns a new array;
+ * the input is not mutated.
+ */
+export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] {
+  return [...moves].sort((a, b) => b.to.row - a.to.row);
+}
+
 export function buildPostClearSnapshot(
   source: BoardSnapshot,
   poppedKeys: ReadonlySet<string>

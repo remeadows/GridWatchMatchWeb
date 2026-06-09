@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, computeCentroidStagger, seededAngleJitter } from "./motion";
+import { buildPostClearSnapshot, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -94,19 +94,40 @@ const powerUpImageKeys = {
   lightBall: "powerup-lightBall"
 } as const;
 
+// Mirrors iOS BoardNode.swift animateMoves fall/settle split and overshoot.
+const CASCADE_MIN_FALL_MS = 40;
+const CASCADE_MIN_SETTLE_MS = 20;
+const CASCADE_BOUNCE_MAX_PX = 14;
+const CASCADE_BOUNCE_FACTOR = 0.08;
+const CASCADE_SQUASH_SCALE_X = 0.96;
+const CASCADE_SQUASH_SCALE_Y = 1.05;
+
+// Matched tiles burst OUTWARD (explode) rather than shrinking away. The destroy
+// tween scales up past the cell while fading to alpha 0.
+const MATCH_BURST_SCALE = 1.7;
+
+// Mirrors iOS BoardNode.swift springyReturnAction stretch phase.
+const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
+const INVALID_SWAP_SQUASH_SCALE = 0.94;
+
 const motionTiming = {
   blockedJiggle: 72,
   blockedFlash: 230,
+  // Mirrors iOS BoardNode.swift animateMoves fall/settle duration split.
   cascadeFall: 0.78,
   cascadeSettle: 0.22,
   cascadeMove: 340,
   clearFlash: 300,
+  // Mirrors iOS TileNode.swift update(animated:) quick 0.08s feedback cadence.
   dragLift: 80,
+  // Mirrors iOS BoardNode.swift springyReturnAction stretch/settle durations.
   invalidStretch: 70,
   invalidSettle: 60,
   invalidSwap: 170,
-  matchLock: 650,
-  matchPop: 170,
+  // Brief beat to register the match, then the tiles blow up. Kept short so the
+  // board does not feel like it stalls before clearing.
+  matchLock: 140,
+  matchPop: 190,
   matchPopAnticipation: 70,
   powerUpEffect: 560,
   snapBack: 150,
@@ -395,7 +416,7 @@ export class BoardScene extends Phaser.Scene {
         travelX: number,
         travelY: number
       ) => {
-        const overshoot = this.tileSize * 0.025;
+        const overshoot = this.tileSize * INVALID_SWAP_OVERSHOOT_FACTOR;
         const axisX = travelX !== 0 ? Math.sign(travelX) : 0;
         const axisY = travelY !== 0 ? Math.sign(travelY) : 0;
         const overshootX = home.x - axisX * overshoot;
@@ -404,8 +425,8 @@ export class BoardScene extends Phaser.Scene {
           targets: sprite,
           x: overshootX,
           y: overshootY,
-          scaleX: axisX !== 0 ? 0.94 : 1,
-          scaleY: axisY !== 0 ? 0.94 : 1,
+          scaleX: axisX !== 0 ? INVALID_SWAP_SQUASH_SCALE : 1,
+          scaleY: axisY !== 0 ? INVALID_SWAP_SQUASH_SCALE : 1,
           duration: motionTiming.invalidStretch,
           ease: "Sine.easeOut",
           onComplete: () => {
@@ -537,21 +558,23 @@ export class BoardScene extends Phaser.Scene {
     for (const entry of popObjects) {
       const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
       const startPop = () => {
+        // Quick anticipation squash, then the tile blows up: scales OUTWARD past
+        // the cell while fading, instead of shrinking away.
         this.tweens.add({
           targets: entry.object,
-          scaleX: 1.18,
-          scaleY: 1.18,
+          scaleX: 0.86,
+          scaleY: 0.86,
           duration: motionTiming.matchPopAnticipation,
-          ease: "Back.easeOut",
+          ease: "Sine.easeOut",
           onComplete: () => {
             this.tweens.add({
               targets: entry.object,
               alpha: 0,
-              scaleX: 0.12,
-              scaleY: 0.12,
+              scaleX: MATCH_BURST_SCALE,
+              scaleY: MATCH_BURST_SCALE,
               angle,
               duration: motionTiming.matchPop,
-              ease: "Back.easeIn",
+              ease: "Quad.easeOut",
               onComplete: () => {
                 entry.object.destroy();
                 remaining -= 1;
@@ -589,7 +612,12 @@ export class BoardScene extends Phaser.Scene {
     this.renderSnapshot(destinationKeys, false);
 
     const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
-    for (const move of delta.moves) {
+    // Remap occupant sprites in place: read the source key, then reattach under
+    // the destination key. In a collapsing column one move's source cell is
+    // another move's destination cell, so this read-then-write must run
+    // destination-bottom-first or it picks up the wrong sprite and tiles leak.
+    // orderCascadeMoves enforces that ordering regardless of engine emission order.
+    for (const move of orderCascadeMoves(delta.moves)) {
       const sprite = this.occupantNodes.get(positionKey(move.from));
       if (!sprite) continue;
       this.layer?.bringToTop(sprite);
@@ -636,15 +664,15 @@ export class BoardScene extends Phaser.Scene {
 
     for (const entry of allTweens) {
       const start = { x: entry.sprite.x, y: entry.sprite.y };
-      const fallDuration = Math.max(40, Math.round(entry.total * motionTiming.cascadeFall));
-      const settleDuration = Math.max(20, Math.round(entry.total * motionTiming.cascadeSettle));
-      const bounceFromY = entry.to.y + Math.min(14, Math.abs(entry.to.y - start.y) * 0.08);
+      const fallDuration = Math.max(CASCADE_MIN_FALL_MS, Math.round(entry.total * motionTiming.cascadeFall));
+      const settleDuration = Math.max(CASCADE_MIN_SETTLE_MS, Math.round(entry.total * motionTiming.cascadeSettle));
+      const bounceFromY = entry.to.y + Math.min(CASCADE_BOUNCE_MAX_PX, Math.abs(entry.to.y - start.y) * CASCADE_BOUNCE_FACTOR);
       this.tweens.add({
         targets: entry.sprite,
         x: entry.to.x,
         y: bounceFromY,
-        scaleX: 0.96,
-        scaleY: 1.05,
+        scaleX: CASCADE_SQUASH_SCALE_X,
+        scaleY: CASCADE_SQUASH_SCALE_Y,
         duration: fallDuration,
         ease: "Sine.easeIn",
         onComplete: () => {

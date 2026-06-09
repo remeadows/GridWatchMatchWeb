@@ -313,19 +313,23 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   useEffect(() => {
     if (status !== "running" || !level?.bossLevel) return;
     const timer = window.setInterval(() => {
+      // Keep this updater pure: only compute the next value. The "reached
+      // zero -> fail" side effects live in the effect below so StrictMode's
+      // double-invoked updaters can't double-fire them.
       setBossRemaining((current) => {
         if (current === null) return current;
-        if (current <= 1) {
-          setStatus("failed");
-          audioService.playSfx("sfx_breach_alert.mp3");
-          audioService.playSfx("vo_grid_compromised.mp3");
-          return 0;
-        }
-        return current - 1;
+        return Math.max(0, current - 1);
       });
     }, 1_000);
     return () => window.clearInterval(timer);
   }, [level?.bossLevel, status]);
+
+  useEffect(() => {
+    if (status !== "running" || !level?.bossLevel || bossRemaining !== 0) return;
+    setStatus("failed");
+    audioService.playSfx("sfx_breach_alert.mp3");
+    audioService.playSfx("vo_grid_compromised.mp3");
+  }, [bossRemaining, level?.bossLevel, status]);
 
   const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition) => {
     if (finalRef.current) return;
@@ -401,7 +405,11 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         return;
       }
       applyAction(next);
-      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 1290);
+      // NOTE: this pacing is coupled to the BoardScene resolve chain
+      // (matchLock + pop + cascade in src/game/BoardScene.ts). It must stay >=
+      // the worst-case animation duration or the next action starts mid-anim.
+      // If you retune those timings, retune this in lockstep.
+      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : 800);
     };
     run();
   }, [applyAction]);

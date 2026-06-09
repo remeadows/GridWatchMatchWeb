@@ -44,7 +44,9 @@ server cold-start variance:
 ```
 npm run build
 npm run preview -- --host 127.0.0.1 --port 4173 --strictPort &
-# wait until http://127.0.0.1:4173 returns 200
+until curl -fsS http://127.0.0.1:4173/GridWatchMatchWeb/ >/dev/null; do
+  sleep 0.25
+done
 for i in $(seq 1 20); do
   npx playwright test tests/e2e/app.spec.ts \
     --grep "dragging a board tile into a deterministic match" --reporter=line \

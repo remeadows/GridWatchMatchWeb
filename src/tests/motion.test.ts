@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { BoardSnapshot, CellState } from "../engine";
+import type { BoardSnapshot, CellState, MoveEvent } from "../engine";
 import { Grid2D } from "../engine/grid";
 import { buildPostClearSnapshot } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
+import { orderCascadeMoves } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
 
 describe("computeCentroidStagger", () => {
@@ -136,5 +137,63 @@ describe("buildPostClearSnapshot", () => {
     const snap = snapshotOf(grid);
     buildPostClearSnapshot(snap, new Set(["0,0"]));
     expect(snap.grid.get({ row: 0, col: 0 }).baseTile).toBe("packet");
+  });
+});
+
+function move(from: [number, number], to: [number, number]): MoveEvent {
+  return {
+    from: { row: from[0], col: from[1] },
+    to: { row: to[0], col: to[1] },
+    tileType: "packet"
+  };
+}
+
+/**
+ * Replays the in-place occupant remap that BoardScene.playCascadeAndSpawn runs.
+ * Each "sprite" is identified by the key of the cell it starts in, so a correct
+ * remap leaves the sprite that started at `from` living under the `to` key.
+ */
+function simulateRemap(moves: ReadonlyArray<MoveEvent>): Map<string, string> {
+  const occupants = new Map<string, string>();
+  for (const m of moves) {
+    const fromKey = `${m.from.row},${m.from.col}`;
+    occupants.set(fromKey, fromKey);
+  }
+  for (const m of moves) {
+    const fromKey = `${m.from.row},${m.from.col}`;
+    const sprite = occupants.get(fromKey);
+    if (sprite === undefined) continue;
+    occupants.delete(fromKey);
+    occupants.set(`${m.to.row},${m.to.col}`, sprite);
+  }
+  return occupants;
+}
+
+describe("orderCascadeMoves", () => {
+  it("keeps a remap correct even when moves arrive destination-top-first", () => {
+    // A collapsing column: each tile falls one row into the cell vacated below
+    // it. Source and destination cells overlap between moves, so processing
+    // order matters. Feed them top-first (the hostile order).
+    const topFirst = [move([0, 0], [1, 0]), move([1, 0], [2, 0]), move([2, 0], [3, 0])];
+
+    const occupants = simulateRemap(orderCascadeMoves(topFirst));
+
+    // Every destination must hold the sprite that started at the matching source.
+    for (const m of topFirst) {
+      expect(occupants.get(`${m.to.row},${m.to.col}`)).toBe(`${m.from.row},${m.from.col}`);
+    }
+  });
+
+  it("orders a collapsing column destination-bottom-first", () => {
+    const topFirst = [move([0, 0], [1, 0]), move([1, 0], [2, 0]), move([2, 0], [3, 0])];
+    const ordered = orderCascadeMoves(topFirst);
+    expect(ordered.map((m) => m.to.row)).toEqual([3, 2, 1]);
+  });
+
+  it("does not mutate the input array", () => {
+    const moves = [move([0, 0], [1, 0]), move([2, 0], [3, 0])];
+    const before = [...moves];
+    orderCascadeMoves(moves);
+    expect(moves).toEqual(before);
   });
 });
