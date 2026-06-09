@@ -158,6 +158,10 @@ export const RESOLVE_ANIMATION_BUDGET_MS =
 // so a one-cell move reads as a crisp snap, not a bounce.
 const swapEaseParams = [1.1];
 
+// Fraction of a tile a drag must travel past the cell midpoint to commit a swap
+// (rather than snap back). Raised to match the iOS commit weight.
+const SWAP_COMMIT_THRESHOLD_FACTOR = 0.45;
+
 export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
   private onAction: ((action: BoardAction) => void) | null = null;
@@ -828,9 +832,9 @@ export class BoardScene extends Phaser.Scene {
 
   private setBoardReadyFlag(ready: boolean): void {
     if (typeof window === "undefined") return;
-    // Test-only hooks. Gated on the same `?gwTestMode=1` query the rest of App.tsx
-    // uses so production ship builds never leak these globals onto window.
-    if (!new URLSearchParams(window.location.search).has("gwTestMode")) return;
+    // Test-only hooks. Gated on the exact `?gwTestMode=1` query (matching the
+    // documented contract) so production ship builds never leak these globals.
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & {
       __gwBoardReady?: boolean;
       __gwBoardCellClientPoint?: ((row: number, col: number) => { x: number; y: number } | null) | null;
@@ -1158,7 +1162,7 @@ export class BoardScene extends Phaser.Scene {
     const travel = previewTarget
       ? Phaser.Math.Clamp(rawTravel, -this.tileSize, this.tileSize)
       : Math.sign(rawTravel) * Math.min(Math.abs(rawTravel) * 0.38, this.tileSize * 0.24);
-    const threshold = this.tileSize * 0.45;
+    const threshold = this.tileSize * SWAP_COMMIT_THRESHOLD_FACTOR;
     const offset = axis === "horizontal" ? { x: travel, y: 0 } : { x: 0, y: travel };
 
     return {

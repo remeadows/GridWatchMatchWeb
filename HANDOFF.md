@@ -41,17 +41,19 @@ iteration, no Playwright retries) and require 100% pass rate before treating it 
 Run the loop against a single warm preview server so the result reflects the test, not
 server cold-start variance:
 
-```
+```bash
 npm run build
 npm run preview -- --host 127.0.0.1 --port 4173 --strictPort &
 until curl -fsS http://127.0.0.1:4173/GridWatchMatchWeb/ >/dev/null; do
   sleep 0.25
 done
+failures=0
 for i in $(seq 1 20); do
   npx playwright test tests/e2e/app.spec.ts \
     --grep "dragging a board tile into a deterministic match" --reporter=line \
-    || echo "Run $i FAILED"
+    || { echo "Run $i FAILED"; failures=$((failures + 1)); }
 done
+test "$failures" -eq 0   # non-zero exit if any iteration failed
 ```
 
 The race had two compounding sources:
@@ -65,7 +67,7 @@ The race had two compounding sources:
    vs. the canvas's actual client width and the test's host-rect-derived tile centers point
    at the wrong column, so any swap that does start is rejected as an invalid match.
 
-Production fix (shipped, behind no flag):
+Production fix (shipped, test-mode gated via `?gwTestMode=1`):
 - `BoardScene` exposes `window.__gwBoardReady: boolean` once DOM pointer handlers are
   installed AND `this.snapshot` is set; cleared on scene SHUTDOWN/DESTROY.
 - `BoardScene` exposes `window.__gwBoardCellClientPoint(row, col)` returning the cell's

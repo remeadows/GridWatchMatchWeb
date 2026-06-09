@@ -1024,7 +1024,7 @@ git commit -m "Update handoff for motion-parity work"
 
 Output a short summary of what shipped, in this format:
 
-```
+```text
 Motion parity plan complete.
 - Tasks 1-3: motion.ts helpers (centroid stagger, post-clear snapshot, seeded jitter), 10 unit tests added.
 - Task 4: pops staggered by centroid.
