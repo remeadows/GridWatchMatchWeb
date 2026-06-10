@@ -1,4 +1,4 @@
-import { cloneCell, type BoardSnapshot, type GridPosition, type MoveEvent, type SpawnEvent } from "../engine";
+import { cloneCell, type BoardDelta, type BoardSnapshot, type GridPosition, type MoveEvent, type SpawnEvent } from "../engine";
 
 export interface CentroidStaggerOptions {
   perUnitMs: number;
@@ -114,6 +114,17 @@ export function cascadeHiddenDestinations(
   for (const move of moves) hideIfNotSource(`${move.to.row},${move.to.col}`);
   for (const spawn of spawns) hideIfNotSource(`${spawn.position.row},${spawn.position.col}`);
   return hidden;
+}
+
+/**
+ * Web-only helper for Phaser renderer phases: converts BoardDelta.clears into
+ * `${row},${col}` keys so cleared cells can be popped, hidden, and remapped
+ * through the same visual phase boundary that iOS owns directly in
+ * BoardNode.swift apply(delta:to:completion:). Function: clearedKeysFromDelta.
+ * iOS: BoardNode.swift — apply(delta:to:completion:)
+ */
+export function clearedKeysFromDelta(delta: BoardDelta): Set<string> {
+  return new Set(delta.clears.map((clear) => `${clear.position.row},${clear.position.col}`));
 }
 
 /**

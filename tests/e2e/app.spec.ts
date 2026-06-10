@@ -69,6 +69,21 @@ test("booster tray requires a deliberate board target", async ({ page }) => {
   await expect(booster.locator("strong")).toHaveText("2");
 });
 
+test("booster tap clears use the tile pop animation path", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const popCountBefore = await tilePopCount(page);
+
+  const booster = page.getByTestId("booster-tnt");
+  await booster.click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
+});
+
 test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -140,13 +155,7 @@ async function clearStorage(page: Page): Promise<void> {
 
 async function dragBoardCells(page: Page, from: { row: number; col: number }, to: { row: number; col: number }): Promise<void> {
   await page.locator('[data-testid="board-canvas"] canvas').waitFor({ state: "visible" });
-  await page.waitForFunction(() => {
-    const w = window as Window & {
-      __gwBoardReady?: boolean;
-      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
-    };
-    return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
-  });
+  await waitForBoardReady(page);
 
   await page.evaluate(({ from, to }) => {
     const w = window as Window & {
@@ -186,4 +195,32 @@ async function dragBoardCells(page: Page, from: { row: number; col: number }, to
     }
     dispatch("pointerup", end, 0);
   }, { from, to });
+}
+
+async function waitForBoardReady(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const w = window as Window & {
+      __gwBoardReady?: boolean;
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
+  });
+}
+
+async function boardCellPoint(page: Page, position: { row: number; col: number }): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(({ position }) => {
+    const w = window as Window & {
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return w.__gwBoardCellClientPoint?.(position.row, position.col) ?? null;
+  }, { position });
+  if (!point) throw new Error(`Board cell point unavailable for ${position.row},${position.col}`);
+  return point;
+}
+
+async function tilePopCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwTilePopAnimationCount?: number };
+    return w.__gwTilePopAnimationCount ?? 0;
+  });
 }

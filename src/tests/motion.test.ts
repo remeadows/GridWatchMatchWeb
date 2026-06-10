@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
+import type { BoardDelta, BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
 import { Grid2D } from "../engine/grid";
 import { buildPostClearSnapshot } from "../game/motion";
 import { cascadeHiddenDestinations } from "../game/motion";
+import { clearedKeysFromDelta } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
@@ -95,6 +96,47 @@ function snapshotOf(grid: Grid2D<CellState>): BoardSnapshot {
     chainDepth: 0
   };
 }
+
+function emptyDelta(): BoardDelta {
+  return {
+    clears: [],
+    moves: [],
+    spawns: [],
+    powerUpEvents: [],
+    objectiveEvents: [],
+    chainDepth: 0,
+    scoreGained: 0,
+    isWin: false,
+    isFail: false,
+    shuffleAttempts: 0
+  };
+}
+
+describe("clearedKeysFromDelta", () => {
+  it("returns an empty set for a delta with no clears", () => {
+    expect(clearedKeysFromDelta(emptyDelta())).toEqual(new Set());
+  });
+
+  it("maps clear positions to row,col keys", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 1, col: 2 }, tileType: "packet", clearedByPowerUp: true, contributedToObjective: true, objectiveId: "packets" },
+      { position: { row: 3, col: 4 }, tileType: "firewall", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+
+    expect(clearedKeysFromDelta(delta)).toEqual(new Set(["1,2", "3,4"]));
+  });
+
+  it("dedupes duplicate clear positions", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 2, col: 5 }, tileType: "key", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null },
+      { position: { row: 2, col: 5 }, tileType: "key", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+
+    expect(clearedKeysFromDelta(delta)).toEqual(new Set(["2,5"]));
+  });
+});
 
 describe("buildPostClearSnapshot", () => {
   it("empties only the popped positions and preserves the rest", () => {

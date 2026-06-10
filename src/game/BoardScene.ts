@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -364,21 +364,35 @@ export class BoardScene extends Phaser.Scene {
 
     this.hardClearDrag();
     const delta = animation.delta;
+    const baseline = this.snapshot ?? nextSnapshot;
+    const clearedKeys = clearedKeysFromDelta(delta);
     if (delta.moves.length === 0 && delta.spawns.length === 0) {
-      this.snapshot = nextSnapshot;
-      this.renderSnapshot();
-      this.playDeltaEffects(delta);
-      this.finishAnimation();
+      const finish = () => {
+        this.snapshot = nextSnapshot;
+        this.renderSnapshot();
+        this.playDeltaEffects(delta, clearedKeys);
+        this.finishAnimation();
+      };
+      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish);
+      else finish();
       return;
     }
-    // Use the current snapshot as the "post-clear" baseline. For tap/booster paths
-    // there were no clears in this delta tick, so post-clear equals current.
-    const baseline = this.snapshot ?? nextSnapshot;
-    const postClear = buildPostClearSnapshot(baseline, new Set());
-    this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
-      this.playDeltaEffects(delta);
-      this.finishAnimation();
-    });
+    const runCascade = () => {
+      const postClear = buildPostClearSnapshot(baseline, clearedKeys);
+      this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
+        this.playDeltaEffects(delta, clearedKeys);
+        this.finishAnimation();
+      });
+    };
+    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade);
+    else runCascade();
+  }
+
+  private recordTilePopAnimation(count: number): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwTilePopAnimationCount?: number };
+    target.__gwTilePopAnimationCount = (target.__gwTilePopAnimationCount ?? 0) + count;
   }
 
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
@@ -555,6 +569,7 @@ export class BoardScene extends Phaser.Scene {
 
     this.snapshot = sourceSnapshot;
     this.renderSnapshot(popKeys);
+    this.recordTilePopAnimation(popKeys.size);
     const positions: GridPosition[] = [];
     for (const position of sourceSnapshot.grid.allPositions) {
       if (popKeys.has(positionKey(position))) positions.push(position);
