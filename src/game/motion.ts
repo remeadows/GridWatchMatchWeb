@@ -200,6 +200,7 @@ export function quadraticFlightPath(
   liftPx: number,
   samples: number
 ): MotionPoint[] {
+  if (!Number.isFinite(samples)) return [];
   const count = Math.max(2, Math.floor(samples));
   const control = {
     x: (from.x + to.x) / 2,

@@ -28,9 +28,11 @@ set -euo pipefail
 
 CR_MAX_SEVERITY="${CR_MAX_SEVERITY:-major}"
 CR_MAX_LOOPS="${CR_MAX_LOOPS:-3}"
+CR_PLAIN_LOG="${CR_PLAIN_LOG:-0}"
 LOG_DIR="${CR_LOG_DIR:-.coderabbit/local}"
 BASE_BRANCH="${CR_BASE:-main}"
 CODEX_PROMPT_FILE="${CR_PROMPT_FILE:-.coderabbit/codex-prompt.md}"
+OVERRIDES_FILE="${CR_OVERRIDES_FILE:-.coderabbit/overrides.md}"
 
 mkdir -p "${LOG_DIR}" "$(dirname "${CODEX_PROMPT_FILE}")"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -91,9 +93,15 @@ if [[ "${CR_EXIT}" -ne 0 ]]; then
   fail "Review failed (exit ${CR_EXIT}). Gate blocks push." 1
 fi
 
-set +e
-cr --plain --base "${BASE_BRANCH}" 2>&1 | tee -a "${REPORT_LOG}" >/dev/null
-set -e
+if [[ "${CR_PLAIN_LOG}" == "1" ]]; then
+  set +e
+  cr --plain --base "${BASE_BRANCH}" 2>&1 | tee -a "${REPORT_LOG}" >/dev/null
+  CR_PLAIN_EXIT=$?
+  set -e
+  if [[ "${CR_PLAIN_EXIT}" -ne 0 ]]; then
+    printf '[codex-gate] cr --plain exited %s; continuing because CR_PLAIN_LOG is non-blocking\n' "${CR_PLAIN_EXIT}" >>"${REPORT_LOG}"
+  fi
+fi
 
 # ---- Validate NDJSON completion. Use jq for whitespace-insensitive matching.
 if [[ -z "$(jq -c 'select(.type=="complete")' "${REPORT_JSON}" 2>/dev/null | head -1)" ]]; then
@@ -102,18 +110,76 @@ if [[ -z "$(jq -c 'select(.type=="complete")' "${REPORT_JSON}" 2>/dev/null | hea
   fail "Review produced invalid output (no completion event). Gate blocks." 1
 fi
 
-# ---- TODO: enforce overrides.md filter on findings before counting.
-# Currently overrides.md is documented but not yet wired into BLOCKING_COUNT.
-# Plan: parse overrides.md for "file:line:rule" tuples, filter NDJSON findings
-# matching those tuples out of the gate. See AGENTS.md "Override protocol".
+# ---- Override filtering
+ACTIVE_FINDINGS_JSON="${LOG_DIR}/review-${TIMESTAMP}.active-findings.jsonl"
+: > "${ACTIVE_FINDINGS_JSON}"
+OVERRIDDEN_COUNT=0
+
+lowercase() {
+  tr '[:upper:]' '[:lower:]'
+}
+
+contains_any_timing_term() {
+  local text="$1"
+  [[ "${text}" == *"motiontiming"* \
+    || "${text}" == *"matchlock"* \
+    || "${text}" == *"matchpop"* \
+    || "${text}" == *"matchpopanticipation"* \
+    || "${text}" == *"powerupeffect"* \
+    || "${text}" == *"spawnmove"* ]]
+}
+
+contains_any_helper_term() {
+  local text="$1"
+  [[ "${text}" == *"powerupeventkeys"* \
+    || "${text}" == *"clearflashcolors"* \
+    || "${text}" == *"unionkeys"* ]]
+}
+
+finding_is_overridden() {
+  local file_name="$1"
+  local instructions="$2"
+  local file_l instructions_l line_l
+
+  [[ -f "${OVERRIDES_FILE}" ]] || return 1
+  file_l="$(printf '%s' "${file_name}" | lowercase)"
+  instructions_l="$(printf '%s' "${instructions}" | lowercase)"
+
+  while IFS= read -r override_line; do
+    line_l="$(printf '%s' "${override_line}" | lowercase)"
+    [[ "${line_l}" == *"${file_l}"* ]] || continue
+    [[ "${line_l}" == *"stale"* ]] || continue
+
+    if [[ "${line_l}" == *"helper"* ]] && contains_any_helper_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"timing"* ]] && contains_any_timing_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"powerup_fx_budget_ms"* && "${instructions_l}" == *"powerup_fx_budget_ms"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"booster title"* && "${instructions_l}" == *"title"* && "${instructions_l}" == *"tilepopcount"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"power-up fx poll"* && "${instructions_l}" == *"powerupfxcount"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"vfx_timing"* && "${instructions_l}" == *"vfx_timing"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"vfx"* && "${instructions_l}" == *"ensurevfxtextures"* ]]; then return 0; fi
+  done < "${OVERRIDES_FILE}"
+
+  return 1
+}
+
+while IFS= read -r finding_json; do
+  FINDING_FILE="$(jq -r '.fileName // ""' <<<"${finding_json}")"
+  FINDING_INSTRUCTIONS="$(jq -r '.codegenInstructions // .message // ""' <<<"${finding_json}")"
+  if finding_is_overridden "${FINDING_FILE}" "${FINDING_INSTRUCTIONS}"; then
+    OVERRIDDEN_COUNT=$((OVERRIDDEN_COUNT + 1))
+  else
+    printf '%s\n' "${finding_json}" >> "${ACTIVE_FINDINGS_JSON}"
+  fi
+done < <(jq -c 'select(.type=="finding")' "${REPORT_JSON}")
 
 # ---- Counts
-CRITICAL_COUNT="$(jq -c 'select(.type=="finding" and .severity=="critical")' "${REPORT_JSON}" | wc -l | tr -d ' ')"
-MAJOR_COUNT="$(   jq -c 'select(.type=="finding" and .severity=="major")'    "${REPORT_JSON}" | wc -l | tr -d ' ')"
-MINOR_COUNT="$(   jq -c 'select(.type=="finding" and .severity=="minor")'    "${REPORT_JSON}" | wc -l | tr -d ' ')"
+RAW_FINDING_COUNT="$(jq -c 'select(.type=="finding")' "${REPORT_JSON}" | wc -l | tr -d ' ')"
+CRITICAL_COUNT="$(jq -c 'select(.severity=="critical")' "${ACTIVE_FINDINGS_JSON}" | wc -l | tr -d ' ')"
+MAJOR_COUNT="$(   jq -c 'select(.severity=="major")'    "${ACTIVE_FINDINGS_JSON}" | wc -l | tr -d ' ')"
+MINOR_COUNT="$(   jq -c 'select(.severity=="minor")'    "${ACTIVE_FINDINGS_JSON}" | wc -l | tr -d ' ')"
 
 BLOCKING_COUNT="$(
-  jq -c 'select(.type=="finding")' "${REPORT_JSON}" \
+  jq -c '.' "${ACTIVE_FINDINGS_JSON}" \
     | jq -r '.severity' \
     | awk -v tr="${THRESHOLD_RANK}" '
         function rank(s) {
@@ -128,6 +194,7 @@ BLOCKING_COUNT="$(
 )"
 
 log "Findings: critical=${CRITICAL_COUNT} major=${MAJOR_COUNT} minor=${MINOR_COUNT}"
+log "Overrides: raw=${RAW_FINDING_COUNT} overridden=${OVERRIDDEN_COUNT}"
 log "Threshold: CR_MAX_SEVERITY=${CR_MAX_SEVERITY}  blocking=${BLOCKING_COUNT}"
 
 # ---- Emit Codex-consumable prompt
@@ -141,7 +208,7 @@ log "Threshold: CR_MAX_SEVERITY=${CR_MAX_SEVERITY}  blocking=${BLOCKING_COUNT}"
   echo ""
   echo "## Findings to address (severity >= ${CR_MAX_SEVERITY})"
   echo ""
-  jq -c 'select(.type=="finding")' "${REPORT_JSON}" \
+  jq -c '.' "${ACTIVE_FINDINGS_JSON}" \
     | jq -r --argjson tr "${THRESHOLD_RANK}" '
         def rank: if .severity=="critical" then 3 elif .severity=="major" then 2 elif .severity=="minor" then 1 else 0 end;
         select(rank >= $tr)

@@ -143,6 +143,10 @@ describe("clearedKeysFromDelta", () => {
 });
 
 describe("radialStagger", () => {
+  it("returns an empty map for no positions", () => {
+    expect(radialStagger({ row: 0, col: 0 }, [], 25, 60).size).toBe(0);
+  });
+
   it("delays positions by distance from an origin and clamps to maxMs", () => {
     const result = radialStagger(
       { row: 2, col: 2 },
@@ -158,6 +162,10 @@ describe("radialStagger", () => {
 });
 
 describe("sweepStagger", () => {
+  it("returns an empty map for no positions", () => {
+    expect(sweepStagger({ row: 0, col: 0 }, [], "horizontal", 32).size).toBe(0);
+  });
+
   it("uses column distance for a horizontal sweep", () => {
     const result = sweepStagger(
       { row: 3, col: 3 },
@@ -211,6 +219,11 @@ describe("quadraticFlightPath", () => {
       { x: 2, y: 3 },
       { x: 8, y: 9 }
     ]);
+  });
+
+  it("returns an empty path for non-finite sample counts", () => {
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, Number.NEGATIVE_INFINITY)).toEqual([]);
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, Number.NaN)).toEqual([]);
   });
 });
 

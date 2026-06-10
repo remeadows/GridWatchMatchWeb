@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { VFX_TIMING } from "./vfxTiming";
 
 export const vfxTextureKeys = {
   spark: "vfx-spark",
@@ -64,12 +65,12 @@ export function burst(
     lifespan: options.lifespanMs,
     rotate: { min: -180, max: 180 },
     scale: { start: options.scale, end: 0 },
-    speed: { min: options.speed * 0.35, max: options.speed },
+    speed: { min: options.speed * VFX_TIMING.PARTICLE_MIN_SPEED_RATIO, max: options.speed },
     tint: options.tint
   });
   layer.add(emitter);
   emitter.explode(options.count, x, y);
-  scene.time.delayedCall(options.lifespanMs + 80, () => emitter.destroy());
+  scene.time.delayedCall(options.lifespanMs + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS, () => emitter.destroy());
   return emitter;
 }
 

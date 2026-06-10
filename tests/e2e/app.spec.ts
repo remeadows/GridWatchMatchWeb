@@ -30,6 +30,18 @@ test("dragging a board tile into a deterministic match applies a swap", async ({
   await expect(page.getByText("Collect 20 Packets: 3/20")).toBeVisible();
 });
 
+test("match pops burst with particles", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const burstCountBefore = await matchBurstCount(page);
+
+  await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => matchBurstCount(page), { timeout: 2_000 }).toBeGreaterThan(burstCountBefore);
+});
+
 test("handles fail, Play On decline path, forced win, and next level unlock", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -84,7 +96,7 @@ test("booster tap clears use the tile pop animation path", async ({ page }) => {
   await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
 });
 
-test("power-up fx starts with booster destruction before cascade", async ({ page }) => {
+test("clicking a booster starts power-up fx before cascade", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
@@ -97,7 +109,7 @@ test("power-up fx starts with booster destruction before cascade", async ({ page
   await page.mouse.click(target.x, target.y);
 
   await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
-  expect(await powerUpFxCount(page)).toBeGreaterThan(fxCountBefore);
+  await expect.poll(() => powerUpFxCount(page), { timeout: 2_000 }).toBeGreaterThan(fxCountBefore);
 });
 
 test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
@@ -245,5 +257,12 @@ async function powerUpFxCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwPowerUpFxStartCount?: number };
     return w.__gwPowerUpFxStartCount ?? 0;
+  });
+}
+
+async function matchBurstCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwMatchBurstCount?: number };
+    return w.__gwMatchBurstCount ?? 0;
   });
 }

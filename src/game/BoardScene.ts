@@ -16,6 +16,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
+import { burst, ensureVfxTextures, shake, vfxTextureKeys } from "./vfx";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -86,6 +87,14 @@ const tileImageKeys: Record<TileType, string> = {
   zeroDay: "tile-zeroDay"
 };
 
+const tileVfxTints: Record<TileType, number> = {
+  packet: 0x37d9ff,
+  firewall: 0xffa02e,
+  key: 0xa7ff6b,
+  threat: 0xff3f6e,
+  zeroDay: 0xded2ff
+};
+
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
   rocket_vertical: "powerup-rocketV",
@@ -113,6 +122,12 @@ const MATCH_POP_STAGGER_MAX_MS = 110;
 const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
 const INVALID_SWAP_SQUASH_SCALE = 0.94;
 
+const MATCH_POP_MS = 190;
+const MATCH_POP_ANTICIPATION_MS = 70;
+const MATCH_LOCK_MS = 140;
+const POWERUP_EFFECT_MS = 560;
+const SPAWN_MOVE_MS = 390;
+
 const motionTiming = {
   blockedJiggle: 72,
   blockedFlash: 230,
@@ -129,23 +144,25 @@ const motionTiming = {
   invalidSwap: 170,
   // Brief beat to register the match, then the tiles blow up. Kept short so the
   // board does not feel like it stalls before clearing.
-  matchLock: 140,
-  matchPop: 190,
-  matchPopAnticipation: 70,
-  powerUpEffect: 560,
+  matchLock: MATCH_LOCK_MS,
+  matchPop: MATCH_POP_MS,
+  matchPopAnticipation: MATCH_POP_ANTICIPATION_MS,
+  powerUpEffect: POWERUP_EFFECT_MS,
   snapBack: 150,
   spawnFlash: 230,
-  spawnMove: 390,
+  spawnMove: SPAWN_MOVE_MS,
   swap: 210
 } as const;
 
-export const POWERUP_FX_BUDGET_MS = motionTiming.powerUpEffect;
+// Mirrors the iOS BoardNode.swift animatePowerUpEvents/animateSinglePowerUpEvent
+// wall-clock budget, rounded up so queued actions do not clear FX early.
+export const POWERUP_FX_BUDGET_MS = POWERUP_EFFECT_MS;
 
 const CLEAR_AND_CASCADE_BUDGET_MS =
   MATCH_POP_STAGGER_MAX_MS +
-  motionTiming.matchPopAnticipation +
-  motionTiming.matchPop +
-  motionTiming.spawnMove;
+  MATCH_POP_ANTICIPATION_MS +
+  MATCH_POP_MS +
+  SPAWN_MOVE_MS;
 
 // Worst-case wall-clock for one resolved swap's animation chain: swap settle →
 // match lock → the slower of clear/cascade animation or power-up FX. The action
@@ -155,7 +172,7 @@ const CLEAR_AND_CASCADE_BUDGET_MS =
 // those timings change.
 export const RESOLVE_ANIMATION_BUDGET_MS =
   motionTiming.swap +
-  motionTiming.matchLock +
+  MATCH_LOCK_MS +
   Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
@@ -210,6 +227,7 @@ export class BoardScene extends Phaser.Scene {
   create(): void {
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
+    ensureVfxTextures(this);
     this.installDomPointerHandlers();
     this.scale.on("resize", () => {
       this.hardClearDrag();
@@ -367,8 +385,11 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
+    this.playResolvedNonSwapAnimation(nextSnapshot, animation.delta);
+  }
+
+  private playResolvedNonSwapAnimation(nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
     this.hardClearDrag();
-    const delta = animation.delta;
     const baseline = this.snapshot ?? nextSnapshot;
     const clearedKeys = clearedKeysFromDelta(delta);
     const flashColors = clearFlashColors(delta);
@@ -594,14 +615,15 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const stagger = computeCentroidStagger(positions, { perUnitMs: 28, maxMs: MATCH_POP_STAGGER_MAX_MS });
-    const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition }[] = [];
+    const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition; tint: number }[] = [];
     for (const position of positions) {
-      const object = this.addOccupant(position, sourceSnapshot.grid.get(position), this.fxLayer, 1);
+      const cell = sourceSnapshot.grid.get(position);
+      const object = this.addOccupant(position, cell, this.fxLayer, 1);
       if (!object) continue;
       const delay = stagger.get(positionKey(position)) ?? 0;
-      popObjects.push({ object, delay, position });
+      popObjects.push({ object, delay, position, tint: cell.baseTile ? tileVfxTints[cell.baseTile] : 0x9bfff2 });
       const key = positionKey(position);
-      this.flashCell(position, flashColors.get(key) ?? 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation, delay);
+      this.flashCell(position, flashColors.get(key) ?? 0xf7d154, MATCH_POP_MS + MATCH_POP_ANTICIPATION_MS, delay);
     }
 
     if (popObjects.length === 0) {
@@ -611,16 +633,20 @@ export class BoardScene extends Phaser.Scene {
 
     let remaining = popObjects.length;
     const seed = this.snapshot?.rngSeed ?? "0";
+    if (popObjects.length >= 4) {
+      shake(this, popObjects.length >= 5 ? 0.006 : 0.004, 130, this.reducedMotion);
+    }
     for (const entry of popObjects) {
       const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
       const startPop = () => {
+        this.playMatchBurst(entry.object, entry.tint);
         // Quick anticipation squash, then the tile blows up: scales OUTWARD past
         // the cell while fading, instead of shrinking away.
         this.tweens.add({
           targets: entry.object,
           scaleX: 0.86,
           scaleY: 0.86,
-          duration: motionTiming.matchPopAnticipation,
+          duration: MATCH_POP_ANTICIPATION_MS,
           ease: "Sine.easeOut",
           onComplete: () => {
             this.tweens.add({
@@ -629,7 +655,7 @@ export class BoardScene extends Phaser.Scene {
               scaleX: MATCH_BURST_SCALE,
               scaleY: MATCH_BURST_SCALE,
               angle,
-              duration: motionTiming.matchPop,
+              duration: MATCH_POP_MS,
               ease: "Quad.easeOut",
               onComplete: () => {
                 entry.object.destroy();
@@ -643,6 +669,40 @@ export class BoardScene extends Phaser.Scene {
       if (entry.delay > 0) this.time.delayedCall(entry.delay, startPop);
       else startPop();
     }
+  }
+
+  private playMatchBurst(object: Phaser.GameObjects.Container, tint: number): void {
+    if (!this.fxLayer) return;
+    this.recordMatchBurst();
+    burst(this, this.fxLayer, object.x, object.y, {
+      texture: vfxTextureKeys.spark,
+      count: 10,
+      speed: this.tileSize * 2.4,
+      lifespanMs: 260,
+      tint,
+      scale: Math.max(0.35, this.tileSize / 140)
+    });
+    const glow = this.add.graphics();
+    glow.fillStyle(tint, 0.28);
+    glow.fillCircle(0, 0, this.tileSize * 0.42);
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    object.addAt(glow, 0);
+    this.tweens.add({
+      targets: glow,
+      alpha: 0,
+      scaleX: 1.35,
+      scaleY: 1.35,
+      duration: MATCH_POP_ANTICIPATION_MS + 90,
+      ease: "Sine.easeOut",
+      onComplete: () => glow.destroy()
+    });
+  }
+
+  private recordMatchBurst(): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwMatchBurstCount?: number };
+    target.__gwMatchBurstCount = (target.__gwMatchBurstCount ?? 0) + 1;
   }
 
   private playCascadeAndSpawn(

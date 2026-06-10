@@ -1,0 +1,4 @@
+export const VFX_TIMING = {
+  PARTICLE_MIN_SPEED_RATIO: 0.35,
+  EMITTER_CLEANUP_BUFFER_MS: 80
+} as const;
