@@ -84,6 +84,22 @@ test("booster tap clears use the tile pop animation path", async ({ page }) => {
   await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
 });
 
+test("power-up fx starts with booster destruction before cascade", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const popCountBefore = await tilePopCount(page);
+  const fxCountBefore = await powerUpFxCount(page);
+
+  const booster = page.getByTestId("booster-tnt");
+  await booster.click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
+  expect(await powerUpFxCount(page)).toBeGreaterThan(fxCountBefore);
+});
+
 test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -222,5 +238,12 @@ async function tilePopCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwTilePopAnimationCount?: number };
     return w.__gwTilePopAnimationCount ?? 0;
+  });
+}
+
+async function powerUpFxCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPowerUpFxStartCount?: number };
+    return w.__gwPowerUpFxStartCount ?? 0;
   });
 }

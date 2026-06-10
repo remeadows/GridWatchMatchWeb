@@ -139,19 +139,24 @@ const motionTiming = {
   swap: 210
 } as const;
 
-// Worst-case wall-clock for one resolved swap's animation chain: swap settle →
-// match lock → pop (max centroid stagger + anticipation + pop) → cascade/spawn
-// fall+settle. The action queue must pace SLOWER than this so a queued action
-// never starts while the previous BoardScene tweens are still running (which
-// would render over in-flight pops/cascades). Derived from motionTiming so it
-// stays correct when those timings change.
-export const RESOLVE_ANIMATION_BUDGET_MS =
-  motionTiming.swap +
-  motionTiming.matchLock +
+export const POWERUP_FX_BUDGET_MS = motionTiming.powerUpEffect;
+
+const CLEAR_AND_CASCADE_BUDGET_MS =
   MATCH_POP_STAGGER_MAX_MS +
   motionTiming.matchPopAnticipation +
   motionTiming.matchPop +
-  motionTiming.spawnMove +
+  motionTiming.spawnMove;
+
+// Worst-case wall-clock for one resolved swap's animation chain: swap settle →
+// match lock → the slower of clear/cascade animation or power-up FX. The action
+// queue must pace SLOWER than this so a queued action never starts while the
+// previous BoardScene tweens are still running (which would render over in-flight
+// pops/cascades/FX). Derived from named timing constants so it stays correct when
+// those timings change.
+export const RESOLVE_ANIMATION_BUDGET_MS =
+  motionTiming.swap +
+  motionTiming.matchLock +
+  Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
 // Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
@@ -366,6 +371,8 @@ export class BoardScene extends Phaser.Scene {
     const delta = animation.delta;
     const baseline = this.snapshot ?? nextSnapshot;
     const clearedKeys = clearedKeysFromDelta(delta);
+    const flashColors = clearFlashColors(delta);
+    if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
     if (delta.moves.length === 0 && delta.spawns.length === 0) {
       const finish = () => {
         this.snapshot = nextSnapshot;
@@ -373,7 +380,7 @@ export class BoardScene extends Phaser.Scene {
         this.playDeltaEffects(delta, clearedKeys);
         this.finishAnimation();
       };
-      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish);
+      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors);
       else finish();
       return;
     }
@@ -384,7 +391,7 @@ export class BoardScene extends Phaser.Scene {
         this.finishAnimation();
       });
     };
-    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade);
+    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors);
     else runCascade();
   }
 
@@ -398,15 +405,17 @@ export class BoardScene extends Phaser.Scene {
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
     this.snapshot = postSwapSnapshot;
     this.renderSnapshot();
-    const popKeys = initialMatchKeys(postSwapSnapshot);
+    const popKeys = unionKeys(initialMatchKeys(postSwapSnapshot), powerUpEventKeys(delta));
+    const flashColors = clearFlashColors(delta);
     this.time.delayedCall(motionTiming.matchLock, () => {
+      if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
       this.playTilePops(postSwapSnapshot, popKeys, () => {
         const postClear = buildPostClearSnapshot(postSwapSnapshot, popKeys);
         this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
           this.playDeltaEffects(delta, popKeys);
           this.finishAnimation();
         });
-      });
+      }, flashColors);
     });
   }
 
@@ -555,13 +564,22 @@ export class BoardScene extends Phaser.Scene {
 
   private playDeltaEffects(delta: BoardDelta, skipClearKeys = new Set<string>()): void {
     if (this.reducedMotion) return;
-    for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
     for (const clear of delta.clears) {
       if (!skipClearKeys.has(positionKey(clear.position))) this.flashCell(clear.position, clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154, motionTiming.clearFlash);
     }
   }
 
-  private playTilePops(sourceSnapshot: BoardSnapshot, popKeys: Set<string>, onComplete: () => void): void {
+  private playPowerUpEffects(delta: BoardDelta): void {
+    if (this.reducedMotion) return;
+    for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
+  }
+
+  private playTilePops(
+    sourceSnapshot: BoardSnapshot,
+    popKeys: Set<string>,
+    onComplete: () => void,
+    flashColors = new Map<string, number>()
+  ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onComplete();
       return;
@@ -582,7 +600,8 @@ export class BoardScene extends Phaser.Scene {
       if (!object) continue;
       const delay = stagger.get(positionKey(position)) ?? 0;
       popObjects.push({ object, delay, position });
-      this.flashCell(position, 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation);
+      const key = positionKey(position);
+      this.flashCell(position, flashColors.get(key) ?? 0xf7d154, motionTiming.matchPop + motionTiming.matchPopAnticipation, delay);
     }
 
     if (popObjects.length === 0) {
@@ -730,6 +749,7 @@ export class BoardScene extends Phaser.Scene {
 
   private playPowerUpEffect(event: PowerUpEvent): void {
     if (!this.fxLayer) return;
+    this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
     const graphics = this.add.graphics();
     this.fxLayer.add(graphics);
@@ -762,28 +782,39 @@ export class BoardScene extends Phaser.Scene {
     this.tweens.add({
       targets: graphics,
       alpha: 0,
-      duration: motionTiming.powerUpEffect,
+      duration: POWERUP_FX_BUDGET_MS,
       ease: "Sine.easeOut",
       onComplete: () => graphics.destroy()
     });
   }
 
-  private flashCell(position: GridPosition, color: number, duration: number): void {
-    if (!this.fxLayer || !this.snapshot?.grid.isValid(position)) return;
-    const topLeft = this.cellTopLeft(position);
-    const pulse = this.add.graphics();
-    pulse.lineStyle(3, color, 0.95);
-    pulse.strokeRoundedRect(topLeft.x + 7, topLeft.y + 7, this.tileSize - 14, this.tileSize - 14, Math.max(6, this.tileSize * 0.1));
-    this.fxLayer.add(pulse);
-    this.tweens.add({
-      targets: pulse,
-      alpha: 0,
-      scaleX: 1.14,
-      scaleY: 1.14,
-      duration,
-      ease: "Sine.easeOut",
-      onComplete: () => pulse.destroy()
-    });
+  private recordPowerUpFxStart(): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwPowerUpFxStartCount?: number };
+    target.__gwPowerUpFxStartCount = (target.__gwPowerUpFxStartCount ?? 0) + 1;
+  }
+
+  private flashCell(position: GridPosition, color: number, duration: number, delay = 0): void {
+    const run = () => {
+      if (!this.fxLayer || !this.snapshot?.grid.isValid(position)) return;
+      const topLeft = this.cellTopLeft(position);
+      const pulse = this.add.graphics();
+      pulse.lineStyle(3, color, 0.95);
+      pulse.strokeRoundedRect(topLeft.x + 7, topLeft.y + 7, this.tileSize - 14, this.tileSize - 14, Math.max(6, this.tileSize * 0.1));
+      this.fxLayer.add(pulse);
+      this.tweens.add({
+        targets: pulse,
+        alpha: 0,
+        scaleX: 1.14,
+        scaleY: 1.14,
+        duration,
+        ease: "Sine.easeOut",
+        onComplete: () => pulse.destroy()
+      });
+    };
+    if (delay > 0) this.time.delayedCall(delay, run);
+    else run();
   }
 
   private addOccupant(position: GridPosition, cell: CellState, targetLayer: Phaser.GameObjects.Container, alpha: number): Phaser.GameObjects.Container | null {
@@ -1370,6 +1401,31 @@ function initialMatchKeys(snapshot: BoardSnapshot): Set<string> {
     for (const key of group.positions) keys.add(key);
   }
   return keys;
+}
+
+function powerUpEventKeys(delta: BoardDelta): Set<string> {
+  const keys = new Set<string>();
+  for (const event of delta.powerUpEvents) {
+    keys.add(positionKey(event.origin));
+    for (const position of event.affectedPositions) keys.add(positionKey(position));
+  }
+  return keys;
+}
+
+function clearFlashColors(delta: BoardDelta): Map<string, number> {
+  const colors = new Map<string, number>();
+  for (const clear of delta.clears) {
+    colors.set(positionKey(clear.position), clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154);
+  }
+  return colors;
+}
+
+function unionKeys(...sets: ReadonlyArray<ReadonlySet<string>>): Set<string> {
+  const result = new Set<string>();
+  for (const set of sets) {
+    for (const key of set) result.add(key);
+  }
+  return result;
 }
 
 function emptyVisualCell(tileType: TileType): CellState {
