@@ -6,7 +6,11 @@ import { cascadeHiddenDestinations } from "../game/motion";
 import { clearedKeysFromDelta } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
+import { quadraticFlightPath } from "../game/motion";
+import { radialStagger } from "../game/motion";
+import { rowDestructionOrder } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
+import { sweepStagger } from "../game/motion";
 
 describe("computeCentroidStagger", () => {
   it("returns an empty map for no positions", () => {
@@ -135,6 +139,78 @@ describe("clearedKeysFromDelta", () => {
     ];
 
     expect(clearedKeysFromDelta(delta)).toEqual(new Set(["2,5"]));
+  });
+});
+
+describe("radialStagger", () => {
+  it("delays positions by distance from an origin and clamps to maxMs", () => {
+    const result = radialStagger(
+      { row: 2, col: 2 },
+      [{ row: 2, col: 2 }, { row: 2, col: 3 }, { row: 2, col: 5 }],
+      25,
+      60
+    );
+
+    expect(result.get("2,2")).toBe(0);
+    expect(result.get("2,3")).toBe(25);
+    expect(result.get("2,5")).toBe(60);
+  });
+});
+
+describe("sweepStagger", () => {
+  it("uses column distance for a horizontal sweep", () => {
+    const result = sweepStagger(
+      { row: 3, col: 3 },
+      [{ row: 3, col: 1 }, { row: 3, col: 3 }, { row: 3, col: 6 }],
+      "horizontal",
+      32
+    );
+
+    expect(result.get("3,3")).toBe(0);
+    expect(result.get("3,1")).toBe(64);
+    expect(result.get("3,6")).toBe(96);
+  });
+
+  it("uses row distance for a vertical sweep", () => {
+    const result = sweepStagger(
+      { row: 4, col: 2 },
+      [{ row: 1, col: 2 }, { row: 4, col: 2 }, { row: 6, col: 2 }],
+      "vertical",
+      40
+    );
+
+    expect(result.get("4,2")).toBe(0);
+    expect(result.get("1,2")).toBe(120);
+    expect(result.get("6,2")).toBe(80);
+  });
+});
+
+describe("rowDestructionOrder", () => {
+  it("returns rows bottom-to-top", () => {
+    expect(rowDestructionOrder(5)).toEqual([4, 3, 2, 1, 0]);
+  });
+
+  it("returns an empty order for no rows", () => {
+    expect(rowDestructionOrder(0)).toEqual([]);
+  });
+});
+
+describe("quadraticFlightPath", () => {
+  it("samples an upward quadratic arc including endpoints", () => {
+    const path = quadraticFlightPath({ x: 0, y: 0 }, { x: 10, y: 0 }, 5, 3);
+
+    expect(path).toEqual([
+      { x: 0, y: 0 },
+      { x: 5, y: -5 },
+      { x: 10, y: 0 }
+    ]);
+  });
+
+  it("returns endpoints when samples is below the minimum arc count", () => {
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, 1)).toEqual([
+      { x: 2, y: 3 },
+      { x: 8, y: 9 }
+    ]);
   });
 });
 
