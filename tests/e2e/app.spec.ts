@@ -1,6 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { GAMEPLAY_POLL_TIMEOUT_MS } from "../../src/data/gameplayTiming";
 
+const BOARD_READY_TIMEOUT_MS = 5_000;
+
 test.beforeEach(async ({ page }) => {
   await clearStorage(page);
 });
@@ -290,7 +292,7 @@ async function waitForBoardReady(page: Page): Promise<void> {
       __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
     };
     return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
-  });
+  }, { timeout: BOARD_READY_TIMEOUT_MS });
 }
 
 async function boardCellPoint(page: Page, position: { row: number; col: number }): Promise<{ x: number; y: number }> {

@@ -60,9 +60,12 @@ export function burst(
   y: number,
   options: BurstOptions
 ): void {
-  assertPositiveFinite("count", options.count);
-  assertPositiveFinite("speed", options.speed);
-  assertPositiveFinite("lifespanMs", options.lifespanMs);
+  if (!layer) return;
+  assertPositiveFinite("burst", "count", options.count);
+  assertPositiveFinite("burst", "speed", options.speed);
+  assertPositiveFinite("burst", "lifespanMs", options.lifespanMs);
+  assertPositiveFinite("burst", "scale", options.scale);
+  assertFinite("burst", "tint", options.tint);
   ensureVfxTextures(scene);
   const emitter = scene.add.particles(x, y, options.texture, {
     alpha: { start: 1, end: 0 },
@@ -86,6 +89,10 @@ export function shockwave(
   y: number,
   options: ShockwaveOptions
 ): void {
+  if (!layer) return;
+  assertPositiveFinite("shockwave", "radiusPx", options.radiusPx);
+  assertPositiveFinite("shockwave", "durationMs", options.durationMs);
+  assertFinite("shockwave", "tint", options.tint);
   const ring = scene.add.graphics();
   ring.setPosition(x, y);
   ring.setScale(VFX_TIMING.SHOCKWAVE_INITIAL_SCALE);
@@ -112,8 +119,14 @@ export function shake(scene: Phaser.Scene, intensity: number, durationMs: number
   camera.shake(durationMs, intensity);
 }
 
-function assertPositiveFinite(name: string, value: number): void {
+function assertPositiveFinite(scope: string, name: string, value: number): void {
   if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`Invalid VFX burst ${name}: expected a positive finite number`);
+    throw new Error(`Invalid VFX ${scope} ${name} (${value}): expected a positive finite number`);
+  }
+}
+
+function assertFinite(scope: string, name: string, value: number): void {
+  if (!Number.isFinite(value)) {
+    throw new Error(`Invalid VFX ${scope} ${name} (${value}): expected a finite number`);
   }
 }
