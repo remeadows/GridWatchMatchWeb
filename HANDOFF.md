@@ -1,6 +1,6 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-06-04
+Last updated: 2026-06-11
 
 ## Current Status
 
@@ -12,6 +12,12 @@ The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`.
 
 ## Latest Work Completed
 
+- VFX overhaul Task 8:
+  - Board renderer now has named board chrome and per-tile identity palettes.
+  - Tiles render with subtle per-type backplates plus 1-2 px neon rims on the real occupant containers, so drag/swap/VFX paths carry the same identity coding.
+  - `npm run sync:assets` preserves `public/assets/images/web-overrides/` and resolves matching override files into the generated manifest while falling back to synced iOS art.
+  - Asset sync now validates image manifest coverage against `imageCopies` and writes text-only source checksum state to `src/data/assetSyncState.generated.json`.
+  - `docs/art/cyberpunk-asset-spec.md` defines the realistic cyberpunk art direction, exact override filenames, and generation prompts. No binary override art was added.
 - Closed motion-feel gap with the iOS Swift reference:
   - Cascade and spawn now animate the real occupant containers with a two-phase fall+settle curve. The previous ghost-fade-to-zero path is removed.
   - Match pops are staggered by centroid distance so clears read as a wave.
@@ -30,6 +36,17 @@ Last full verification after the motion-parity commits:
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.
 - `npm audit --audit-level=high`: passed, 0 vulnerabilities.
+
+Task 8 verification on 2026-06-11:
+
+- Failing test first: `npx vitest run src/tests/assets.test.ts` failed before `src/data/assetOverrides.ts` existed.
+- `npx vitest run src/tests/assets.test.ts`: passed, 4 tests.
+- `npm run sync:assets`: passed from the local iOS source. The run copied source raster files locally, but those out-of-scope binary diffs were discarded before commit.
+- `npm run test`: passed, 149 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 34 tests.
+- Manual screenshot check: level 54 on desktop and mobile showed all five base tile types with distinguishable identity colors; zeroDay reads violet-white and separates from cyan packet.
 
 ### Flake-prone tests: 20-run methodology required
 
@@ -95,6 +112,8 @@ Previously flaky drag-test loop from supervisor verification:
 - `PLAN.md`: original web port implementation plan.
 - `src/game/BoardScene.ts`: Phaser board rendering, live drag, swap animation, board VFX, booster targeting.
 - `src/App.tsx`: React app flow, HUD, save state, booster tray, store stub.
+- `src/data/assetOverrides.ts`: pure web image override path helper used by tests and mirrored by asset sync.
+- `docs/art/cyberpunk-asset-spec.md`: text-only replacement art direction and exact override filenames.
 - `src/engine/boardEngine.ts`: pure TypeScript board state machine.
 - `tests/e2e/app.spec.ts`: Playwright gameplay and layout coverage.
 

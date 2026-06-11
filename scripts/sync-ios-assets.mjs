@@ -1,20 +1,32 @@
-import { copyFile, mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const defaultSourceRoot = path.resolve(repoRoot, "../GridWatchMatch/GridWatchMatch/GridWatchMatch");
+const defaultSourceRoots = [
+  path.resolve(repoRoot, "../GridWatchMatch/GridWatchMatch/GridWatchMatch"),
+  path.resolve(repoRoot, "../../GridWatchMatch/GridWatchMatch/GridWatchMatch")
+];
+const defaultSourceRoot = defaultSourceRoots.find((candidate) => existsSync(candidate)) ?? defaultSourceRoots[0];
 const sourceRoot = process.env.GRIDWATCH_IOS_SOURCE
   ? path.resolve(process.env.GRIDWATCH_IOS_SOURCE)
   : defaultSourceRoot;
 
 const publicRoot = path.join(repoRoot, "public");
 const imageOut = path.join(publicRoot, "assets/images");
+const imageOverrideOut = path.join(imageOut, "web-overrides");
 const audioOut = path.join(publicRoot, "assets/audio");
 const lottieOut = path.join(publicRoot, "assets/lottie");
 const videoOut = path.join(publicRoot, "assets/video");
 const levelsOut = path.join(publicRoot, "levels");
+const generatedAssetManifestPath = path.join(repoRoot, "src/data/assetManifest.generated.ts");
+const assetSyncStatePath = path.join(repoRoot, "src/data/assetSyncState.generated.json");
+const imageAssetPrefix = "assets/images/";
+const webImageOverridePrefix = "assets/images/web-overrides/";
+const syncedImageDirectories = ["tiles", "powerups", "boosters", "backgrounds", "villains", "heroes", "app"];
 
 const images = {
   tiles: {
@@ -132,6 +144,172 @@ async function exists(filePath) {
   }
 }
 
+async function sha256(filePath) {
+  return createHash("sha256").update(await readFile(filePath)).digest("hex");
+}
+
+function normalizeManifestPath(assetPath) {
+  return assetPath.replace(/^\/+/, "");
+}
+
+function webOverridePath(assetPath) {
+  const normalized = normalizeManifestPath(assetPath);
+  if (!normalized.startsWith(imageAssetPrefix) || normalized.startsWith(webImageOverridePrefix)) {
+    return null;
+  }
+
+  const imageRelativePath = normalized.slice(imageAssetPrefix.length);
+  return imageRelativePath ? `${webImageOverridePrefix}${imageRelativePath}` : null;
+}
+
+async function resolveImageAssetPath(assetPath) {
+  const normalized = normalizeManifestPath(assetPath);
+  const overridePath = webOverridePath(normalized);
+  return overridePath && (await exists(path.join(publicRoot, overridePath))) ? overridePath : normalized;
+}
+
+async function resolveImageManifest(value) {
+  if (typeof value === "string") {
+    return resolveImageAssetPath(value);
+  }
+
+  const resolved = Array.isArray(value) ? [] : {};
+  for (const [key, child] of Object.entries(value)) {
+    resolved[key] = await resolveImageManifest(child);
+  }
+  return resolved;
+}
+
+function flattenImageManifest(value, prefix = [], output = new Map()) {
+  if (typeof value === "string") {
+    output.set(prefix.join("."), normalizeManifestPath(value));
+    return output;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    flattenImageManifest(child, [...prefix, key], output);
+  }
+  return output;
+}
+
+function syncedPathForResolvedPath(assetPath) {
+  const normalized = normalizeManifestPath(assetPath);
+  return normalized.startsWith(webImageOverridePrefix)
+    ? `${imageAssetPrefix}${normalized.slice(webImageOverridePrefix.length)}`
+    : normalized;
+}
+
+function compareSets(expected, actual) {
+  return {
+    missing: [...expected].filter((value) => !actual.has(value)).sort(),
+    orphaned: [...actual].filter((value) => !expected.has(value)).sort()
+  };
+}
+
+function validateImageManifestMapping(resolvedImages) {
+  const expectedDestinations = new Set(imageCopies.map(([, destRelative]) => normalizeManifestPath(destRelative)));
+  const sourceManifestDestinations = new Set([...flattenImageManifest(images).values()]);
+  const resolvedDestinations = new Set(
+    [...flattenImageManifest(resolvedImages).values()].map((resolvedPath) => syncedPathForResolvedPath(resolvedPath))
+  );
+
+  const sourceMismatch = compareSets(expectedDestinations, sourceManifestDestinations);
+  const resolvedMismatch = compareSets(expectedDestinations, resolvedDestinations);
+  const problems = [];
+  if (sourceMismatch.missing.length || sourceMismatch.orphaned.length) {
+    problems.push(
+      `images/imageCopies mismatch: missing=${sourceMismatch.missing.join(", ") || "none"} orphaned=${sourceMismatch.orphaned.join(", ") || "none"}`
+    );
+  }
+  if (resolvedMismatch.missing.length || resolvedMismatch.orphaned.length) {
+    problems.push(
+      `resolvedImages/imageCopies mismatch: missing=${resolvedMismatch.missing.join(", ") || "none"} orphaned=${resolvedMismatch.orphaned.join(", ") || "none"}`
+    );
+  }
+
+  if (problems.length) {
+    throw new Error(`Asset manifest mismatch:\n${problems.join("\n")}`);
+  }
+}
+
+async function readAssetSyncState() {
+  try {
+    return JSON.parse(await readFile(assetSyncStatePath, "utf8"));
+  } catch (error) {
+    if (error && error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function buildImageChecksumState() {
+  const checksums = {};
+  for (const [sourceRelative, destRelative] of imageCopies) {
+    const source = path.join(sourceRoot, sourceRelative);
+    checksums[normalizeManifestPath(destRelative)] = {
+      source: sourceRelative,
+      sha256: await sha256(source)
+    };
+  }
+  return checksums;
+}
+
+function diffAssetSyncState(previousState, resolvedImages, checksums) {
+  const previousManifest = previousState?.images ? flattenImageManifest(previousState.images) : new Map();
+  const currentManifest = flattenImageManifest(resolvedImages);
+  const previousKeys = new Set(previousManifest.keys());
+  const currentKeys = new Set(currentManifest.keys());
+  const added = [...currentKeys].filter((key) => !previousKeys.has(key)).sort();
+  const removed = [...previousKeys].filter((key) => !currentKeys.has(key)).sort();
+  const changed = [];
+  const checksumDrift = [];
+
+  for (const key of [...currentKeys].sort()) {
+    if (!previousKeys.has(key)) continue;
+    const currentPath = currentManifest.get(key);
+    const previousPath = previousManifest.get(key);
+    const syncedPath = syncedPathForResolvedPath(currentPath);
+    const previousChecksum = previousState?.checksums?.[syncedPath]?.sha256;
+    const currentChecksum = checksums[syncedPath]?.sha256;
+    if (previousPath !== currentPath || (previousChecksum && currentChecksum && previousChecksum !== currentChecksum)) {
+      changed.push(key);
+    }
+    if (previousChecksum && currentChecksum && previousChecksum !== currentChecksum) {
+      checksumDrift.push(syncedPath);
+    }
+  }
+
+  return { added, removed, changed, checksumDrift };
+}
+
+function formatAssetList(values) {
+  return values.length ? values.join(", ") : "none";
+}
+
+function printAssetDiffSummary(diff) {
+  console.log(
+    `[sync-assets] Asset diff: added=${formatAssetList(diff.added)} removed=${formatAssetList(diff.removed)} changed=${formatAssetList(diff.changed)}`
+  );
+  console.log(`[sync-assets] Checksum drift: ${formatAssetList(diff.checksumDrift)}`);
+}
+
+async function writeAssetSyncState(resolvedImages, checksums) {
+  const state = {
+    generatedBy: "scripts/sync-ios-assets.mjs",
+    images: resolvedImages,
+    checksums
+  };
+  await writeFile(assetSyncStatePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+async function cleanSyncedImages() {
+  await mkdir(imageOverrideOut, { recursive: true });
+  await Promise.all(
+    syncedImageDirectories.map((directoryName) =>
+      rm(path.join(imageOut, directoryName), { recursive: true, force: true })
+    )
+  );
+}
+
 async function copyRelative(sourceRelative, destRelative) {
   const source = path.join(sourceRoot, sourceRelative);
   const dest = path.join(publicRoot, destRelative);
@@ -158,11 +336,15 @@ async function copyDirectoryFiles(sourceDir, destDir, predicate) {
 
 async function main() {
   if (!(await exists(sourceRoot))) {
-    throw new Error(`iOS source root not found: ${sourceRoot}`);
+    throw new Error(
+      `iOS source root not found: ${sourceRoot}\nExpected sibling candidates:\n${defaultSourceRoots.map((candidate) => `- ${candidate}`).join("\n")}`
+    );
   }
 
+  const previousAssetSyncState = await readAssetSyncState();
+
   await Promise.all([
-    rm(imageOut, { recursive: true, force: true }),
+    cleanSyncedImages(),
     rm(audioOut, { recursive: true, force: true }),
     rm(lottieOut, { recursive: true, force: true }),
     rm(videoOut, { recursive: true, force: true }),
@@ -189,8 +371,14 @@ async function main() {
     (name) => /^level_\d{3}\.json$/.test(name)
   );
 
-  const generated = `// Generated by scripts/sync-ios-assets.mjs. Do not edit by hand.\n\nexport const assetManifest = ${JSON.stringify({ images }, null, 2)} as const;\n\nexport const audioManifest = ${JSON.stringify(audioFiles, null, 2)} as const;\n\nexport const lottieManifest = ${JSON.stringify(lottieFiles, null, 2)} as const;\n`;
-  await writeFile(path.join(repoRoot, "src/data/assetManifest.generated.ts"), generated);
+  const resolvedImages = await resolveImageManifest(images);
+  validateImageManifestMapping(resolvedImages);
+  const imageChecksums = await buildImageChecksumState();
+  const assetDiff = diffAssetSyncState(previousAssetSyncState, resolvedImages, imageChecksums);
+  const generated = `// Generated by scripts/sync-ios-assets.mjs. Do not edit by hand.\n\nexport const assetManifest = ${JSON.stringify({ images: resolvedImages }, null, 2)} as const;\n\nexport const audioManifest = ${JSON.stringify(audioFiles, null, 2)} as const;\n\nexport const lottieManifest = ${JSON.stringify(lottieFiles, null, 2)} as const;\n`;
+  await writeFile(generatedAssetManifestPath, generated);
+  await writeAssetSyncState(resolvedImages, imageChecksums);
+  printAssetDiffSummary(assetDiff);
 
   console.log(`Synced assets and levels from ${sourceRoot}`);
 }
@@ -199,4 +387,3 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

@@ -45,7 +45,19 @@ npm run dev
 
 The sync script expects the sibling iOS repository at:
 
-`/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatch`
+`../GridWatchMatch`
+
+If your local checkout uses a different layout, run sync with `GRIDWATCH_IOS_SOURCE=/path/to/GridWatchMatch/GridWatchMatch/GridWatchMatch npm run sync:assets`.
+
+## Web Asset Overrides
+
+`npm run sync:assets` copies the current iOS art into `public/assets/images`, but it preserves `public/assets/images/web-overrides`.
+
+To replace web art without modifying the iOS source, save PNGs under `public/assets/images/web-overrides/<same-relative-path>`, then run `npm run sync:assets` so the generated manifest points at the override when it exists. For example, replacing `public/assets/images/tiles/tile_packet.png` uses:
+
+`public/assets/images/web-overrides/tiles/tile_packet.png`
+
+Art direction and exact override filenames are in `docs/art/cyberpunk-asset-spec.md`. Agents must not commit generated binary art.
 
 ## Scripts
 

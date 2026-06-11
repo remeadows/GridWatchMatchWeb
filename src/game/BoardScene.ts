@@ -95,6 +95,38 @@ const tileVfxTints: Record<TileType, number> = {
   zeroDay: 0xded2ff
 };
 
+const boardChrome = {
+  fill: 0x030b13,
+  fillAlpha: 0.95,
+  stroke: 0x28d6ff,
+  strokeAlpha: 0.32,
+  movableCell: 0x173a52,
+  movableCellAlpha: 0.92,
+  blockedCell: 0x172331,
+  blockedCellAlpha: 0.92,
+  generatorCell: 0x4a2643,
+  generatorCellAlpha: 0.9,
+  movableStroke: 0x5aa3c8,
+  movableStrokeAlpha: 0.74,
+  blockedStroke: 0x556877,
+  blockedStrokeAlpha: 0.65
+} as const;
+
+interface TileIdentityStyle {
+  backplate: number;
+  backplateAlpha: number;
+  rim: number;
+  rimAlpha: number;
+}
+
+const tileIdentityStyles: Record<TileType, TileIdentityStyle> = {
+  packet: { backplate: 0x0d4f63, backplateAlpha: 0.38, rim: 0x37d9ff, rimAlpha: 0.92 },
+  firewall: { backplate: 0x68420d, backplateAlpha: 0.36, rim: 0xffb23c, rimAlpha: 0.9 },
+  key: { backplate: 0x315d21, backplateAlpha: 0.36, rim: 0xb5ff72, rimAlpha: 0.92 },
+  threat: { backplate: 0x5b1329, backplateAlpha: 0.38, rim: 0xff3f6e, rimAlpha: 0.92 },
+  zeroDay: { backplate: 0x34275f, backplateAlpha: 0.36, rim: 0xded2ff, rimAlpha: 0.94 }
+};
+
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
   rocket_vertical: "powerup-rocketV",
@@ -322,9 +354,9 @@ export class BoardScene extends Phaser.Scene {
     const boardWidth = this.tileSize * this.snapshot.grid.cols;
     const boardHeight = this.tileSize * this.snapshot.grid.rows;
     const background = this.add.graphics();
-    background.fillStyle(0x071420, 0.92);
+    background.fillStyle(boardChrome.fill, boardChrome.fillAlpha);
     background.fillRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, 10);
-    background.lineStyle(2, 0x28d6ff, 0.28);
+    background.lineStyle(2, boardChrome.stroke, boardChrome.strokeAlpha);
     background.strokeRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, 10);
     this.layer.add(background);
 
@@ -336,17 +368,36 @@ export class BoardScene extends Phaser.Scene {
   private renderCell(position: GridPosition, hiddenPositions: Set<string>): void {
     if (!this.layer || !this.snapshot) return;
     const cell = this.snapshot.grid.get(position);
+    const positionId = positionKey(position);
     const topLeft = this.cellTopLeft(position);
     const radius = Math.max(6, this.tileSize * 0.1);
+    const cellFill = cell.generator ? boardChrome.generatorCell : cell.isMovable ? boardChrome.movableCell : boardChrome.blockedCell;
+    const cellAlpha = cell.generator
+      ? boardChrome.generatorCellAlpha
+      : cell.isMovable
+        ? boardChrome.movableCellAlpha
+        : boardChrome.blockedCellAlpha;
+    const cellStroke = cell.isMovable ? boardChrome.movableStroke : boardChrome.blockedStroke;
+    const cellStrokeAlpha = cell.isMovable ? boardChrome.movableStrokeAlpha : boardChrome.blockedStrokeAlpha;
 
     const graphics = this.add.graphics();
-    graphics.fillStyle(cell.generator ? 0x41233a : cell.isMovable ? 0x10283b : 0x111820, 0.9);
+    graphics.fillStyle(cellFill, cellAlpha);
     graphics.fillRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
-    graphics.lineStyle(1, cell.isMovable ? 0x315774 : 0x42505c, 0.65);
+    graphics.lineStyle(1, cellStroke, cellStrokeAlpha);
     graphics.strokeRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
     if (cell.underlay) {
       graphics.fillStyle(0xb4164a, 0.38);
       graphics.fillRoundedRect(topLeft.x + 5, topLeft.y + 5, this.tileSize - 10, this.tileSize - 10, radius);
+    }
+    if (cell.baseTile && !hiddenPositions.has(positionId)) {
+      const tileStyle = tileIdentityStyles[cell.baseTile];
+      const backplateInset = Math.max(6, this.tileSize * 0.12);
+      const backplateSize = this.tileSize - backplateInset * 2;
+      const rimWidth = Math.max(1, Math.min(2, Math.round(this.tileSize * 0.022)));
+      graphics.fillStyle(tileStyle.backplate, tileStyle.backplateAlpha);
+      graphics.fillRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
+      graphics.lineStyle(rimWidth, tileStyle.rim, 0.52);
+      graphics.strokeRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
     }
     if (this.selected?.row === position.row && this.selected.col === position.col) {
       graphics.lineStyle(3, 0xf7d154, 0.95);
@@ -354,9 +405,9 @@ export class BoardScene extends Phaser.Scene {
     }
     this.layer.add(graphics);
 
-    if (!hiddenPositions.has(positionKey(position))) {
+    if (!hiddenPositions.has(positionId)) {
       const occupant = this.addOccupant(position, cell, this.layer, 1);
-      if (occupant) this.occupantNodes.set(positionKey(position), occupant);
+      if (occupant) this.occupantNodes.set(positionId, occupant);
     }
 
     if (cell.overlay) {
@@ -1410,6 +1461,15 @@ export class BoardScene extends Phaser.Scene {
     container.setAlpha(alpha);
 
     if (cell.baseTile) {
+      const tileStyle = tileIdentityStyles[cell.baseTile];
+      const rim = this.add.graphics();
+      const rimSize = this.tileSize - inset * 1.15;
+      const rimWidth = Math.max(1, Math.min(2, Math.round(this.tileSize * 0.025)));
+      rim.lineStyle(rimWidth, tileStyle.rim, tileStyle.rimAlpha);
+      rim.strokeRoundedRect(-rimSize / 2, -rimSize / 2, rimSize, rimSize, Math.max(5, this.tileSize * 0.1));
+      rim.setBlendMode(Phaser.BlendModes.ADD);
+      container.add(rim);
+
       const object = this.makeSpriteOrLabel(tileImageKeys[cell.baseTile], this.tileSize - inset * 2, tileLabel(cell.baseTile));
       container.add(object);
     } else if (cell.powerUp) {
