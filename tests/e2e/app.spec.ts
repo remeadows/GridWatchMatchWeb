@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { GAMEPLAY_POLL_TIMEOUT_MS } from "../../src/data/gameplayTiming";
 
 test.beforeEach(async ({ page }) => {
   await clearStorage(page);
@@ -39,7 +40,7 @@ test("match pops burst with particles", async ({ page }) => {
   await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
 
   await expect(page.getByText(/Last clear:/)).toBeVisible();
-  await expect.poll(() => matchBurstCount(page), { timeout: 2_000 }).toBeGreaterThan(burstCountBefore);
+  await expect.poll(() => matchBurstCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(burstCountBefore);
 });
 
 test("handles fail, Play On decline path, forced win, and next level unlock", async ({ page }) => {
@@ -93,7 +94,7 @@ test("booster tap clears use the tile pop animation path", async ({ page }) => {
   await page.mouse.click(target.x, target.y);
 
   await expect(page.getByText(/Last clear:/)).toBeVisible();
-  await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
+  await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
 });
 
 test("clicking a booster starts power-up fx before cascade", async ({ page }) => {
@@ -108,8 +109,22 @@ test("clicking a booster starts power-up fx before cascade", async ({ page }) =>
   const target = await boardCellPoint(page, { row: 3, col: 3 });
   await page.mouse.click(target.x, target.y);
 
-  await expect.poll(() => tilePopCount(page), { timeout: 2_000 }).toBeGreaterThan(popCountBefore);
-  await expect.poll(() => powerUpFxCount(page), { timeout: 2_000 }).toBeGreaterThan(fxCountBefore);
+  await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
+  await expect.poll(() => powerUpFxCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxCountBefore);
+});
+
+test("TNT booster detonates with shockwave effects", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const detonationCountBefore = await tntDetonationCount(page);
+
+  await page.getByTestId("booster-tnt").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => tntDetonationCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(detonationCountBefore);
 });
 
 test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
@@ -264,5 +279,12 @@ async function matchBurstCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwMatchBurstCount?: number };
     return w.__gwMatchBurstCount ?? 0;
+  });
+}
+
+async function tntDetonationCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwTntDetonationCount?: number };
+    return w.__gwTntDetonationCount ?? 0;
   });
 }

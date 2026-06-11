@@ -15,8 +15,8 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, seededAngleJitter } from "./motion";
-import { burst, ensureVfxTextures, shake, vfxTextureKeys } from "./vfx";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, radialStagger, seededAngleJitter } from "./motion";
+import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -117,16 +117,39 @@ const MATCH_BURST_SCALE = 1.7;
 
 // Largest per-tile centroid-stagger delay applied to match pops.
 const MATCH_POP_STAGGER_MAX_MS = 110;
+// Per-grid-unit delay, in milliseconds, for match pop waves moving away from the clear centroid.
+const MATCH_POP_STAGGER_UNIT_MS = 28;
 
 // Mirrors iOS BoardNode.swift springyReturnAction stretch phase.
 const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
+// iOS source: BoardNode.swift springyReturnAction squash scale.
 const INVALID_SWAP_SQUASH_SCALE = 0.94;
 
+// iOS source: BoardNode.swift animateMatches pop/destroy duration.
 const MATCH_POP_MS = 190;
+// iOS source: BoardNode.swift animateMatches anticipation beat.
 const MATCH_POP_ANTICIPATION_MS = 70;
+// iOS source: BoardNode.swift animateMatches pre-pop lock delay.
 const MATCH_LOCK_MS = 140;
-const POWERUP_EFFECT_MS = 560;
+const POWERUP_EFFECT_MS = 700;
 const SPAWN_MOVE_MS = 390;
+const TNT_FUSE_MS = 120;
+const TNT_RADIAL_STAGGER_MS = 22;
+const TNT_RADIAL_STAGGER_MAX_MS = 120;
+const TNT_SHOCKWAVE_MS = 320;
+const TNT_BLAST_RADIUS_CELLS = 2;
+const TNT_SHAKE_INTENSITY = 0.008;
+const TNT_SHAKE_DURATION_MS = 220;
+// Minimum clear size, in tiles, that gives a medium match pop a camera shake.
+const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
+// Minimum clear size, in tiles, that gives a large match pop a stronger camera shake.
+const MATCH_SHAKE_STRONG_THRESHOLD_TILES = 5;
+// Phaser camera shake intensity for medium match pops, normalized 0..1.
+const MATCH_SHAKE_WEAK_INTENSITY = 0.004;
+// Phaser camera shake intensity for large match pops, normalized 0..1.
+const MATCH_SHAKE_STRONG_INTENSITY = 0.006;
+// Match pop camera shake duration in milliseconds.
+const MATCH_SHAKE_DURATION_MS = 130;
 
 const motionTiming = {
   blockedJiggle: 72,
@@ -393,6 +416,7 @@ export class BoardScene extends Phaser.Scene {
     const baseline = this.snapshot ?? nextSnapshot;
     const clearedKeys = clearedKeysFromDelta(delta);
     const flashColors = clearFlashColors(delta);
+    const popStagger = powerUpPopStagger(delta, baseline, clearedKeys);
     if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
     if (delta.moves.length === 0 && delta.spawns.length === 0) {
       const finish = () => {
@@ -401,7 +425,7 @@ export class BoardScene extends Phaser.Scene {
         this.playDeltaEffects(delta, clearedKeys);
         this.finishAnimation();
       };
-      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors);
+      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors, popStagger);
       else finish();
       return;
     }
@@ -412,7 +436,7 @@ export class BoardScene extends Phaser.Scene {
         this.finishAnimation();
       });
     };
-    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors);
+    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors, popStagger);
     else runCascade();
   }
 
@@ -428,6 +452,7 @@ export class BoardScene extends Phaser.Scene {
     this.renderSnapshot();
     const popKeys = unionKeys(initialMatchKeys(postSwapSnapshot), powerUpEventKeys(delta));
     const flashColors = clearFlashColors(delta);
+    const popStagger = powerUpPopStagger(delta, postSwapSnapshot, popKeys);
     this.time.delayedCall(motionTiming.matchLock, () => {
       if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
       this.playTilePops(postSwapSnapshot, popKeys, () => {
@@ -436,7 +461,7 @@ export class BoardScene extends Phaser.Scene {
           this.playDeltaEffects(delta, popKeys);
           this.finishAnimation();
         });
-      }, flashColors);
+      }, flashColors, popStagger);
     });
   }
 
@@ -599,7 +624,8 @@ export class BoardScene extends Phaser.Scene {
     sourceSnapshot: BoardSnapshot,
     popKeys: Set<string>,
     onComplete: () => void,
-    flashColors = new Map<string, number>()
+    flashColors = new Map<string, number>(),
+    delayOverrides = new Map<string, number>()
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onComplete();
@@ -614,15 +640,18 @@ export class BoardScene extends Phaser.Scene {
       if (popKeys.has(positionKey(position))) positions.push(position);
     }
 
-    const stagger = computeCentroidStagger(positions, { perUnitMs: 28, maxMs: MATCH_POP_STAGGER_MAX_MS });
+    const stagger = computeCentroidStagger(positions, {
+      perUnitMs: MATCH_POP_STAGGER_UNIT_MS,
+      maxMs: MATCH_POP_STAGGER_MAX_MS
+    });
     const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition; tint: number }[] = [];
     for (const position of positions) {
       const cell = sourceSnapshot.grid.get(position);
       const object = this.addOccupant(position, cell, this.fxLayer, 1);
       if (!object) continue;
-      const delay = stagger.get(positionKey(position)) ?? 0;
-      popObjects.push({ object, delay, position, tint: cell.baseTile ? tileVfxTints[cell.baseTile] : 0x9bfff2 });
       const key = positionKey(position);
+      const delay = delayOverrides.get(key) ?? stagger.get(key) ?? 0;
+      popObjects.push({ object, delay, position, tint: cell.baseTile ? tileVfxTints[cell.baseTile] : 0x9bfff2 });
       this.flashCell(position, flashColors.get(key) ?? 0xf7d154, MATCH_POP_MS + MATCH_POP_ANTICIPATION_MS, delay);
     }
 
@@ -633,8 +662,15 @@ export class BoardScene extends Phaser.Scene {
 
     let remaining = popObjects.length;
     const seed = this.snapshot?.rngSeed ?? "0";
-    if (popObjects.length >= 4) {
-      shake(this, popObjects.length >= 5 ? 0.006 : 0.004, 130, this.reducedMotion);
+    if (popObjects.length >= MATCH_SHAKE_WEAK_THRESHOLD_TILES) {
+      shake(
+        this,
+        popObjects.length >= MATCH_SHAKE_STRONG_THRESHOLD_TILES
+          ? MATCH_SHAKE_STRONG_INTENSITY
+          : MATCH_SHAKE_WEAK_INTENSITY,
+        MATCH_SHAKE_DURATION_MS,
+        this.reducedMotion
+      );
     }
     for (const entry of popObjects) {
       const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
@@ -811,6 +847,11 @@ export class BoardScene extends Phaser.Scene {
     if (!this.fxLayer) return;
     this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
+    if (event.powerUpType.kind === "tnt") {
+      this.playTntPowerUpEffect(event, origin);
+      return;
+    }
+
     const graphics = this.add.graphics();
     this.fxLayer.add(graphics);
 
@@ -821,11 +862,6 @@ export class BoardScene extends Phaser.Scene {
       } else {
         graphics.lineBetween(origin.x, this.boardBounds.y, origin.x, this.boardBounds.bottom);
       }
-    } else if (event.powerUpType.kind === "tnt") {
-      graphics.lineStyle(3, 0xff8a3d, 0.9);
-      graphics.fillStyle(0xff8a3d, 0.14);
-      graphics.fillCircle(origin.x, origin.y, this.tileSize * 1.55);
-      graphics.strokeCircle(origin.x, origin.y, this.tileSize * 1.55);
     } else if (event.powerUpType.kind === "propeller") {
       graphics.lineStyle(3, 0xf7d154, 0.88);
       for (const target of event.affectedPositions.slice(0, 8)) {
@@ -848,11 +884,77 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
+  private playTntPowerUpEffect(_event: PowerUpEvent, origin: { x: number; y: number }): void {
+    if (!this.fxLayer) return;
+    const fuse = this.add.container(origin.x, origin.y);
+    const icon = this.add.image(0, 0, powerUpImageKeys.tnt);
+    icon.setDisplaySize(this.tileSize * 0.82, this.tileSize * 0.82);
+    const flash = this.add.graphics();
+    flash.fillStyle(0xffffff, 0.85);
+    flash.fillCircle(0, 0, this.tileSize * 0.44);
+    flash.setAlpha(0);
+    flash.setBlendMode(Phaser.BlendModes.ADD);
+    fuse.add([flash, icon]);
+    this.fxLayer.add(fuse);
+
+    this.tweens.add({
+      targets: icon,
+      scaleX: 1.15,
+      scaleY: 1.15,
+      duration: TNT_FUSE_MS,
+      ease: "Sine.easeInOut"
+    });
+    this.tweens.add({
+      targets: flash,
+      alpha: 0.95,
+      duration: TNT_FUSE_MS / 2,
+      yoyo: true,
+      ease: "Sine.easeInOut"
+    });
+
+    this.time.delayedCall(TNT_FUSE_MS, () => {
+      if (fuse.active) fuse.destroy();
+      this.recordTntDetonation();
+      shockwave(this, this.fxLayer!, origin.x, origin.y, {
+        radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
+        durationMs: TNT_SHOCKWAVE_MS,
+        tint: 0xff8a3d
+      });
+      burst(this, this.fxLayer!, origin.x, origin.y, {
+        texture: vfxTextureKeys.spark,
+        count: 18,
+        speed: this.tileSize * 3.4,
+        lifespanMs: 340,
+        tint: 0xfff1b8,
+        scale: Math.max(0.42, this.tileSize / 120)
+      });
+      burst(this, this.fxLayer!, origin.x, origin.y, {
+        texture: vfxTextureKeys.shard,
+        count: 12,
+        speed: this.tileSize * 2.5,
+        lifespanMs: 420,
+        tint: 0xff8a3d,
+        scale: Math.max(0.34, this.tileSize / 150)
+      });
+      shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
+    });
+    this.time.delayedCall(POWERUP_FX_BUDGET_MS, () => {
+      if (fuse.active) fuse.destroy();
+    });
+  }
+
   private recordPowerUpFxStart(): void {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & { __gwPowerUpFxStartCount?: number };
     target.__gwPowerUpFxStartCount = (target.__gwPowerUpFxStartCount ?? 0) + 1;
+  }
+
+  private recordTntDetonation(): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwTntDetonationCount?: number };
+    target.__gwTntDetonationCount = (target.__gwTntDetonationCount ?? 0) + 1;
   }
 
   private flashCell(position: GridPosition, color: number, duration: number, delay = 0): void {
@@ -1478,6 +1580,20 @@ function clearFlashColors(delta: BoardDelta): Map<string, number> {
     colors.set(positionKey(clear.position), clear.clearedByPowerUp ? 0x9bfff2 : 0xf7d154);
   }
   return colors;
+}
+
+function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: ReadonlySet<string>): Map<string, number> {
+  const delays = new Map<string, number>();
+  for (const event of delta.powerUpEvents) {
+    if (event.powerUpType.kind !== "tnt") continue;
+    const positions = [event.origin, ...event.affectedPositions].filter((position) => {
+      const key = positionKey(position);
+      return popKeys.has(key) && snapshot.grid.isValid(position);
+    });
+    const radial = radialStagger(event.origin, positions, TNT_RADIAL_STAGGER_MS, TNT_RADIAL_STAGGER_MAX_MS);
+    for (const [key, delay] of radial) delays.set(key, TNT_FUSE_MS + delay);
+  }
+  return delays;
 }
 
 function unionKeys(...sets: ReadonlyArray<ReadonlySet<string>>): Set<string> {

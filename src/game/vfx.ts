@@ -69,7 +69,7 @@ export function burst(
     tint: options.tint
   });
   layer.add(emitter);
-  emitter.explode(options.count, x, y);
+  emitter.explode(options.count, 0, 0);
   scene.time.delayedCall(options.lifespanMs + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS, () => emitter.destroy());
   return emitter;
 }
