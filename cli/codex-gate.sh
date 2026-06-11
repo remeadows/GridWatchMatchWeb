@@ -142,7 +142,9 @@ contains_any_e2e_counter_term() {
   [[ "${text}" == *"matchburstcount"* \
     || "${text}" == *"powerupfxcount"* \
     || "${text}" == *"tntdetonationcount"* \
-    || "${text}" == *"rocketlaunchcount"* ]]
+    || "${text}" == *"rocketlaunchcount"* \
+    || "${text}" == *"propellerstrikecount"* \
+    || "${text}" == *"lightballzapcount"* ]]
 }
 
 contains_any_vfx_import_term() {
@@ -152,6 +154,13 @@ contains_any_vfx_import_term() {
     || "${text}" == *"shake"* \
     || "${text}" == *"shockwave"* \
     || "${text}" == *"vfxtexturekeys"* ]]
+}
+
+is_board_method_override() {
+  local text="$1"
+  [[ "${text}" == *"activateboosteratpointer"* \
+    || "${text}" == *"playblockedcellfeedback"* \
+    || "${text}" == *"updategeometry"* ]]
 }
 
 override_line_matches_file() {
@@ -185,7 +194,7 @@ finding_is_overridden() {
 
     if [[ "${line_l}" == *"helper"* ]] && contains_any_helper_term "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"timing"* ]] && contains_any_timing_term "${instructions_l}"; then return 0; fi
-    if [[ "${line_l}" == *"board method"* && "${instructions_l}" == *"activateboosteratpointer"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"board method"* ]] && is_board_method_override "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"powerup_fx_budget_ms"* && "${instructions_l}" == *"powerup_fx_budget_ms"* ]]; then return 0; fi
     if [[ "${line_l}" == *"booster title"* && "${instructions_l}" == *"title"* && "${instructions_l}" == *"tilepopcount"* ]]; then return 0; fi
     if [[ "${line_l}" == *"power-up fx poll"* && "${instructions_l}" == *"powerupfxcount"* ]]; then return 0; fi

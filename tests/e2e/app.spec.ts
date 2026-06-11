@@ -142,6 +142,34 @@ test("rocket booster launches projectile heads", async ({ page }) => {
   await expect.poll(() => rocketLaunchCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThanOrEqual(launchCountBefore + 2);
 });
 
+test("propeller booster drone flies and strikes", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const strikeCountBefore = await propellerStrikeCount(page);
+
+  await page.getByTestId("booster-propeller").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => propellerStrikeCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(strikeCountBefore);
+});
+
+test("lightBall booster zaps its targets", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const zapCountBefore = await lightBallZapCount(page);
+
+  await page.getByTestId("booster-lightBall").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => lightBallZapCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(zapCountBefore);
+});
+
 test("dragging a booster onto the board consumes inventory and activates at drop", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -308,5 +336,19 @@ async function rocketLaunchCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwRocketLaunchCount?: number };
     return w.__gwRocketLaunchCount ?? 0;
+  });
+}
+
+async function propellerStrikeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPropellerStrikeCount?: number };
+    return w.__gwPropellerStrikeCount ?? 0;
+  });
+}
+
+async function lightBallZapCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwLightBallZapCount?: number };
+    return w.__gwLightBallZapCount ?? 0;
   });
 }

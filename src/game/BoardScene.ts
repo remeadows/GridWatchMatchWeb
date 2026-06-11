@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, radialStagger, seededAngleJitter, sweepStagger } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, seededAngleJitter, sweepStagger } from "./motion";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 
 export interface BoardSceneData {
@@ -148,7 +148,24 @@ const ROCKET_TRAIL_LIFESPAN_MS = 240;
 const ROCKET_TRAIL_CLEANUP_MS = 90;
 const ROCKET_SHAKE_INTENSITY = 0.0045;
 const ROCKET_SHAKE_DURATION_MS = 120;
-const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS);
+const PROPELLER_FX_BUDGET_MS = 760;
+const PROPELLER_LIFT_MS = 120;
+const PROPELLER_FLIGHT_MS = 450;
+const PROPELLER_SPIN_MS = 150;
+const PROPELLER_DRONE_SCALE = 0.74;
+const PROPELLER_ARC_LIFT_CELLS = 2.1;
+const PROPELLER_ARC_SAMPLES = 12;
+const PROPELLER_SECONDARY_STAGGER_MS = 30;
+const PROPELLER_SECONDARY_STAGGER_MAX_MS = 120;
+const PROPELLER_IMPACT_SHOCKWAVE_MS = 220;
+const LIGHTBALL_FX_BUDGET_MS = 780;
+const LIGHTBALL_CHARGE_MS = 140;
+const LIGHTBALL_ZAP_STAGGER_MS = 26;
+const LIGHTBALL_ZAP_LIFESPAN_MS = 170;
+const LIGHTBALL_ZAP_JITTER_PX = 12;
+const LIGHTBALL_FULL_SHOCKWAVE_MS = 340;
+const LIGHTBALL_TARGET_STAGGER_MAX_MS = 180;
+const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
 // Minimum clear size, in tiles, that gives a medium match pop a camera shake.
 const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
 // Minimum clear size, in tiles, that gives a large match pop a stronger camera shake.
@@ -864,22 +881,21 @@ export class BoardScene extends Phaser.Scene {
       this.playRocketPowerUpEffect(event, origin);
       return;
     }
+    if (event.powerUpType.kind === "propeller") {
+      this.playPropellerPowerUpEffect(event, origin);
+      return;
+    }
+    if (event.powerUpType.kind === "lightBall") {
+      this.playLightBallPowerUpEffect(event, origin);
+      return;
+    }
 
     const graphics = this.add.graphics();
     this.fxLayer.add(graphics);
 
-    if (event.powerUpType.kind === "propeller") {
-      graphics.lineStyle(3, 0xf7d154, 0.88);
-      for (const target of event.affectedPositions.slice(0, 8)) {
-        const center = this.cellCenter(target);
-        graphics.lineBetween(origin.x, origin.y, center.x, center.y);
-        graphics.strokeCircle(center.x, center.y, this.tileSize * 0.28);
-      }
-    } else {
-      graphics.lineStyle(4, 0xf15bd7, 0.88);
-      graphics.strokeCircle(origin.x, origin.y, this.tileSize * 0.65);
-      graphics.strokeRoundedRect(this.boardBounds.x + 5, this.boardBounds.y + 5, this.boardBounds.width - 10, this.boardBounds.height - 10, 12);
-    }
+    graphics.lineStyle(4, 0xf15bd7, 0.88);
+    graphics.strokeCircle(origin.x, origin.y, this.tileSize * 0.65);
+    graphics.strokeRoundedRect(this.boardBounds.x + 5, this.boardBounds.y + 5, this.boardBounds.width - 10, this.boardBounds.height - 10, 12);
 
     this.tweens.add({
       targets: graphics,
@@ -1032,6 +1048,180 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
+  private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+    if (!this.fxLayer || !this.snapshot) return;
+    const layer = this.fxLayer;
+    const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
+    const primary = targets[0];
+    if (!primary) return;
+    if (this.reducedMotion) {
+      this.recordPropellerStrike(targets.length);
+      return;
+    }
+
+    const primaryCenter = this.cellCenter(primary);
+    const drone = this.add.container(origin.x, origin.y);
+    const icon = this.add.image(0, 0, powerUpImageKeys.propeller);
+    icon.setDisplaySize(this.tileSize * PROPELLER_DRONE_SCALE, this.tileSize * PROPELLER_DRONE_SCALE);
+    icon.setBlendMode(Phaser.BlendModes.ADD);
+    drone.add(icon);
+    layer.add(drone);
+
+    const spin = this.tweens.add({
+      targets: icon,
+      angle: 360,
+      duration: PROPELLER_SPIN_MS,
+      repeat: -1,
+      ease: "Linear"
+    });
+
+    this.tweens.add({
+      targets: drone,
+      scaleX: 1.16,
+      scaleY: 1.16,
+      y: origin.y - this.tileSize * 0.25,
+      duration: PROPELLER_LIFT_MS,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        const path = quadraticFlightPath(
+          { x: drone.x, y: drone.y },
+          primaryCenter,
+          this.tileSize * PROPELLER_ARC_LIFT_CELLS,
+          PROPELLER_ARC_SAMPLES
+        );
+        this.tweens.addCounter({
+          from: 0,
+          to: 1,
+          duration: PROPELLER_FLIGHT_MS,
+          ease: "Sine.easeInOut",
+          onUpdate: (tween) => {
+            const point = interpolatePath(path, tween.getValue() ?? 0);
+            drone.setPosition(point.x, point.y);
+          },
+          onComplete: () => {
+            spin.stop();
+            drone.destroy();
+            this.recordPropellerStrike(1);
+            shockwave(this, layer, primaryCenter.x, primaryCenter.y, {
+              radiusPx: this.tileSize * 0.9,
+              durationMs: PROPELLER_IMPACT_SHOCKWAVE_MS,
+              tint: 0xf7d154
+            });
+            burst(this, layer, primaryCenter.x, primaryCenter.y, {
+              texture: vfxTextureKeys.spark,
+              count: 10,
+              speed: this.tileSize * 1.8,
+              lifespanMs: 260,
+              tint: 0xf7d154,
+              scale: Math.max(0.3, this.tileSize / 160)
+            });
+          }
+        });
+      }
+    });
+
+    this.time.delayedCall(PROPELLER_FX_BUDGET_MS, () => {
+      spin.stop();
+      if (drone.active) drone.destroy();
+    });
+  }
+
+  private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+    if (!this.fxLayer || !this.snapshot) return;
+    const layer = this.fxLayer;
+    const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
+    if (targets.length === 0) return;
+    if (this.reducedMotion) {
+      this.recordLightBallZap(targets.length);
+      return;
+    }
+
+    const charge = this.add.graphics();
+    charge.lineStyle(3, 0xf15bd7, 0.95);
+    charge.strokeCircle(origin.x, origin.y, this.tileSize * 0.48);
+    charge.setBlendMode(Phaser.BlendModes.ADD);
+    layer.add(charge);
+    this.tweens.add({
+      targets: charge,
+      alpha: 0.1,
+      scaleX: 1.45,
+      scaleY: 1.45,
+      duration: LIGHTBALL_CHARGE_MS,
+      ease: "Sine.easeOut",
+      onComplete: () => charge.destroy()
+    });
+
+    const seed = this.snapshot.rngSeed;
+    const targetDelays = radialStagger(event.origin, targets, LIGHTBALL_ZAP_STAGGER_MS, LIGHTBALL_TARGET_STAGGER_MAX_MS);
+    let latestTargetDelay = 0;
+    targets.forEach((target, index) => {
+      const targetDelay = targetDelays.get(positionKey(target)) ?? 0;
+      latestTargetDelay = Math.max(latestTargetDelay, targetDelay);
+      const delay = LIGHTBALL_CHARGE_MS + targetDelay;
+      this.time.delayedCall(delay, () => {
+        if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
+        const center = this.cellCenter(target);
+        this.drawLightBallZap(origin, center, target, seed, index);
+        this.recordLightBallZap(1);
+        burst(this, this.fxLayer, center.x, center.y, {
+          texture: vfxTextureKeys.spark,
+          count: 7,
+          speed: this.tileSize * 1.5,
+          lifespanMs: 220,
+          tint: 0xf15bd7,
+          scale: Math.max(0.24, this.tileSize / 180)
+        });
+      });
+    });
+
+    const finalDelay = LIGHTBALL_CHARGE_MS + latestTargetDelay + LIGHTBALL_ZAP_LIFESPAN_MS;
+    this.time.delayedCall(finalDelay, () => {
+      if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
+      shockwave(this, this.fxLayer, origin.x, origin.y, {
+        radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
+        durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
+        tint: 0xf15bd7
+      });
+    });
+  }
+
+  private drawLightBallZap(
+    origin: { x: number; y: number },
+    target: { x: number; y: number },
+    position: GridPosition,
+    seed: string,
+    index: number
+  ): void {
+    if (!this.fxLayer) return;
+    const graphics = this.add.graphics();
+    graphics.lineStyle(2, 0xf15bd7, 0.95);
+    graphics.setBlendMode(Phaser.BlendModes.ADD);
+    const jitterA = seededAngleJitter(position, `${seed}|lightBall-a|${index}`, LIGHTBALL_ZAP_JITTER_PX);
+    const jitterB = seededAngleJitter(position, `${seed}|lightBall-b|${index}`, LIGHTBALL_ZAP_JITTER_PX);
+    const mid1 = {
+      x: origin.x + (target.x - origin.x) * 0.33 + jitterA,
+      y: origin.y + (target.y - origin.y) * 0.33 - jitterB
+    };
+    const mid2 = {
+      x: origin.x + (target.x - origin.x) * 0.66 - jitterB,
+      y: origin.y + (target.y - origin.y) * 0.66 + jitterA
+    };
+    graphics.beginPath();
+    graphics.moveTo(origin.x, origin.y);
+    graphics.lineTo(mid1.x, mid1.y);
+    graphics.lineTo(mid2.x, mid2.y);
+    graphics.lineTo(target.x, target.y);
+    graphics.strokePath();
+    this.fxLayer.add(graphics);
+    this.tweens.add({
+      targets: graphics,
+      alpha: 0,
+      duration: LIGHTBALL_ZAP_LIFESPAN_MS,
+      ease: "Sine.easeOut",
+      onComplete: () => graphics.destroy()
+    });
+  }
+
   private recordPowerUpFxStart(): void {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
@@ -1051,6 +1241,20 @@ export class BoardScene extends Phaser.Scene {
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & { __gwRocketLaunchCount?: number };
     target.__gwRocketLaunchCount = (target.__gwRocketLaunchCount ?? 0) + count;
+  }
+
+  private recordPropellerStrike(count: number): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwPropellerStrikeCount?: number };
+    target.__gwPropellerStrikeCount = (target.__gwPropellerStrikeCount ?? 0) + count;
+  }
+
+  private recordLightBallZap(count: number): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwLightBallZapCount?: number };
+    target.__gwLightBallZapCount = (target.__gwLightBallZapCount ?? 0) + count;
   }
 
   private flashCell(position: GridPosition, color: number, duration: number, delay = 0): void {
@@ -1691,9 +1895,43 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
     } else if (event.powerUpType.kind === "rocket") {
       const sweep = sweepStagger(event.origin, positions, event.powerUpType.orientation, ROCKET_SWEEP_MS_PER_CELL);
       for (const [key, delay] of sweep) setEarliestDelay(delays, key, delay);
+    } else if (event.powerUpType.kind === "propeller") {
+      const primary = event.affectedPositions[0] ?? event.origin;
+      const radial = radialStagger(primary, positions, PROPELLER_SECONDARY_STAGGER_MS, PROPELLER_SECONDARY_STAGGER_MAX_MS);
+      for (const position of positions) {
+        const key = positionKey(position);
+        const delay = key === positionKey(event.origin)
+          ? 0
+          : PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + (radial.get(key) ?? 0);
+        setEarliestDelay(delays, key, delay);
+      }
+    } else if (event.powerUpType.kind === "lightBall") {
+      setEarliestDelay(delays, positionKey(event.origin), LIGHTBALL_CHARGE_MS);
+      const radial = radialStagger(event.origin, event.affectedPositions, LIGHTBALL_ZAP_STAGGER_MS, LIGHTBALL_TARGET_STAGGER_MAX_MS);
+      event.affectedPositions.forEach((position) => {
+        const key = positionKey(position);
+        if (popKeys.has(key) && snapshot.grid.isValid(position)) {
+          setEarliestDelay(delays, key, LIGHTBALL_CHARGE_MS + (radial.get(key) ?? 0));
+        }
+      });
     }
   }
   return delays;
+}
+
+function interpolatePath(path: ReadonlyArray<{ x: number; y: number }>, t: number): { x: number; y: number } {
+  if (path.length === 0) return { x: 0, y: 0 };
+  if (path.length === 1) return path[0];
+  const clamped = Phaser.Math.Clamp(t, 0, 1);
+  const scaled = clamped * (path.length - 1);
+  const index = Math.min(path.length - 2, Math.floor(scaled));
+  const local = scaled - index;
+  const from = path[index];
+  const to = path[index + 1];
+  return {
+    x: Phaser.Math.Linear(from.x, to.x, local),
+    y: Phaser.Math.Linear(from.y, to.y, local)
+  };
 }
 
 function setEarliestDelay(delays: Map<string, number>, key: string, delay: number): void {
