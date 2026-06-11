@@ -166,6 +166,7 @@ const LIGHTBALL_ZAP_JITTER_PX = 12;
 const LIGHTBALL_FULL_SHOCKWAVE_MS = 340;
 const LIGHTBALL_TARGET_STAGGER_MAX_MS = 180;
 const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
+// Web-only tuning: Phaser match-pop camera shake has no direct iOS equivalent.
 // Minimum clear size, in tiles, that gives a medium match pop a camera shake.
 const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
 // Minimum clear size, in tiles, that gives a large match pop a stronger camera shake.

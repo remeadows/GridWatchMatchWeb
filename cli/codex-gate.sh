@@ -167,7 +167,9 @@ override_line_matches_file() {
   local line_l="$1"
   local file_l="$2"
   local token
-  for token in ${line_l}; do
+  local -a tokens=()
+  read -r -a tokens <<< "${line_l}"
+  for token in "${tokens[@]}"; do
     token="${token#:}"
     token="${token%:}"
     token="${token%,}"
@@ -175,6 +177,14 @@ override_line_matches_file() {
     if [[ "${token}" == "${file_l}" ]]; then return 0; fi
   done
   return 1
+}
+
+override_line_has_marker() {
+  local line_l="$1"
+  [[ "${line_l}" == *"stale"* \
+    || "${line_l}" == *"override:"* \
+    || "${line_l}" == *"manual override"* \
+    || "${line_l}" == *"disagree:"* ]]
 }
 
 finding_is_overridden() {
@@ -190,17 +200,20 @@ finding_is_overridden() {
   while IFS= read -r override_line; do
     line_l="$(printf '%s' "${override_line}" | lowercase)"
     override_line_matches_file "${line_l}" "${file_l}" || continue
-    [[ "${line_l}" == *"stale"* ]] || continue
+    override_line_has_marker "${line_l}" || continue
 
-    if [[ "${line_l}" == *"helper"* ]] && contains_any_helper_term "${instructions_l}"; then return 0; fi
-    if [[ "${line_l}" == *"timing"* ]] && contains_any_timing_term "${instructions_l}"; then return 0; fi
-    if [[ "${line_l}" == *"board method"* ]] && is_board_method_override "${instructions_l}"; then return 0; fi
+    # Override lines must first match a specific assertion phrase in overrides.md,
+    # then the finding text must mention the narrow symbol family covered by it.
+    if [[ "${line_l}" == *"helper symbols"* || "${line_l}" == *"animation helper functions"* ]] \
+      && contains_any_helper_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"timing constants"* ]] && contains_any_timing_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"board methods"* ]] && is_board_method_override "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"powerup_fx_budget_ms"* && "${instructions_l}" == *"powerup_fx_budget_ms"* ]]; then return 0; fi
     if [[ "${line_l}" == *"booster title"* && "${instructions_l}" == *"title"* && "${instructions_l}" == *"tilepopcount"* ]]; then return 0; fi
     if [[ "${line_l}" == *"power-up fx poll"* && "${instructions_l}" == *"powerupfxcount"* ]]; then return 0; fi
-    if [[ "${line_l}" == *"counter helper"* && "${instructions_l}" == *"duplicate"* ]] && contains_any_e2e_counter_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"counter helper duplicates"* && "${instructions_l}" == *"duplicate"* ]] && contains_any_e2e_counter_term "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"vfx_timing"* && "${instructions_l}" == *"vfx_timing"* ]]; then return 0; fi
-    if [[ "${line_l}" == *"vfx"* ]] && contains_any_vfx_import_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"vfx imports"* ]] && contains_any_vfx_import_term "${instructions_l}"; then return 0; fi
   done < "${OVERRIDES_FILE}"
 
   return 1
@@ -265,7 +278,7 @@ log "Threshold: CR_MAX_SEVERITY=${CR_MAX_SEVERITY}  blocking=${BLOCKING_COUNT}"
   echo "1. Open the file at the reported location."
   echo "2. Apply the fix described in codegenInstructions."
   echo "3. If you disagree, append the finding to \`.coderabbit/overrides.md\`"
-  echo "   with a one-line rationale. Do not silently ignore."
+  echo "   with a one-line rationale prefixed by \`override:\` or \`disagree:\`."
   echo "4. Re-run \`bash cli/codex-gate.sh\` until clean or CR_MAX_LOOPS hit."
 } > "${CODEX_PROMPT_FILE}"
 
