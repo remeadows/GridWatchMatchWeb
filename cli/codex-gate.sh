@@ -167,15 +167,19 @@ override_line_matches_file() {
   local line_l="$1"
   local file_l="$2"
   local token
-  local -a tokens=()
-  read -r -a tokens <<< "${line_l}"
-  for token in "${tokens[@]}"; do
+  local shell_flags="$-"
+  set -f
+  for token in ${line_l}; do
     token="${token#:}"
     token="${token%:}"
     token="${token%,}"
     token="${token%;}"
-    if [[ "${token}" == "${file_l}" ]]; then return 0; fi
+    if [[ "${token}" == "${file_l}" ]]; then
+      case "${shell_flags}" in *f*) ;; *) set +f ;; esac
+      return 0
+    fi
   done
+  case "${shell_flags}" in *f*) ;; *) set +f ;; esac
   return 1
 }
 
