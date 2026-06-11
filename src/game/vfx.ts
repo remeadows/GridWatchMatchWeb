@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { VFX_TIMING } from "./vfxTiming";
+import { VFX_TEXTURE_CONFIG, VFX_TIMING } from "./vfxTiming";
 
 export const vfxTextureKeys = {
   spark: "vfx-spark",
@@ -26,26 +26,29 @@ export interface ShockwaveOptions {
 
 export function ensureVfxTextures(scene: Phaser.Scene): void {
   if (!scene.textures.exists(vfxTextureKeys.spark)) {
+    const config = VFX_TEXTURE_CONFIG.spark;
     const spark = scene.add.graphics();
     spark.fillStyle(0xffffff, 1);
-    spark.fillCircle(4, 4, 3);
-    spark.generateTexture(vfxTextureKeys.spark, 8, 8);
+    spark.fillCircle(config.centerX, config.centerY, config.radius);
+    spark.generateTexture(vfxTextureKeys.spark, config.textureWidth, config.textureHeight);
     spark.destroy();
   }
 
   if (!scene.textures.exists(vfxTextureKeys.shard)) {
+    const config = VFX_TEXTURE_CONFIG.shard;
     const shard = scene.add.graphics();
     shard.fillStyle(0xffffff, 1);
-    shard.fillTriangle(5, 0, 10, 10, 0, 10);
-    shard.generateTexture(vfxTextureKeys.shard, 10, 10);
+    shard.fillTriangle(config.x1, config.y1, config.x2, config.y2, config.x3, config.y3);
+    shard.generateTexture(vfxTextureKeys.shard, config.textureWidth, config.textureHeight);
     shard.destroy();
   }
 
   if (!scene.textures.exists(vfxTextureKeys.ring)) {
+    const config = VFX_TEXTURE_CONFIG.ring;
     const ring = scene.add.graphics();
-    ring.lineStyle(2, 0xffffff, 1);
-    ring.strokeCircle(8, 8, 6);
-    ring.generateTexture(vfxTextureKeys.ring, 16, 16);
+    ring.lineStyle(config.lineWidth, 0xffffff, 1);
+    ring.strokeCircle(config.centerX, config.centerY, config.radius);
+    ring.generateTexture(vfxTextureKeys.ring, config.textureWidth, config.textureHeight);
     ring.destroy();
   }
 }
@@ -56,7 +59,10 @@ export function burst(
   x: number,
   y: number,
   options: BurstOptions
-): Phaser.GameObjects.Particles.ParticleEmitter {
+): void {
+  assertPositiveFinite("count", options.count);
+  assertPositiveFinite("speed", options.speed);
+  assertPositiveFinite("lifespanMs", options.lifespanMs);
   ensureVfxTextures(scene);
   const emitter = scene.add.particles(x, y, options.texture, {
     alpha: { start: 1, end: 0 },
@@ -71,7 +77,6 @@ export function burst(
   layer.add(emitter);
   emitter.explode(options.count, 0, 0);
   scene.time.delayedCall(options.lifespanMs + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS, () => emitter.destroy());
-  return emitter;
 }
 
 export function shockwave(
@@ -80,11 +85,11 @@ export function shockwave(
   x: number,
   y: number,
   options: ShockwaveOptions
-): Phaser.GameObjects.Graphics {
+): void {
   const ring = scene.add.graphics();
   ring.setPosition(x, y);
-  ring.setScale(0.2);
-  ring.lineStyle(3, options.tint, 0.9);
+  ring.setScale(VFX_TIMING.SHOCKWAVE_INITIAL_SCALE);
+  ring.lineStyle(VFX_TIMING.SHOCKWAVE_LINE_WIDTH, options.tint, VFX_TIMING.SHOCKWAVE_INITIAL_ALPHA);
   ring.strokeCircle(0, 0, options.radiusPx);
   layer.add(ring);
   scene.tweens.add({
@@ -96,10 +101,19 @@ export function shockwave(
     ease: "Quad.easeOut",
     onComplete: () => ring.destroy()
   });
-  return ring;
 }
 
 export function shake(scene: Phaser.Scene, intensity: number, durationMs: number, reducedMotion = false): void {
   if (reducedMotion) return;
-  scene.cameras.main.shake(durationMs, intensity);
+  const camera = scene.cameras?.main;
+  if (!camera) return;
+  if (!Number.isFinite(intensity) || intensity < 0) return;
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+  camera.shake(durationMs, intensity);
+}
+
+function assertPositiveFinite(name: string, value: number): void {
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`Invalid VFX burst ${name}: expected a positive finite number`);
+  }
 }

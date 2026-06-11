@@ -15,7 +15,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, radialStagger, seededAngleJitter } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, radialStagger, seededAngleJitter, sweepStagger } from "./motion";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 
 export interface BoardSceneData {
@@ -131,8 +131,8 @@ const MATCH_POP_MS = 190;
 const MATCH_POP_ANTICIPATION_MS = 70;
 // iOS source: BoardNode.swift animateMatches pre-pop lock delay.
 const MATCH_LOCK_MS = 140;
-const POWERUP_EFFECT_MS = 700;
 const SPAWN_MOVE_MS = 390;
+const TNT_FX_BUDGET_MS = 700;
 const TNT_FUSE_MS = 120;
 const TNT_RADIAL_STAGGER_MS = 22;
 const TNT_RADIAL_STAGGER_MAX_MS = 120;
@@ -140,6 +140,15 @@ const TNT_SHOCKWAVE_MS = 320;
 const TNT_BLAST_RADIUS_CELLS = 2;
 const TNT_SHAKE_INTENSITY = 0.008;
 const TNT_SHAKE_DURATION_MS = 220;
+const ROCKET_FX_BUDGET_MS = 700;
+const ROCKET_SWEEP_MS_PER_CELL = 58;
+const ROCKET_MIN_FLIGHT_MS = 120;
+const ROCKET_HEAD_SCALE = 0.58;
+const ROCKET_TRAIL_LIFESPAN_MS = 240;
+const ROCKET_TRAIL_CLEANUP_MS = 90;
+const ROCKET_SHAKE_INTENSITY = 0.0045;
+const ROCKET_SHAKE_DURATION_MS = 120;
+const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS);
 // Minimum clear size, in tiles, that gives a medium match pop a camera shake.
 const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
 // Minimum clear size, in tiles, that gives a large match pop a stronger camera shake.
@@ -851,18 +860,15 @@ export class BoardScene extends Phaser.Scene {
       this.playTntPowerUpEffect(event, origin);
       return;
     }
+    if (event.powerUpType.kind === "rocket") {
+      this.playRocketPowerUpEffect(event, origin);
+      return;
+    }
 
     const graphics = this.add.graphics();
     this.fxLayer.add(graphics);
 
-    if (event.powerUpType.kind === "rocket") {
-      graphics.lineStyle(Math.max(5, this.tileSize * 0.08), 0x38d9ff, 0.72);
-      if (event.powerUpType.orientation === "horizontal") {
-        graphics.lineBetween(this.boardBounds.x, origin.y, this.boardBounds.right, origin.y);
-      } else {
-        graphics.lineBetween(origin.x, this.boardBounds.y, origin.x, this.boardBounds.bottom);
-      }
-    } else if (event.powerUpType.kind === "propeller") {
+    if (event.powerUpType.kind === "propeller") {
       graphics.lineStyle(3, 0xf7d154, 0.88);
       for (const target of event.affectedPositions.slice(0, 8)) {
         const center = this.cellCenter(target);
@@ -886,6 +892,7 @@ export class BoardScene extends Phaser.Scene {
 
   private playTntPowerUpEffect(_event: PowerUpEvent, origin: { x: number; y: number }): void {
     if (!this.fxLayer) return;
+    const fxLayer = this.fxLayer;
     const fuse = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpImageKeys.tnt);
     icon.setDisplaySize(this.tileSize * 0.82, this.tileSize * 0.82);
@@ -895,7 +902,7 @@ export class BoardScene extends Phaser.Scene {
     flash.setAlpha(0);
     flash.setBlendMode(Phaser.BlendModes.ADD);
     fuse.add([flash, icon]);
-    this.fxLayer.add(fuse);
+    fxLayer.add(fuse);
 
     this.tweens.add({
       targets: icon,
@@ -913,14 +920,16 @@ export class BoardScene extends Phaser.Scene {
     });
 
     this.time.delayedCall(TNT_FUSE_MS, () => {
+      if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active || !fxLayer.active) return;
+      const activeFxLayer = this.fxLayer;
       if (fuse.active) fuse.destroy();
       this.recordTntDetonation();
-      shockwave(this, this.fxLayer!, origin.x, origin.y, {
+      shockwave(this, activeFxLayer, origin.x, origin.y, {
         radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
         durationMs: TNT_SHOCKWAVE_MS,
         tint: 0xff8a3d
       });
-      burst(this, this.fxLayer!, origin.x, origin.y, {
+      burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.spark,
         count: 18,
         speed: this.tileSize * 3.4,
@@ -928,7 +937,7 @@ export class BoardScene extends Phaser.Scene {
         tint: 0xfff1b8,
         scale: Math.max(0.42, this.tileSize / 120)
       });
-      burst(this, this.fxLayer!, origin.x, origin.y, {
+      burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.shard,
         count: 12,
         speed: this.tileSize * 2.5,
@@ -940,6 +949,86 @@ export class BoardScene extends Phaser.Scene {
     });
     this.time.delayedCall(POWERUP_FX_BUDGET_MS, () => {
       if (fuse.active) fuse.destroy();
+    });
+  }
+
+  private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+    if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
+    const layer = this.fxLayer;
+    const texture = event.powerUpType.orientation === "horizontal"
+      ? powerUpImageKeys.rocket_horizontal
+      : powerUpImageKeys.rocket_vertical;
+    const heads = this.rocketHeadPlans(event);
+    this.recordRocketLaunch(heads.length);
+    if (this.reducedMotion) return;
+
+    shake(this, ROCKET_SHAKE_INTENSITY, ROCKET_SHAKE_DURATION_MS, this.reducedMotion);
+    for (const head of heads) {
+      const sprite = this.add.image(origin.x, origin.y, texture);
+      sprite.setDisplaySize(this.tileSize * ROCKET_HEAD_SCALE, this.tileSize * ROCKET_HEAD_SCALE);
+      sprite.setAngle(head.angleDeg);
+      sprite.setBlendMode(Phaser.BlendModes.ADD);
+      layer.add(sprite);
+
+      const trail = this.add.particles(origin.x, origin.y, vfxTextureKeys.spark, {
+        alpha: { start: 0.82, end: 0 },
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: true,
+        frequency: 18,
+        lifespan: ROCKET_TRAIL_LIFESPAN_MS,
+        scale: { start: Math.max(0.2, this.tileSize / 170), end: 0 },
+        speed: { min: this.tileSize * 0.18, max: this.tileSize * 0.72 },
+        tint: 0x9bfff2
+      });
+      trail.startFollow(sprite, 0, 0, true);
+      layer.add(trail);
+
+      this.tweens.add({
+        targets: sprite,
+        x: head.end.x,
+        y: head.end.y,
+        duration: head.durationMs,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          trail.stop();
+          burst(this, layer, head.end.x, head.end.y, {
+            texture: vfxTextureKeys.spark,
+            count: 8,
+            speed: this.tileSize * 1.8,
+            lifespanMs: 220,
+            tint: 0x9bfff2,
+            scale: Math.max(0.24, this.tileSize / 180)
+          });
+          sprite.destroy();
+          this.time.delayedCall(ROCKET_TRAIL_LIFESPAN_MS + ROCKET_TRAIL_CLEANUP_MS, () => {
+            if (trail.active) trail.destroy();
+          });
+        }
+      });
+    }
+  }
+
+  private rocketHeadPlans(event: PowerUpEvent): Array<{ end: { x: number; y: number }; angleDeg: number; durationMs: number }> {
+    if (!this.snapshot || event.powerUpType.kind !== "rocket") return [];
+    const { row, col } = event.origin;
+    const endpoints = event.powerUpType.orientation === "horizontal"
+      ? [
+          { position: { row, col: 0 }, angleDeg: 180 },
+          { position: { row, col: this.snapshot.grid.cols - 1 }, angleDeg: 0 }
+        ]
+      : [
+          { position: { row: 0, col }, angleDeg: 0 },
+          { position: { row: this.snapshot.grid.rows - 1, col }, angleDeg: 180 }
+        ];
+    return endpoints.map(({ position, angleDeg }) => {
+      const distanceCells = event.powerUpType.kind === "rocket" && event.powerUpType.orientation === "horizontal"
+        ? Math.abs(position.col - col)
+        : Math.abs(position.row - row);
+      return {
+        end: this.cellCenter(position),
+        angleDeg,
+        durationMs: Math.max(ROCKET_MIN_FLIGHT_MS, distanceCells * ROCKET_SWEEP_MS_PER_CELL)
+      };
     });
   }
 
@@ -955,6 +1044,13 @@ export class BoardScene extends Phaser.Scene {
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & { __gwTntDetonationCount?: number };
     target.__gwTntDetonationCount = (target.__gwTntDetonationCount ?? 0) + 1;
+  }
+
+  private recordRocketLaunch(count: number): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwRocketLaunchCount?: number };
+    target.__gwRocketLaunchCount = (target.__gwRocketLaunchCount ?? 0) + count;
   }
 
   private flashCell(position: GridPosition, color: number, duration: number, delay = 0): void {
@@ -1585,15 +1681,24 @@ function clearFlashColors(delta: BoardDelta): Map<string, number> {
 function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: ReadonlySet<string>): Map<string, number> {
   const delays = new Map<string, number>();
   for (const event of delta.powerUpEvents) {
-    if (event.powerUpType.kind !== "tnt") continue;
     const positions = [event.origin, ...event.affectedPositions].filter((position) => {
       const key = positionKey(position);
       return popKeys.has(key) && snapshot.grid.isValid(position);
     });
-    const radial = radialStagger(event.origin, positions, TNT_RADIAL_STAGGER_MS, TNT_RADIAL_STAGGER_MAX_MS);
-    for (const [key, delay] of radial) delays.set(key, TNT_FUSE_MS + delay);
+    if (event.powerUpType.kind === "tnt") {
+      const radial = radialStagger(event.origin, positions, TNT_RADIAL_STAGGER_MS, TNT_RADIAL_STAGGER_MAX_MS);
+      for (const [key, delay] of radial) setEarliestDelay(delays, key, TNT_FUSE_MS + delay);
+    } else if (event.powerUpType.kind === "rocket") {
+      const sweep = sweepStagger(event.origin, positions, event.powerUpType.orientation, ROCKET_SWEEP_MS_PER_CELL);
+      for (const [key, delay] of sweep) setEarliestDelay(delays, key, delay);
+    }
   }
   return delays;
+}
+
+function setEarliestDelay(delays: Map<string, number>, key: string, delay: number): void {
+  const current = delays.get(key);
+  if (current === undefined || delay < current) delays.set(key, delay);
 }
 
 function unionKeys(...sets: ReadonlyArray<ReadonlySet<string>>): Set<string> {

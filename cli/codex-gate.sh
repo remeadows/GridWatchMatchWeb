@@ -133,7 +133,39 @@ contains_any_helper_term() {
   local text="$1"
   [[ "${text}" == *"powerupeventkeys"* \
     || "${text}" == *"clearflashcolors"* \
+    || "${text}" == *"poweruppopstagger"* \
     || "${text}" == *"unionkeys"* ]]
+}
+
+contains_any_e2e_counter_term() {
+  local text="$1"
+  [[ "${text}" == *"matchburstcount"* \
+    || "${text}" == *"powerupfxcount"* \
+    || "${text}" == *"tntdetonationcount"* \
+    || "${text}" == *"rocketlaunchcount"* ]]
+}
+
+contains_any_vfx_import_term() {
+  local text="$1"
+  [[ "${text}" == *"burst"* \
+    || "${text}" == *"ensurevfxtextures"* \
+    || "${text}" == *"shake"* \
+    || "${text}" == *"shockwave"* \
+    || "${text}" == *"vfxtexturekeys"* ]]
+}
+
+override_line_matches_file() {
+  local line_l="$1"
+  local file_l="$2"
+  local token
+  for token in ${line_l}; do
+    token="${token#:}"
+    token="${token%:}"
+    token="${token%,}"
+    token="${token%;}"
+    if [[ "${token}" == "${file_l}" ]]; then return 0; fi
+  done
+  return 1
 }
 
 finding_is_overridden() {
@@ -143,20 +175,23 @@ finding_is_overridden() {
 
   [[ -f "${OVERRIDES_FILE}" ]] || return 1
   file_l="$(printf '%s' "${file_name}" | lowercase)"
+  [[ -n "${file_l}" ]] || return 1
   instructions_l="$(printf '%s' "${instructions}" | lowercase)"
 
   while IFS= read -r override_line; do
     line_l="$(printf '%s' "${override_line}" | lowercase)"
-    [[ "${line_l}" == *"${file_l}"* ]] || continue
+    override_line_matches_file "${line_l}" "${file_l}" || continue
     [[ "${line_l}" == *"stale"* ]] || continue
 
     if [[ "${line_l}" == *"helper"* ]] && contains_any_helper_term "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"timing"* ]] && contains_any_timing_term "${instructions_l}"; then return 0; fi
+    if [[ "${line_l}" == *"board method"* && "${instructions_l}" == *"activateboosteratpointer"* ]]; then return 0; fi
     if [[ "${line_l}" == *"powerup_fx_budget_ms"* && "${instructions_l}" == *"powerup_fx_budget_ms"* ]]; then return 0; fi
     if [[ "${line_l}" == *"booster title"* && "${instructions_l}" == *"title"* && "${instructions_l}" == *"tilepopcount"* ]]; then return 0; fi
     if [[ "${line_l}" == *"power-up fx poll"* && "${instructions_l}" == *"powerupfxcount"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"counter helper"* && "${instructions_l}" == *"duplicate"* ]] && contains_any_e2e_counter_term "${instructions_l}"; then return 0; fi
     if [[ "${line_l}" == *"vfx_timing"* && "${instructions_l}" == *"vfx_timing"* ]]; then return 0; fi
-    if [[ "${line_l}" == *"vfx"* && "${instructions_l}" == *"ensurevfxtextures"* ]]; then return 0; fi
+    if [[ "${line_l}" == *"vfx"* ]] && contains_any_vfx_import_term "${instructions_l}"; then return 0; fi
   done < "${OVERRIDES_FILE}"
 
   return 1

@@ -109,6 +109,7 @@ test("clicking a booster starts power-up fx before cascade", async ({ page }) =>
   const target = await boardCellPoint(page, { row: 3, col: 3 });
   await page.mouse.click(target.x, target.y);
 
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
   await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
   await expect.poll(() => powerUpFxCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxCountBefore);
 });
@@ -127,7 +128,21 @@ test("TNT booster detonates with shockwave effects", async ({ page }) => {
   await expect.poll(() => tntDetonationCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(detonationCountBefore);
 });
 
-test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
+test("rocket booster launches projectile heads", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const launchCountBefore = await rocketLaunchCount(page);
+
+  await page.getByTestId("booster-rocket").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await page.mouse.click(target.x, target.y);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => rocketLaunchCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThanOrEqual(launchCountBefore + 2);
+});
+
+test("dragging a booster onto the board consumes inventory and activates at drop", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   const booster = page.getByTestId("booster-rocket");
@@ -286,5 +301,12 @@ async function tntDetonationCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwTntDetonationCount?: number };
     return w.__gwTntDetonationCount ?? 0;
+  });
+}
+
+async function rocketLaunchCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwRocketLaunchCount?: number };
+    return w.__gwRocketLaunchCount ?? 0;
   });
 }
