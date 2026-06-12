@@ -12,6 +12,11 @@ The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`.
 
 ## Latest Work Completed
 
+- VFX overhaul Tasks 1-9:
+  - Tap power-up clears now use the tile-pop path before the board refills.
+  - Clear-producing power-up FX now starts immediately after the pop render point, before cascade/refill.
+  - Match clears burst with particles; TNT detonates with shockwave/shake; rockets sweep with projectile heads and trails; propeller drones lift, fly, and strike; lightBall fans out zaps; reduced motion skips these tweens.
+  - Winning a level now destroys the board row by row from the bottom up before the result modal appears.
 - VFX overhaul Task 8:
   - Board renderer now has named board chrome and per-tile identity palettes.
   - Tiles render with subtle per-type backplates plus 1-2 px neon rims on the real occupant containers, so drag/swap/VFX paths carry the same identity coding.
@@ -81,6 +86,18 @@ PR review follow-up on 2026-06-12:
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.
 - `npm run test:e2e`: passed, 36 tests.
+
+Task 10 final verification on 2026-06-12:
+
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+- `npm audit --audit-level=high`: passed, 0 vulnerabilities.
+- Warm preview server at `http://127.0.0.1:4173/GridWatchMatchWeb/`: required 20-run drag-test loop passed 20/20, covering 40 total chromium+mobile test instances with 0 failures.
+- Manual visual feel pass used screenshots saved outside the repo under `/tmp/gridwatch-manual-feel` and confirmed normal-motion desktop frames for match pop particles, TNT shockwave, rocket flight/trails, propeller lift/strike, lightBall multi-zaps, and bottom-up win board destruction with no modal mid-sequence.
+- Mobile visual pass confirmed the same effect counters on an iPhone 15 viewport and checked board/effect framing in the scrolling viewport.
+- Reduced-motion fast path check loaded `settings.reducedMotion: true`; TNT clear completed in 222 ms with no power-up FX, TNT detonation, or tile-pop animation counters, and animated win reached the result modal in 180 ms.
 
 ### Flake-prone tests: 20-run methodology required
 
