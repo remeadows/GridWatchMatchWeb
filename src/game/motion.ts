@@ -134,6 +134,16 @@ export function clearedKeysFromDelta(delta: BoardDelta): Set<string> {
   return new Set(delta.clears.map((clear) => `${clear.position.row},${clear.position.col}`));
 }
 
+/**
+ * Pop keys for a resolved swap combine the match positions found from the
+ * post-swap visual grid with positions the engine actually cleared in the
+ * resulting BoardDelta. This keeps Phaser from popping power-up-touched cells
+ * whose blockers only lost HP and remain in the next snapshot.
+ *
+ * iOS: BoardNode.swift — apply(delta:to:completion:) owns this distinction
+ * while applying the delta directly. Web adaptation: returns a pure key set for
+ * the renderer's separate pop phase before cascade/refill.
+ */
 export function resolvedPopKeys(matchKeys: ReadonlySet<string>, delta: BoardDelta): Set<string> {
   return new Set([...matchKeys, ...clearedKeysFromDelta(delta)]);
 }
