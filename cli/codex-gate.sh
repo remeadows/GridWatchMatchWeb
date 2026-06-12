@@ -149,7 +149,8 @@ contains_any_e2e_counter_term() {
 
 contains_any_vfx_import_term() {
   local text="$1"
-  [[ "${text}" == *"burst"* \
+  [[ "${text}" == *"burst("* \
+    || ( "${text}" == *"import"* && "${text}" == *"burst"* ) \
     || "${text}" == *"ensurevfxtextures"* \
     || "${text}" == *"shake"* \
     || "${text}" == *"shockwave"* \

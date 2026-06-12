@@ -182,6 +182,7 @@ export function sweepStagger(
  * iOS: BoardNode.swift — animateRowDestruction()
  */
 export function rowDestructionOrder(rows: number): number[] {
+  if (!Number.isFinite(rows) || rows <= 0) return [];
   const result: number[] = [];
   for (let row = Math.max(0, Math.floor(rows)) - 1; row >= 0; row--) result.push(row);
   return result;

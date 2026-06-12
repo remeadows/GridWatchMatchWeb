@@ -11,6 +11,15 @@ describe("web image asset overrides", () => {
     );
   });
 
+  it("normalizes whitespace and leading slashes before resolving overrides", () => {
+    const path = " ///assets/images/tiles/tile_packet.png ";
+
+    expect(webOverridePath(path)).toBe("assets/images/web-overrides/tiles/tile_packet.png");
+    expect(resolveImageAssetPath(path, (candidate) => candidate === "assets/images/web-overrides/tiles/tile_packet.png")).toBe(
+      "assets/images/web-overrides/tiles/tile_packet.png"
+    );
+  });
+
   it("falls back to the synced image when no override exists", () => {
     const path = "assets/images/powerups/powerup_tnt.png";
 
@@ -22,6 +31,7 @@ describe("web image asset overrides", () => {
 
     expect(webOverridePath(path)).toBeNull();
     expect(resolveImageAssetPath(path, () => true)).toBe(path);
+    expect(webOverridePath("//assets/audio/sfx_power_up.mp3")).toBeNull();
   });
 
   it("does not wrap an override path a second time", () => {
@@ -29,5 +39,12 @@ describe("web image asset overrides", () => {
 
     expect(webOverridePath(path)).toBeNull();
     expect(resolveImageAssetPath(path, () => true)).toBe(path);
+  });
+
+  it("ignores empty and bare image prefix paths", () => {
+    expect(webOverridePath("")).toBeNull();
+    expect(resolveImageAssetPath("", () => true)).toBe("");
+    expect(webOverridePath("assets/images/")).toBeNull();
+    expect(resolveImageAssetPath("assets/images/", () => true)).toBe("assets/images/");
   });
 });

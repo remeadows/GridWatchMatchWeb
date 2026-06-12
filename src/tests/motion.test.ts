@@ -201,6 +201,11 @@ describe("rowDestructionOrder", () => {
   it("returns an empty order for no rows", () => {
     expect(rowDestructionOrder(0)).toEqual([]);
   });
+
+  it("returns an empty order for non-finite rows", () => {
+    expect(rowDestructionOrder(Number.POSITIVE_INFINITY)).toEqual([]);
+    expect(rowDestructionOrder(Number.NaN)).toEqual([]);
+  });
 });
 
 describe("quadraticFlightPath", () => {

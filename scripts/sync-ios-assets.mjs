@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -24,8 +24,8 @@ const videoOut = path.join(publicRoot, "assets/video");
 const levelsOut = path.join(publicRoot, "levels");
 const generatedAssetManifestPath = path.join(repoRoot, "src/data/assetManifest.generated.ts");
 const assetSyncStatePath = path.join(repoRoot, "src/data/assetSyncState.generated.json");
-const imageAssetPrefix = "assets/images/";
-const webImageOverridePrefix = "assets/images/web-overrides/";
+const assetOverrideRulesPath = path.join(repoRoot, "src/data/assetOverrideRules.json");
+const assetOverrideRules = JSON.parse(readFileSync(assetOverrideRulesPath, "utf8"));
 const syncedImageDirectories = ["tiles", "powerups", "boosters", "backgrounds", "villains", "heroes", "app"];
 
 const images = {
@@ -148,18 +148,36 @@ async function sha256(filePath) {
   return createHash("sha256").update(await readFile(filePath)).digest("hex");
 }
 
-function normalizeManifestPath(assetPath) {
-  return assetPath.replace(/^\/+/, "");
+function assertAssetOverrideRules() {
+  if (!assetOverrideRules.imageAssetPrefix || !assetOverrideRules.webImageOverridePrefix) {
+    throw new Error(`Asset override rule file is missing required prefixes: ${assetOverrideRulesPath}`);
+  }
+  if (!assetOverrideRules.webImageOverridePrefix.startsWith(assetOverrideRules.imageAssetPrefix)) {
+    throw new Error(`webImageOverridePrefix must be nested under imageAssetPrefix: ${assetOverrideRulesPath}`);
+  }
+  if (normalizeManifestPath(" ///assets/images/tiles/tile_packet.png ") !== "assets/images/tiles/tile_packet.png") {
+    throw new Error("Asset override path normalization drifted from src/data/assetOverrides.ts");
+  }
+  if (webOverridePath("assets/images/tiles/tile_packet.png") !== "assets/images/web-overrides/tiles/tile_packet.png") {
+    throw new Error("Asset override path construction drifted from src/data/assetOverrides.ts");
+  }
 }
 
+// Copied from src/data/assetOverrides.ts normalizeManifestPath/webOverridePath.
+// Both modules read src/data/assetOverrideRules.json and assert the same path rules.
+function normalizeManifestPath(assetPath) {
+  return assetPath.trim().replace(/^\/+/, "");
+}
+
+// Copied from src/data/assetOverrides.ts webOverridePath.
 function webOverridePath(assetPath) {
   const normalized = normalizeManifestPath(assetPath);
-  if (!normalized.startsWith(imageAssetPrefix) || normalized.startsWith(webImageOverridePrefix)) {
+  if (!normalized.startsWith(assetOverrideRules.imageAssetPrefix) || normalized.startsWith(assetOverrideRules.webImageOverridePrefix)) {
     return null;
   }
 
-  const imageRelativePath = normalized.slice(imageAssetPrefix.length);
-  return imageRelativePath ? `${webImageOverridePrefix}${imageRelativePath}` : null;
+  const imageRelativePath = normalized.slice(assetOverrideRules.imageAssetPrefix.length);
+  return imageRelativePath ? `${assetOverrideRules.webImageOverridePrefix}${imageRelativePath}` : null;
 }
 
 async function resolveImageAssetPath(assetPath) {
@@ -194,8 +212,8 @@ function flattenImageManifest(value, prefix = [], output = new Map()) {
 
 function syncedPathForResolvedPath(assetPath) {
   const normalized = normalizeManifestPath(assetPath);
-  return normalized.startsWith(webImageOverridePrefix)
-    ? `${imageAssetPrefix}${normalized.slice(webImageOverridePrefix.length)}`
+  return normalized.startsWith(assetOverrideRules.webImageOverridePrefix)
+    ? `${assetOverrideRules.imageAssetPrefix}${normalized.slice(assetOverrideRules.webImageOverridePrefix.length)}`
     : normalized;
 }
 
@@ -236,7 +254,7 @@ async function readAssetSyncState() {
   try {
     return JSON.parse(await readFile(assetSyncStatePath, "utf8"));
   } catch (error) {
-    if (error && error.code === "ENOENT") return null;
+    if (error?.code === "ENOENT") return null;
     throw error;
   }
 }
@@ -335,6 +353,8 @@ async function copyDirectoryFiles(sourceDir, destDir, predicate) {
 }
 
 async function main() {
+  assertAssetOverrideRules();
+
   if (!(await exists(sourceRoot))) {
     throw new Error(
       `iOS source root not found: ${sourceRoot}\nExpected sibling candidates:\n${defaultSourceRoots.map((candidate) => `- ${candidate}`).join("\n")}`

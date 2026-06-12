@@ -126,6 +126,7 @@ const tileIdentityStyles: Record<TileType, TileIdentityStyle> = {
   threat: { backplate: 0x5b1329, backplateAlpha: 0.38, rim: 0xff3f6e, rimAlpha: 0.92 },
   zeroDay: { backplate: 0x34275f, backplateAlpha: 0.36, rim: 0xded2ff, rimAlpha: 0.94 }
 };
+const BACKPLATE_RIM_ALPHA_FACTOR = 0.56;
 
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
@@ -146,6 +147,11 @@ const CASCADE_SQUASH_SCALE_Y = 1.05;
 // Matched tiles burst OUTWARD (explode) rather than shrinking away. The destroy
 // tween scales up past the cell while fading to alpha 0.
 const MATCH_BURST_SCALE = 1.7;
+const MATCH_BURST_PARTICLE_COUNT = 10;
+const MATCH_BURST_SPEED_TILE_FACTOR = 2.4;
+const MATCH_BURST_LIFESPAN_MS = 260;
+const MATCH_BURST_MIN_PARTICLE_SCALE = 0.35;
+const MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR = 140;
 
 // Largest per-tile centroid-stagger delay applied to match pops.
 const MATCH_POP_STAGGER_MAX_MS = 110;
@@ -163,39 +169,75 @@ const MATCH_POP_MS = 190;
 const MATCH_POP_ANTICIPATION_MS = 70;
 // iOS source: BoardNode.swift animateMatches pre-pop lock delay.
 const MATCH_LOCK_MS = 140;
+// Animation durations and easing must match ../GridWatchMatch/ iOS source
+// unless explicitly marked Web-only tuning below.
+// Web-only tuning: Phaser spawn fall pacing around iOS BoardNode.swift animateMoves.
 const SPAWN_MOVE_MS = 390;
+// Web-only tuning: Phaser TNT choreography budget.
 const TNT_FX_BUDGET_MS = 700;
+// Web-only tuning: Phaser TNT fuse anticipation.
 const TNT_FUSE_MS = 120;
+// Web-only tuning: Phaser TNT radial pop wave.
 const TNT_RADIAL_STAGGER_MS = 22;
+// Web-only tuning: Phaser TNT radial delay cap.
 const TNT_RADIAL_STAGGER_MAX_MS = 120;
+// Web-only tuning: Phaser TNT shockwave duration.
 const TNT_SHOCKWAVE_MS = 320;
+// Web-only tuning: visual radius matches TNT clear footprint.
 const TNT_BLAST_RADIUS_CELLS = 2;
+// Web-only tuning: Phaser camera shake intensity.
 const TNT_SHAKE_INTENSITY = 0.008;
+// Web-only tuning: Phaser camera shake duration.
 const TNT_SHAKE_DURATION_MS = 220;
+// Web-only tuning: Phaser rocket choreography budget.
 const ROCKET_FX_BUDGET_MS = 700;
+// Web-only tuning: Phaser rocket pass timing.
 const ROCKET_SWEEP_MS_PER_CELL = 58;
+// Web-only tuning: Phaser minimum projectile travel.
 const ROCKET_MIN_FLIGHT_MS = 120;
+// Web-only tuning: Phaser rocket sprite scale.
 const ROCKET_HEAD_SCALE = 0.58;
+// Web-only tuning: Phaser rocket trail particle lifespan.
 const ROCKET_TRAIL_LIFESPAN_MS = 240;
+// Web-only tuning: Phaser rocket trail cleanup buffer.
 const ROCKET_TRAIL_CLEANUP_MS = 90;
+// Web-only tuning: Phaser camera shake intensity.
 const ROCKET_SHAKE_INTENSITY = 0.0045;
+// Web-only tuning: Phaser camera shake duration.
 const ROCKET_SHAKE_DURATION_MS = 120;
+// Web-only tuning: Phaser propeller choreography budget.
 const PROPELLER_FX_BUDGET_MS = 760;
+// Web-only tuning: Phaser drone lift anticipation.
 const PROPELLER_LIFT_MS = 120;
+// Web-only tuning: Phaser drone arc flight.
 const PROPELLER_FLIGHT_MS = 450;
+// Web-only tuning: Phaser drone rotor loop.
 const PROPELLER_SPIN_MS = 150;
+// Web-only tuning: Phaser propeller sprite scale.
 const PROPELLER_DRONE_SCALE = 0.74;
+// Web-only tuning: Phaser quadratic arc height.
 const PROPELLER_ARC_LIFT_CELLS = 2.1;
+// Web-only tuning: Phaser arc sampling resolution.
 const PROPELLER_ARC_SAMPLES = 12;
+// Web-only tuning: Phaser secondary pop wave.
 const PROPELLER_SECONDARY_STAGGER_MS = 30;
+// Web-only tuning: Phaser secondary delay cap.
 const PROPELLER_SECONDARY_STAGGER_MAX_MS = 120;
+// Web-only tuning: Phaser impact shockwave duration.
 const PROPELLER_IMPACT_SHOCKWAVE_MS = 220;
+// Web-only tuning: Phaser lightBall choreography budget.
 const LIGHTBALL_FX_BUDGET_MS = 780;
+// Web-only tuning: Phaser lightBall charge anticipation.
 const LIGHTBALL_CHARGE_MS = 140;
+// Web-only tuning: Phaser zap target cadence.
 const LIGHTBALL_ZAP_STAGGER_MS = 26;
+// Web-only tuning: Phaser lightning segment lifespan.
 const LIGHTBALL_ZAP_LIFESPAN_MS = 170;
+// Web-only tuning: Phaser deterministic lightning jitter.
 const LIGHTBALL_ZAP_JITTER_PX = 12;
+// Web-only tuning: Phaser final board shockwave.
 const LIGHTBALL_FULL_SHOCKWAVE_MS = 340;
+// Web-only tuning: Phaser zap delay cap.
 const LIGHTBALL_TARGET_STAGGER_MAX_MS = 180;
 const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
 // Web-only tuning: Phaser match-pop camera shake has no direct iOS equivalent.
@@ -396,7 +438,7 @@ export class BoardScene extends Phaser.Scene {
       const rimWidth = Math.max(1, Math.min(2, Math.round(this.tileSize * 0.022)));
       graphics.fillStyle(tileStyle.backplate, tileStyle.backplateAlpha);
       graphics.fillRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
-      graphics.lineStyle(rimWidth, tileStyle.rim, 0.52);
+      graphics.lineStyle(rimWidth, tileStyle.rim, tileStyle.rimAlpha * BACKPLATE_RIM_ALPHA_FACTOR);
       graphics.strokeRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
     }
     if (this.selected?.row === position.row && this.selected.col === position.col) {
@@ -790,11 +832,11 @@ export class BoardScene extends Phaser.Scene {
     this.recordMatchBurst();
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.spark,
-      count: 10,
-      speed: this.tileSize * 2.4,
-      lifespanMs: 260,
+      count: MATCH_BURST_PARTICLE_COUNT,
+      speed: this.tileSize * MATCH_BURST_SPEED_TILE_FACTOR,
+      lifespanMs: MATCH_BURST_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.35, this.tileSize / 140)
+      scale: Math.max(MATCH_BURST_MIN_PARTICLE_SCALE, this.tileSize / MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR)
     });
     const glow = this.add.graphics();
     glow.fillStyle(tint, 0.28);
@@ -1153,7 +1195,7 @@ export class BoardScene extends Phaser.Scene {
           onComplete: () => {
             spin.stop();
             drone.destroy();
-            this.recordPropellerStrike(1);
+            this.recordPropellerStrike(targets.length);
             shockwave(this, layer, primaryCenter.x, primaryCenter.y, {
               radiusPx: this.tileSize * 0.9,
               durationMs: PROPELLER_IMPACT_SHOCKWAVE_MS,

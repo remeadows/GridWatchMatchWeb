@@ -48,6 +48,16 @@ Task 8 verification on 2026-06-11:
 - `npm run test:e2e`: passed, 34 tests.
 - Manual screenshot check: level 54 on desktop and mobile showed all five base tile types with distinguishable identity colors; zeroDay reads violet-white and separates from cyan packet.
 
+Task 8 CodeRabbit follow-up on 2026-06-12:
+
+- Addressed review feedback by making `shake()` use shared VFX validation helpers, annotating web-only power-up timing groups, documenting the sync-script copy of override helpers with a runtime source assertion, and guarding `rowDestructionOrder()` against non-finite input.
+- Follow-up cleanup centralized the board-ready e2e timeout, tightened the CodeRabbit `burst` override match, made `shake()` and required VFX coordinates use direct finite validation, moved override prefixes into `src/data/assetOverrideRules.json`, added defensive override path normalization, fixed VFX burst/shockwave coordinates inside the FX layer, and replaced board-target `page.mouse.click` calls with synchronous PointerEvent dispatch.
+- `npm run sync:assets`: passed, no manifest/checksum drift reported. The command refreshed local copied raster files from iOS; those binary diffs were discarded before commit.
+- `npm run test`: passed, 154 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 34 tests.
+
 ### Flake-prone tests: 20-run methodology required
 
 `tests/e2e/app.spec.ts` "dragging a board tile into a deterministic match applies a swap" was

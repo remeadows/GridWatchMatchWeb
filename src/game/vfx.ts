@@ -61,13 +61,18 @@ export function burst(
   options: BurstOptions
 ): void {
   if (!layer) return;
+  assertScene("burst", scene);
+  assertFinite("burst", "x", x);
+  assertFinite("burst", "y", y);
   assertPositiveFinite("burst", "count", options.count);
   assertPositiveFinite("burst", "speed", options.speed);
   assertPositiveFinite("burst", "lifespanMs", options.lifespanMs);
   assertPositiveFinite("burst", "scale", options.scale);
   assertFinite("burst", "tint", options.tint);
   ensureVfxTextures(scene);
-  const emitter = scene.add.particles(x, y, options.texture, {
+  const localX = x - layer.x;
+  const localY = y - layer.y;
+  const emitter = scene.add.particles(localX, localY, options.texture, {
     alpha: { start: 1, end: 0 },
     blendMode: Phaser.BlendModes.ADD,
     emitting: false,
@@ -90,11 +95,16 @@ export function shockwave(
   options: ShockwaveOptions
 ): void {
   if (!layer) return;
+  assertScene("shockwave", scene);
+  assertFinite("shockwave", "x", x);
+  assertFinite("shockwave", "y", y);
   assertPositiveFinite("shockwave", "radiusPx", options.radiusPx);
   assertPositiveFinite("shockwave", "durationMs", options.durationMs);
   assertFinite("shockwave", "tint", options.tint);
+  const localX = x - layer.x;
+  const localY = y - layer.y;
   const ring = scene.add.graphics();
-  ring.setPosition(x, y);
+  ring.setPosition(localX, localY);
   ring.setScale(VFX_TIMING.SHOCKWAVE_INITIAL_SCALE);
   ring.lineStyle(VFX_TIMING.SHOCKWAVE_LINE_WIDTH, options.tint, VFX_TIMING.SHOCKWAVE_INITIAL_ALPHA);
   ring.strokeCircle(0, 0, options.radiusPx);
@@ -114,9 +124,15 @@ export function shake(scene: Phaser.Scene, intensity: number, durationMs: number
   if (reducedMotion) return;
   const camera = scene.cameras?.main;
   if (!camera) return;
-  if (!Number.isFinite(intensity) || intensity < 0) return;
-  if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+  assertPositiveFinite("shake", "intensity", intensity);
+  assertPositiveFinite("shake", "durationMs", durationMs);
   camera.shake(durationMs, intensity);
+}
+
+function assertScene(scope: string, scene: Phaser.Scene): void {
+  if (!scene?.add) {
+    throw new Error(`Invalid VFX ${scope} scene: expected a Phaser.Scene`);
+  }
 }
 
 function assertPositiveFinite(scope: string, name: string, value: number): void {
