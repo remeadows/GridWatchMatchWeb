@@ -6,9 +6,11 @@ import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
+import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
 import { RESOLVE_ANIMATION_BUDGET_MS, type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
+import { winSequenceDurationMs } from "./game/motion";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import {
@@ -227,7 +229,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
-  const [status, setStatus] = useState<"loading" | "running" | "playOn" | "won" | "failed">("loading");
+  const [status, setStatus] = useState<"loading" | "running" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
   const [score, setScore] = useState(0);
   const [bossRemaining, setBossRemaining] = useState<number | null>(null);
@@ -331,7 +333,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     audioService.playSfx("vo_grid_compromised.mp3");
   }, [bossRemaining, level?.bossLevel, status]);
 
-  const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition) => {
+  const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition, options: { animate?: boolean } = {}) => {
     if (finalRef.current) return;
     finalRef.current = true;
     const currentSnapshot = engine.snapshot;
@@ -340,10 +342,35 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     commitSave(next);
     saveRef.current = next;
     setSnapshot(currentSnapshot);
-    setStatus("won");
-    audioService.playSfx("sfx_level_complete.mp3");
-    audioService.playSfx("vo_connection_secure.mp3");
-    analytics.track({ name: "level_win", params: { levelId: currentLevel.id, stars, score: nextScore } });
+    const completeWin = () => {
+      setStatus("won");
+      audioService.playSfx("sfx_level_complete.mp3");
+      audioService.playSfx("vo_connection_secure.mp3");
+      analytics.track({ name: "level_win", params: { levelId: currentLevel.id, stars, score: nextScore } });
+    };
+
+    const shouldAnimate = options.animate !== false && !saveRef.current.settings.reducedMotion;
+    if (!shouldAnimate) {
+      completeWin();
+      return;
+    }
+
+    setStatus("wonAnimating");
+    let completed = false;
+    let fallbackId: number | null = null;
+    const completeOnce = () => {
+      if (completed) return;
+      completed = true;
+      if (fallbackId !== null) window.clearTimeout(fallbackId);
+      completeWin();
+    };
+    const durationMs = winSequenceDurationMs(currentSnapshot.grid.rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS);
+    fallbackId = window.setTimeout(completeOnce, durationMs + 120);
+    const started = gameCanvasRef.current?.playWinSequence(completeOnce) ?? false;
+    if (!started) {
+      window.clearTimeout(fallbackId);
+      fallbackId = window.setTimeout(completeOnce, durationMs);
+    }
   }, [commitSave, playOnUsed]);
 
   const applyAction = useCallback((action: BoardAction) => {
@@ -535,7 +562,12 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
 
   const qaWin = () => {
     const engine = engineRef.current;
-    if (engine && level) finishWin(scoreRef.current + 100, engine, level);
+    if (engine && level) finishWin(scoreRef.current + 100, engine, level, { animate: false });
+  };
+
+  const qaWinAnimated = () => {
+    const engine = engineRef.current;
+    if (engine && level) finishWin(scoreRef.current + 100, engine, level, { animate: true });
   };
 
   const area = areaForLevel(levelId);
@@ -605,6 +637,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         <div className="queue-meter">Queue {queueDepth}/3</div>
         {isTestMode && <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>}
         {isTestMode && <button data-testid="qa-win" onClick={qaWin}>QA Win</button>}
+        {isTestMode && <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>}
         {isTestMode && <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>}
         {isTestMode && <button data-testid="qa-boss-timeout" onClick={() => {
           setBossRemaining(0);

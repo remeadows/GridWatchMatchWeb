@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
+import type { BoardDelta, BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
 import { Grid2D } from "../engine/grid";
 import { buildPostClearSnapshot } from "../game/motion";
 import { cascadeHiddenDestinations } from "../game/motion";
+import { clearedKeysFromDelta } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
+import { quadraticFlightPath } from "../game/motion";
+import { radialStagger } from "../game/motion";
+import { resolvedPopKeys } from "../game/motion";
+import { rowDestructionOrder } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
+import { sweepStagger } from "../game/motion";
+import { winSequenceDurationMs } from "../game/motion";
 
 describe("computeCentroidStagger", () => {
   it("returns an empty map for no positions", () => {
@@ -95,6 +102,167 @@ function snapshotOf(grid: Grid2D<CellState>): BoardSnapshot {
     chainDepth: 0
   };
 }
+
+function emptyDelta(): BoardDelta {
+  return {
+    clears: [],
+    moves: [],
+    spawns: [],
+    powerUpEvents: [],
+    objectiveEvents: [],
+    chainDepth: 0,
+    scoreGained: 0,
+    isWin: false,
+    isFail: false,
+    shuffleAttempts: 0
+  };
+}
+
+describe("clearedKeysFromDelta", () => {
+  it("returns an empty set for a delta with no clears", () => {
+    expect(clearedKeysFromDelta(emptyDelta())).toEqual(new Set());
+  });
+
+  it("maps clear positions to row,col keys", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 1, col: 2 }, tileType: "packet", clearedByPowerUp: true, contributedToObjective: true, objectiveId: "packets" },
+      { position: { row: 3, col: 4 }, tileType: "firewall", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+
+    expect(clearedKeysFromDelta(delta)).toEqual(new Set(["1,2", "3,4"]));
+  });
+
+  it("dedupes duplicate clear positions", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 2, col: 5 }, tileType: "key", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null },
+      { position: { row: 2, col: 5 }, tileType: "key", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+
+    expect(clearedKeysFromDelta(delta)).toEqual(new Set(["2,5"]));
+  });
+});
+
+describe("resolvedPopKeys", () => {
+  it("combines match keys with only positions that actually cleared", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 0, col: 0 }, tileType: "packet", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+    delta.powerUpEvents = [
+      {
+        powerUpType: { kind: "tnt" },
+        origin: { row: 0, col: 0 },
+        affectedPositions: [{ row: 0, col: 0 }, { row: 1, col: 1 }],
+        trigger: { kind: "tap" }
+      }
+    ];
+
+    expect(resolvedPopKeys(new Set(["2,2"]), delta)).toEqual(new Set(["0,0", "2,2"]));
+  });
+});
+
+describe("radialStagger", () => {
+  it("returns an empty map for no positions", () => {
+    expect(radialStagger({ row: 0, col: 0 }, [], 25, 60).size).toBe(0);
+  });
+
+  it("delays positions by distance from an origin and clamps to maxMs", () => {
+    const result = radialStagger(
+      { row: 2, col: 2 },
+      [{ row: 2, col: 2 }, { row: 2, col: 3 }, { row: 2, col: 5 }],
+      25,
+      60
+    );
+
+    expect(result.get("2,2")).toBe(0);
+    expect(result.get("2,3")).toBe(25);
+    expect(result.get("2,5")).toBe(60);
+  });
+});
+
+describe("sweepStagger", () => {
+  it("returns an empty map for no positions", () => {
+    expect(sweepStagger({ row: 0, col: 0 }, [], "horizontal", 32).size).toBe(0);
+  });
+
+  it("uses column distance for a horizontal sweep", () => {
+    const result = sweepStagger(
+      { row: 3, col: 3 },
+      [{ row: 3, col: 1 }, { row: 3, col: 3 }, { row: 3, col: 6 }],
+      "horizontal",
+      32
+    );
+
+    expect(result.get("3,3")).toBe(0);
+    expect(result.get("3,1")).toBe(64);
+    expect(result.get("3,6")).toBe(96);
+  });
+
+  it("uses row distance for a vertical sweep", () => {
+    const result = sweepStagger(
+      { row: 4, col: 2 },
+      [{ row: 1, col: 2 }, { row: 4, col: 2 }, { row: 6, col: 2 }],
+      "vertical",
+      40
+    );
+
+    expect(result.get("4,2")).toBe(0);
+    expect(result.get("1,2")).toBe(120);
+    expect(result.get("6,2")).toBe(80);
+  });
+});
+
+describe("rowDestructionOrder", () => {
+  it("returns rows bottom-to-top", () => {
+    expect(rowDestructionOrder(5)).toEqual([4, 3, 2, 1, 0]);
+  });
+
+  it("returns an empty order for no rows", () => {
+    expect(rowDestructionOrder(0)).toEqual([]);
+  });
+
+  it("returns an empty order for non-finite rows", () => {
+    expect(rowDestructionOrder(Number.POSITIVE_INFINITY)).toEqual([]);
+    expect(rowDestructionOrder(Number.NaN)).toEqual([]);
+  });
+});
+
+describe("winSequenceDurationMs", () => {
+  it("covers the last row start plus the row pop duration", () => {
+    expect(winSequenceDurationMs(7, 90, 260)).toBe(800);
+  });
+
+  it("returns zero for non-positive or non-finite row counts", () => {
+    expect(winSequenceDurationMs(0, 90, 260)).toBe(0);
+    expect(winSequenceDurationMs(Number.NaN, 90, 260)).toBe(0);
+  });
+});
+
+describe("quadraticFlightPath", () => {
+  it("samples an upward quadratic arc including endpoints", () => {
+    const path = quadraticFlightPath({ x: 0, y: 0 }, { x: 10, y: 0 }, 5, 3);
+
+    expect(path).toEqual([
+      { x: 0, y: 0 },
+      { x: 5, y: -5 },
+      { x: 10, y: 0 }
+    ]);
+  });
+
+  it("returns endpoints when samples is below the minimum arc count", () => {
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, 1)).toEqual([
+      { x: 2, y: 3 },
+      { x: 8, y: 9 }
+    ]);
+  });
+
+  it("returns an empty path for non-finite sample counts", () => {
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, Number.NEGATIVE_INFINITY)).toEqual([]);
+    expect(quadraticFlightPath({ x: 2, y: 3 }, { x: 8, y: 9 }, 12, Number.NaN)).toEqual([]);
+  });
+});
 
 describe("buildPostClearSnapshot", () => {
   it("empties only the popped positions and preserves the rest", () => {

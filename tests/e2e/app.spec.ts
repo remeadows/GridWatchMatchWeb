@@ -1,4 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  GAMEPLAY_POLL_TIMEOUT_MS,
+  BOARD_READY_TIMEOUT_MS,
+  WIN_ROW_DESTRUCTION_POP_MS,
+  WIN_ROW_DESTRUCTION_STAGGER_MS
+} from "../../src/data/gameplayTiming";
+import { winSequenceDurationMs } from "../../src/game/motion";
 
 test.beforeEach(async ({ page }) => {
   await clearStorage(page);
@@ -30,6 +37,18 @@ test("dragging a board tile into a deterministic match applies a swap", async ({
   await expect(page.getByText("Collect 20 Packets: 3/20")).toBeVisible();
 });
 
+test("match pops burst with particles", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const burstCountBefore = await matchBurstCount(page);
+
+  await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => matchBurstCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(burstCountBefore);
+});
+
 test("handles fail, Play On decline path, forced win, and next level unlock", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -42,6 +61,19 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
   await expect(page.getByText("Grid secured")).toBeVisible();
   await page.getByRole("button", { name: "Next Level" }).click();
   await expect(page.getByText("Level 2")).toBeVisible();
+});
+
+test("animated win destroys the board before showing the result modal", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+
+  await page.getByTestId("qa-win-animated").click();
+
+  const modalTitle = page.getByText("Grid secured");
+  await page.waitForTimeout(winSequenceDurationMs(7, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS) - 120);
+  await expect(modalTitle).not.toBeVisible();
+  await expect(modalTitle).toBeVisible({ timeout: 1_200 });
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {
@@ -62,27 +94,114 @@ test("booster tray requires a deliberate board target", async ({ page }) => {
   await expect(booster.locator("strong")).toHaveText("3");
   await expect(page.getByText(/Last clear:/)).not.toBeVisible();
 
-  const board = await page.getByTestId("board-canvas").boundingBox();
-  expect(board).not.toBeNull();
-  await page.mouse.click(board!.x + board!.width / 2, board!.y + board!.height / 2);
+  await waitForBoardReady(page);
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
   await expect(page.getByText(/Last clear:/)).toBeVisible();
   await expect(booster.locator("strong")).toHaveText("2");
 });
 
-test("dragging a booster onto the board activates at the drop point", async ({ page }) => {
+test("booster tap clears use the tile pop animation path", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const popCountBefore = await tilePopCount(page);
+
+  const booster = page.getByTestId("booster-tnt");
+  await booster.click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
+});
+
+test("clicking a booster starts power-up fx before cascade", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const popCountBefore = await tilePopCount(page);
+  const fxCountBefore = await powerUpFxCount(page);
+  const fxAfterPopRenderBefore = await powerUpFxAfterPopRenderCount(page);
+
+  const booster = page.getByTestId("booster-tnt");
+  await booster.click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
+  await expect.poll(() => powerUpFxCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxCountBefore);
+  await expect.poll(() => powerUpFxAfterPopRenderCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxAfterPopRenderBefore);
+});
+
+test("TNT booster detonates with shockwave effects", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const detonationCountBefore = await tntDetonationCount(page);
+
+  await page.getByTestId("booster-tnt").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => tntDetonationCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(detonationCountBefore);
+});
+
+test("rocket booster launches projectile heads", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const launchCountBefore = await rocketLaunchCount(page);
+
+  await page.getByTestId("booster-rocket").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => rocketLaunchCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(launchCountBefore);
+});
+
+test("propeller booster drone flies and strikes", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const strikeCountBefore = await propellerStrikeCount(page);
+
+  await page.getByTestId("booster-propeller").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => propellerStrikeCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(strikeCountBefore);
+});
+
+test("lightBall booster zaps its targets", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+  const zapCountBefore = await lightBallZapCount(page);
+
+  await page.getByTestId("booster-lightBall").click();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
+  await clickBoardPoint(page, target);
+
+  await expect(page.getByText(/Last clear:/)).toBeVisible();
+  await expect.poll(() => lightBallZapCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(zapCountBefore);
+});
+
+test("dragging a booster onto the board consumes inventory and activates at drop", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
   const booster = page.getByTestId("booster-rocket");
   await booster.scrollIntoViewIfNeeded();
   const boosterBox = await booster.boundingBox();
-  const board = await page.getByTestId("board-canvas").boundingBox();
+  const target = await boardCellPoint(page, { row: 3, col: 3 });
   expect(boosterBox).not.toBeNull();
-  expect(board).not.toBeNull();
 
-  await page.mouse.move(boosterBox!.x + boosterBox!.width / 2, boosterBox!.y + boosterBox!.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(board!.x + board!.width / 2, board!.y + board!.height / 2, { steps: 8 });
-  await page.mouse.up();
+  await dragBoosterToBoardPoint(page, boosterBox!, target);
 
   await expect(page.getByText(/Last clear:/)).toBeVisible();
   await expect(booster.locator("strong")).toHaveText("2");
@@ -140,13 +259,7 @@ async function clearStorage(page: Page): Promise<void> {
 
 async function dragBoardCells(page: Page, from: { row: number; col: number }, to: { row: number; col: number }): Promise<void> {
   await page.locator('[data-testid="board-canvas"] canvas').waitFor({ state: "visible" });
-  await page.waitForFunction(() => {
-    const w = window as Window & {
-      __gwBoardReady?: boolean;
-      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
-    };
-    return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
-  });
+  await waitForBoardReady(page);
 
   await page.evaluate(({ from, to }) => {
     const w = window as Window & {
@@ -186,4 +299,142 @@ async function dragBoardCells(page: Page, from: { row: number; col: number }, to
     }
     dispatch("pointerup", end, 0);
   }, { from, to });
+}
+
+async function waitForBoardReady(page: Page): Promise<void> {
+  await page.waitForFunction(() => {
+    const w = window as Window & {
+      __gwBoardReady?: boolean;
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
+  }, { timeout: BOARD_READY_TIMEOUT_MS });
+}
+
+async function clickBoardPoint(page: Page, point: { x: number; y: number }): Promise<void> {
+  await page.evaluate(({ point }) => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="board-canvas"] canvas');
+    if (!canvas) throw new Error("Board canvas not found");
+    const eventInit = {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: point.x,
+      clientY: point.y,
+      composed: true,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      view: window
+    };
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { ...eventInit, buttons: 1 }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { ...eventInit, buttons: 0 }));
+    canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0, cancelable: true, clientX: point.x, clientY: point.y, view: window }));
+  }, { point });
+}
+
+async function boardCellPoint(page: Page, position: { row: number; col: number }): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(({ position }) => {
+    const w = window as Window & {
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return w.__gwBoardCellClientPoint?.(position.row, position.col) ?? null;
+  }, { position });
+  if (!point) throw new Error(`Board cell point unavailable for ${position.row},${position.col}`);
+  return point;
+}
+
+async function dragBoosterToBoardPoint(
+  page: Page,
+  boosterBox: { x: number; y: number; width: number; height: number },
+  target: { x: number; y: number }
+): Promise<void> {
+  await page.evaluate(({ boosterBox, target }) => {
+    const booster = document.querySelector<HTMLElement>('[data-testid="booster-rocket"]');
+    if (!booster) throw new Error("Booster element not found");
+    const start = {
+      x: boosterBox.x + boosterBox.width / 2,
+      y: boosterBox.y + boosterBox.height / 2
+    };
+    const dispatch = (type: "pointerdown" | "pointermove" | "pointerup", point: { x: number; y: number }, buttons: number) => {
+      booster.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        isPrimary: true,
+        clientX: point.x,
+        clientY: point.y,
+        button: 0,
+        buttons,
+        view: window
+      }));
+    };
+    dispatch("pointerdown", start, 1);
+    for (let i = 1; i <= 12; i++) {
+      const t = i / 12;
+      dispatch("pointermove", {
+        x: start.x + (target.x - start.x) * t,
+        y: start.y + (target.y - start.y) * t
+      }, 1);
+    }
+    dispatch("pointerup", target, 0);
+  }, { boosterBox, target });
+}
+
+async function tilePopCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwTilePopAnimationCount?: number };
+    return w.__gwTilePopAnimationCount ?? 0;
+  });
+}
+
+async function powerUpFxCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPowerUpFxStartCount?: number };
+    return w.__gwPowerUpFxStartCount ?? 0;
+  });
+}
+
+async function powerUpFxAfterPopRenderCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPowerUpFxAfterPopRenderCount?: number };
+    return w.__gwPowerUpFxAfterPopRenderCount ?? 0;
+  });
+}
+
+async function matchBurstCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwMatchBurstCount?: number };
+    return w.__gwMatchBurstCount ?? 0;
+  });
+}
+
+async function tntDetonationCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwTntDetonationCount?: number };
+    return w.__gwTntDetonationCount ?? 0;
+  });
+}
+
+async function rocketLaunchCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwRocketLaunchCount?: number };
+    return w.__gwRocketLaunchCount ?? 0;
+  });
+}
+
+async function propellerStrikeCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPropellerStrikeCount?: number };
+    return w.__gwPropellerStrikeCount ?? 0;
+  });
+}
+
+async function lightBallZapCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwLightBallZapCount?: number };
+    return w.__gwLightBallZapCount ?? 0;
+  });
 }

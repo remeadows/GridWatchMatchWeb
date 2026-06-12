@@ -1,6 +1,7 @@
 import { assetManifest, audioManifest, lottieManifest } from "./assetManifest.generated";
 
 export { assetManifest, audioManifest, lottieManifest };
+export { resolveImageAssetPath, webOverridePath } from "./assetOverrides";
 
 export function assetUrl(path: string): string {
   const base = import.meta.env.BASE_URL.endsWith("/")

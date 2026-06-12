@@ -1,6 +1,6 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-06-04
+Last updated: 2026-06-12
 
 ## Current Status
 
@@ -12,6 +12,17 @@ The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`.
 
 ## Latest Work Completed
 
+- VFX overhaul Tasks 1-9:
+  - Tap power-up clears now use the tile-pop path before the board refills.
+  - Clear-producing power-up FX now starts immediately after the pop render point, before cascade/refill.
+  - Match clears burst with particles; TNT detonates with shockwave/shake; rockets sweep with projectile heads and trails; propeller drones lift, fly, and strike; lightBall fans out zaps; reduced motion skips these tweens.
+  - Winning a level now destroys the board row by row from the bottom up before the result modal appears.
+- VFX overhaul Task 8:
+  - Board renderer now has named board chrome and per-tile identity palettes.
+  - Tiles render with subtle per-type backplates plus 1-2 px neon rims on the real occupant containers, so drag/swap/VFX paths carry the same identity coding.
+  - `npm run sync:assets` preserves `public/assets/images/web-overrides/` and resolves matching override files into the generated manifest while falling back to synced iOS art.
+  - Asset sync now validates image manifest coverage against `imageCopies` and writes text-only source checksum state to `src/data/assetSyncState.generated.json`.
+  - `docs/art/cyberpunk-asset-spec.md` defines the realistic cyberpunk art direction, exact override filenames, and generation prompts. No binary override art was added.
 - Closed motion-feel gap with the iOS Swift reference:
   - Cascade and spawn now animate the real occupant containers with a two-phase fall+settle curve. The previous ghost-fade-to-zero path is removed.
   - Match pops are staggered by centroid distance so clears read as a wave.
@@ -30,6 +41,63 @@ Last full verification after the motion-parity commits:
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.
 - `npm audit --audit-level=high`: passed, 0 vulnerabilities.
+
+Task 8 verification on 2026-06-11:
+
+- Failing test first: `npx vitest run src/tests/assets.test.ts` failed before `src/data/assetOverrides.ts` existed.
+- `npx vitest run src/tests/assets.test.ts`: passed, 4 tests.
+- `npm run sync:assets`: passed from the local iOS source. The run copied source raster files locally, but those out-of-scope binary diffs were discarded before commit.
+- `npm run test`: passed, 149 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 34 tests.
+- Manual screenshot check: level 54 on desktop and mobile showed all five base tile types with distinguishable identity colors; zeroDay reads violet-white and separates from cyan packet.
+
+Task 8 CodeRabbit follow-up on 2026-06-12:
+
+- Addressed review feedback by making `shake()` use shared VFX validation helpers, annotating web-only power-up timing groups, documenting the sync-script copy of override helpers with a runtime source assertion, and guarding `rowDestructionOrder()` against non-finite input.
+- Follow-up cleanup centralized the board-ready e2e timeout, tightened the CodeRabbit `burst` override match, made `shake()` and required VFX coordinates use direct finite validation, moved override prefixes into `src/data/assetOverrideRules.json`, added defensive override path normalization, fixed VFX burst/shockwave coordinates inside the FX layer, and replaced board-target `page.mouse.click` calls with synchronous PointerEvent dispatch.
+- PR-side review follow-up moved clear-producing power-up FX to start after the pop render point, restricted swap-resolution pop keys to actual match/clear positions, added a local ignored checksum manifest that rejects overwritten edited synced images, included FX particle tails in power-up budgets, guarded delayed FX cleanup against scene shutdown, removed dead visual-cell code, and restored the README public play link.
+- `npm run sync:assets`: passed, no manifest/checksum drift reported. The command refreshed local copied raster files from iOS; those binary diffs were discarded before commit.
+- Manual sync guard check: a perturbed synced tile with a temporary local manifest was rejected with "Refusing to overwrite edited synced asset(s)" before any overwrite.
+- `npm run test`: passed, 155 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 34 tests.
+
+Task 9 verification on 2026-06-12:
+
+- Failing test first: `npx vitest run src/tests/motion.test.ts` failed before `winSequenceDurationMs` existed.
+- Failing e2e first: `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line` failed because `qa-win-animated` did not exist.
+- `npx vitest run src/tests/motion.test.ts`: passed, 34 tests.
+- `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line`: passed, 2 tests.
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+
+PR review follow-up on 2026-06-12:
+
+- Addressed queued PR feedback by refreshing the handoff date, replacing the remaining booster-drag `page.mouse` path with synchronous PointerEvent dispatch, relaxing the rocket e2e assertion to require a launch without assuming a doubled count, expanding the resolve animation budget for staggered power-up clear paths, and making manual CodeRabbit gate overrides match the full finding text.
+- Local CodeRabbit CLI remained paused per user instruction; PR-side review/checks were used instead.
+- `bash -n cli/codex-gate.sh`: passed.
+- `git diff --check`: passed.
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+
+Task 10 final verification on 2026-06-12:
+
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+- `npm audit --audit-level=high`: passed, 0 vulnerabilities.
+- Warm preview server at `http://127.0.0.1:4173/GridWatchMatchWeb/`: required 20-run drag-test loop passed 20/20, covering 40 total chromium+mobile test instances with 0 failures.
+- Manual visual feel pass used screenshots saved outside the repo under `/tmp/gridwatch-manual-feel` and confirmed normal-motion desktop frames for match pop particles, TNT shockwave, rocket flight/trails, propeller lift/strike, lightBall multi-zaps, and bottom-up win board destruction with no modal mid-sequence.
+- Mobile visual pass confirmed the same effect counters on an iPhone 15 viewport and checked board/effect framing in the scrolling viewport.
+- Reduced-motion fast path check loaded `settings.reducedMotion: true`; TNT clear completed in 222 ms with no power-up FX, TNT detonation, or tile-pop animation counters, and animated win reached the result modal in 180 ms.
 
 ### Flake-prone tests: 20-run methodology required
 
@@ -95,6 +163,8 @@ Previously flaky drag-test loop from supervisor verification:
 - `PLAN.md`: original web port implementation plan.
 - `src/game/BoardScene.ts`: Phaser board rendering, live drag, swap animation, board VFX, booster targeting.
 - `src/App.tsx`: React app flow, HUD, save state, booster tray, store stub.
+- `src/data/assetOverrides.ts`: pure web image override path helper used by tests and mirrored by asset sync.
+- `docs/art/cyberpunk-asset-spec.md`: text-only replacement art direction and exact override filenames.
 - `src/engine/boardEngine.ts`: pure TypeScript board state machine.
 - `tests/e2e/app.spec.ts`: Playwright gameplay and layout coverage.
 
