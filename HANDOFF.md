@@ -60,6 +60,17 @@ Task 8 CodeRabbit follow-up on 2026-06-12:
 - `npm run build`: passed.
 - `npm run test:e2e`: passed, 34 tests.
 
+Task 9 verification on 2026-06-12:
+
+- Failing test first: `npx vitest run src/tests/motion.test.ts` failed before `winSequenceDurationMs` existed.
+- Failing e2e first: `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line` failed because `qa-win-animated` did not exist.
+- `npx vitest run src/tests/motion.test.ts`: passed, 34 tests.
+- `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line`: passed, 2 tests.
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+
 ### Flake-prone tests: 20-run methodology required
 
 `tests/e2e/app.spec.ts` "dragging a board tile into a deterministic match applies a swap" was

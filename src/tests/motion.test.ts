@@ -12,6 +12,7 @@ import { resolvedPopKeys } from "../game/motion";
 import { rowDestructionOrder } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
 import { sweepStagger } from "../game/motion";
+import { winSequenceDurationMs } from "../game/motion";
 
 describe("computeCentroidStagger", () => {
   it("returns an empty map for no positions", () => {
@@ -225,6 +226,17 @@ describe("rowDestructionOrder", () => {
   it("returns an empty order for non-finite rows", () => {
     expect(rowDestructionOrder(Number.POSITIVE_INFINITY)).toEqual([]);
     expect(rowDestructionOrder(Number.NaN)).toEqual([]);
+  });
+});
+
+describe("winSequenceDurationMs", () => {
+  it("covers the last row start plus the row pop duration", () => {
+    expect(winSequenceDurationMs(7, 90, 260)).toBe(800);
+  });
+
+  it("returns zero for non-positive or non-finite row counts", () => {
+    expect(winSequenceDurationMs(0, 90, 260)).toBe(0);
+    expect(winSequenceDurationMs(Number.NaN, 90, 260)).toBe(0);
   });
 });
 

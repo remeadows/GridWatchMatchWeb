@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
+import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "../data/gameplayTiming";
 import {
   cloneCell,
   detectMatches,
@@ -15,7 +16,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, seededAngleJitter, sweepStagger } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
@@ -153,6 +154,11 @@ const MATCH_BURST_SPEED_TILE_FACTOR = 2.4;
 const MATCH_BURST_LIFESPAN_MS = 260;
 const MATCH_BURST_MIN_PARTICLE_SCALE = 0.35;
 const MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR = 140;
+const WIN_ROW_SHAKE_INTENSITY = 0.004;
+const WIN_FINAL_SHAKE_INTENSITY = 0.007;
+const WIN_ROW_SHAKE_DURATION_MS = 130;
+const WIN_FINAL_BURST_PARTICLE_COUNT = 30;
+const WIN_TILE_BURST_PARTICLE_COUNT = 9;
 
 // Largest per-tile centroid-stagger delay applied to match pops.
 const MATCH_POP_STAGGER_MAX_MS = 110;
@@ -496,6 +502,60 @@ export class BoardScene extends Phaser.Scene {
   activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
     const pointer = this.pointerFromClientPoint(clientX, clientY);
     return this.activateBoosterAtPointer(booster, pointer);
+  }
+
+  playWinSequence(onComplete: () => void): boolean {
+    if (!this.snapshot || !this.layer || !this.fxLayer) return false;
+    const sourceSnapshot = this.snapshot;
+    const poppedKeys = occupiedKeys(sourceSnapshot);
+    this.hardClearDrag();
+
+    const finish = () => {
+      if (this.sys.isActive()) {
+        this.snapshot = buildPostClearSnapshot(sourceSnapshot, poppedKeys);
+        this.renderSnapshot();
+      }
+      onComplete();
+    };
+
+    if (this.reducedMotion || poppedKeys.size === 0) {
+      finish();
+      return true;
+    }
+
+    const hiddenKeys = new Set<string>();
+    const rows = rowDestructionOrder(sourceSnapshot.grid.rows);
+    const seed = sourceSnapshot.rngSeed;
+    rows.forEach((row, index) => {
+      this.time.delayedCall(index * WIN_ROW_DESTRUCTION_STAGGER_MS, () => {
+        if (!this.sys.isActive() || !this.fxLayer) return;
+        const rowPositions = sourceSnapshot.grid.allPositions.filter((position) => {
+          const key = positionKey(position);
+          return position.row === row && poppedKeys.has(key);
+        });
+        for (const position of rowPositions) hiddenKeys.add(positionKey(position));
+        this.snapshot = sourceSnapshot;
+        this.renderSnapshot(new Set(hiddenKeys), false);
+        for (const position of rowPositions) {
+          this.playWinTilePop(sourceSnapshot, position, seed);
+        }
+        if (rowPositions.length > 0) {
+          shake(
+            this,
+            row === 0 ? WIN_FINAL_SHAKE_INTENSITY : WIN_ROW_SHAKE_INTENSITY,
+            WIN_ROW_SHAKE_DURATION_MS,
+            this.reducedMotion
+          );
+        }
+        if (row === 0) this.playWinFinalBurst();
+      });
+    });
+
+    this.time.delayedCall(
+      winSequenceDurationMs(sourceSnapshot.grid.rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS),
+      finish
+    );
+    return true;
   }
 
   private playResolvedAnimation(nextSnapshot: BoardSnapshot, animation: Extract<BoardAnimationEvent, { kind: "resolved" }>): void {
@@ -892,6 +952,51 @@ export class BoardScene extends Phaser.Scene {
       duration: MATCH_POP_ANTICIPATION_MS + 90,
       ease: "Sine.easeOut",
       onComplete: () => glow.destroy()
+    });
+  }
+
+  private playWinTilePop(sourceSnapshot: BoardSnapshot, position: GridPosition, seed: string): void {
+    if (!this.fxLayer) return;
+    const cell = sourceSnapshot.grid.get(position);
+    const object = this.addOccupant(position, cell, this.fxLayer, 1);
+    if (!object) return;
+    const tint = cell.baseTile ? tileVfxTints[cell.baseTile] : 0x9bfff2;
+    burst(this, this.fxLayer, object.x, object.y, {
+      texture: vfxTextureKeys.spark,
+      count: WIN_TILE_BURST_PARTICLE_COUNT,
+      speed: this.tileSize * MATCH_BURST_SPEED_TILE_FACTOR,
+      lifespanMs: MATCH_BURST_LIFESPAN_MS,
+      tint,
+      scale: Math.max(MATCH_BURST_MIN_PARTICLE_SCALE, this.tileSize / MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR)
+    });
+    this.tweens.add({
+      targets: object,
+      alpha: 0,
+      scaleX: MATCH_BURST_SCALE,
+      scaleY: MATCH_BURST_SCALE,
+      angle: object.angle + seededAngleJitter(position, seed, 18),
+      duration: WIN_ROW_DESTRUCTION_POP_MS,
+      ease: "Quad.easeOut",
+      onComplete: () => object.destroy()
+    });
+  }
+
+  private playWinFinalBurst(): void {
+    if (!this.fxLayer) return;
+    const x = this.boardBounds.centerX;
+    const y = this.boardBounds.centerY;
+    shockwave(this, this.fxLayer, x, y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
+      durationMs: WIN_ROW_DESTRUCTION_POP_MS,
+      tint: 0x9bfff2
+    });
+    burst(this, this.fxLayer, x, y, {
+      texture: vfxTextureKeys.shard,
+      count: WIN_FINAL_BURST_PARTICLE_COUNT,
+      speed: this.tileSize * 3,
+      lifespanMs: MATCH_BURST_LIFESPAN_MS,
+      tint: 0xded2ff,
+      scale: Math.max(0.34, this.tileSize / 150)
     });
   }
 
@@ -2014,6 +2119,15 @@ function initialMatchKeys(snapshot: BoardSnapshot): Set<string> {
   const keys = new Set<string>();
   for (const group of detectMatches(snapshot.grid)) {
     for (const key of group.positions) keys.add(key);
+  }
+  return keys;
+}
+
+function occupiedKeys(snapshot: BoardSnapshot): Set<string> {
+  const keys = new Set<string>();
+  for (const position of snapshot.grid.allPositions) {
+    const cell = snapshot.grid.get(position);
+    if (cell.baseTile || cell.powerUp) keys.add(positionKey(position));
   }
   return keys;
 }

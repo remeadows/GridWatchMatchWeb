@@ -192,6 +192,11 @@ export function rowDestructionOrder(rows: number): number[] {
   return result;
 }
 
+export function winSequenceDurationMs(rows: number, perRowMs: number, popMs: number): number {
+  if (!Number.isFinite(rows) || rows <= 0) return 0;
+  return (Math.floor(rows) - 1) * perRowMs + popMs;
+}
+
 /**
  * Samples a lifted quadratic arc for drone flight. The control point is lifted
  * enough that the midpoint reaches `liftPx` above the straight line.

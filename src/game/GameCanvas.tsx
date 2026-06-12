@@ -13,6 +13,7 @@ interface GameCanvasProps {
 
 export interface GameCanvasHandle {
   activateBoosterAtClientPoint: (booster: BoosterType, clientX: number, clientY: number) => boolean;
+  playWinSequence: (onComplete: () => void) => boolean;
 }
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
@@ -31,6 +32,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     activateBoosterAtClientPoint: (booster, clientX, clientY) => {
       const scene = gameRef.current?.scene.getScene("BoardScene") as BoardScene | undefined;
       return scene?.activateBoosterAtClientPoint(booster, clientX, clientY) ?? false;
+    },
+    playWinSequence: (onComplete) => {
+      const scene = gameRef.current?.scene.getScene("BoardScene") as BoardScene | undefined;
+      return scene?.playWinSequence(onComplete) ?? false;
     }
   }), []);
 

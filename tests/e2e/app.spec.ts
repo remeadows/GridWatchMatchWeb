@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
-import { GAMEPLAY_POLL_TIMEOUT_MS, BOARD_READY_TIMEOUT_MS } from "../../src/data/gameplayTiming";
+import {
+  GAMEPLAY_POLL_TIMEOUT_MS,
+  BOARD_READY_TIMEOUT_MS,
+  WIN_ROW_DESTRUCTION_POP_MS,
+  WIN_ROW_DESTRUCTION_STAGGER_MS
+} from "../../src/data/gameplayTiming";
+import { winSequenceDurationMs } from "../../src/game/motion";
 
 test.beforeEach(async ({ page }) => {
   await clearStorage(page);
@@ -55,6 +61,19 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
   await expect(page.getByText("Grid secured")).toBeVisible();
   await page.getByRole("button", { name: "Next Level" }).click();
   await expect(page.getByText("Level 2")).toBeVisible();
+});
+
+test("animated win destroys the board before showing the result modal", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=1");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+
+  await page.getByTestId("qa-win-animated").click();
+
+  const modalTitle = page.getByText("Grid secured");
+  await page.waitForTimeout(winSequenceDurationMs(7, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS) - 120);
+  await expect(modalTitle).not.toBeVisible();
+  await expect(modalTitle).toBeVisible({ timeout: 1_200 });
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {
