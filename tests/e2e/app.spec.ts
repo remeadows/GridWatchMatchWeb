@@ -103,6 +103,7 @@ test("clicking a booster starts power-up fx before cascade", async ({ page }) =>
   await waitForBoardReady(page);
   const popCountBefore = await tilePopCount(page);
   const fxCountBefore = await powerUpFxCount(page);
+  const fxAfterPopRenderBefore = await powerUpFxAfterPopRenderCount(page);
 
   const booster = page.getByTestId("booster-tnt");
   await booster.click();
@@ -112,6 +113,7 @@ test("clicking a booster starts power-up fx before cascade", async ({ page }) =>
   await expect(page.getByText(/Last clear:/)).toBeVisible();
   await expect.poll(() => tilePopCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(popCountBefore);
   await expect.poll(() => powerUpFxCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxCountBefore);
+  await expect.poll(() => powerUpFxAfterPopRenderCount(page), { timeout: GAMEPLAY_POLL_TIMEOUT_MS }).toBeGreaterThan(fxAfterPopRenderBefore);
 });
 
 test("TNT booster detonates with shockwave effects", async ({ page }) => {
@@ -337,6 +339,13 @@ async function powerUpFxCount(page: Page): Promise<number> {
   return page.evaluate(() => {
     const w = window as Window & { __gwPowerUpFxStartCount?: number };
     return w.__gwPowerUpFxStartCount ?? 0;
+  });
+}
+
+async function powerUpFxAfterPopRenderCount(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const w = window as Window & { __gwPowerUpFxAfterPopRenderCount?: number };
+    return w.__gwPowerUpFxAfterPopRenderCount ?? 0;
   });
 }
 

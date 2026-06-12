@@ -52,8 +52,10 @@ Task 8 CodeRabbit follow-up on 2026-06-12:
 
 - Addressed review feedback by making `shake()` use shared VFX validation helpers, annotating web-only power-up timing groups, documenting the sync-script copy of override helpers with a runtime source assertion, and guarding `rowDestructionOrder()` against non-finite input.
 - Follow-up cleanup centralized the board-ready e2e timeout, tightened the CodeRabbit `burst` override match, made `shake()` and required VFX coordinates use direct finite validation, moved override prefixes into `src/data/assetOverrideRules.json`, added defensive override path normalization, fixed VFX burst/shockwave coordinates inside the FX layer, and replaced board-target `page.mouse.click` calls with synchronous PointerEvent dispatch.
+- PR-side review follow-up moved clear-producing power-up FX to start after the pop render point, restricted swap-resolution pop keys to actual match/clear positions, added a local ignored checksum manifest that rejects overwritten edited synced images, included FX particle tails in power-up budgets, guarded delayed FX cleanup against scene shutdown, removed dead visual-cell code, and restored the README public play link.
 - `npm run sync:assets`: passed, no manifest/checksum drift reported. The command refreshed local copied raster files from iOS; those binary diffs were discarded before commit.
-- `npm run test`: passed, 154 tests.
+- Manual sync guard check: a perturbed synced tile with a temporary local manifest was rejected with "Refusing to overwrite edited synced asset(s)" before any overwrite.
+- `npm run test`: passed, 155 tests.
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.
 - `npm run test:e2e`: passed, 34 tests.

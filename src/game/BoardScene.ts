@@ -15,8 +15,9 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, seededAngleJitter, sweepStagger } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, seededAngleJitter, sweepStagger } from "./motion";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
+import { VFX_TIMING } from "./vfxTiming";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -173,8 +174,6 @@ const MATCH_LOCK_MS = 140;
 // unless explicitly marked Web-only tuning below.
 // Web-only tuning: Phaser spawn fall pacing around iOS BoardNode.swift animateMoves.
 const SPAWN_MOVE_MS = 390;
-// Web-only tuning: Phaser TNT choreography budget.
-const TNT_FX_BUDGET_MS = 700;
 // Web-only tuning: Phaser TNT fuse anticipation.
 const TNT_FUSE_MS = 120;
 // Web-only tuning: Phaser TNT radial pop wave.
@@ -185,14 +184,24 @@ const TNT_RADIAL_STAGGER_MAX_MS = 120;
 const TNT_SHOCKWAVE_MS = 320;
 // Web-only tuning: visual radius matches TNT clear footprint.
 const TNT_BLAST_RADIUS_CELLS = 2;
+// Web-only tuning: Phaser TNT spark burst lifespan.
+const TNT_SPARK_BURST_LIFESPAN_MS = 340;
+// Web-only tuning: Phaser TNT shard burst lifespan.
+const TNT_SHARD_BURST_LIFESPAN_MS = 420;
+// Web-only tuning: Phaser TNT choreography budget, including particle cleanup tails.
+const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
+  TNT_SHOCKWAVE_MS,
+  TNT_SPARK_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS,
+  TNT_SHARD_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
+);
 // Web-only tuning: Phaser camera shake intensity.
 const TNT_SHAKE_INTENSITY = 0.008;
 // Web-only tuning: Phaser camera shake duration.
 const TNT_SHAKE_DURATION_MS = 220;
-// Web-only tuning: Phaser rocket choreography budget.
-const ROCKET_FX_BUDGET_MS = 700;
 // Web-only tuning: Phaser rocket pass timing.
 const ROCKET_SWEEP_MS_PER_CELL = 58;
+// Web-only tuning: maximum expected board edge distance for rocket travel.
+const ROCKET_MAX_FLIGHT_CELLS = 7;
 // Web-only tuning: Phaser minimum projectile travel.
 const ROCKET_MIN_FLIGHT_MS = 120;
 // Web-only tuning: Phaser rocket sprite scale.
@@ -201,12 +210,17 @@ const ROCKET_HEAD_SCALE = 0.58;
 const ROCKET_TRAIL_LIFESPAN_MS = 240;
 // Web-only tuning: Phaser rocket trail cleanup buffer.
 const ROCKET_TRAIL_CLEANUP_MS = 90;
+// Web-only tuning: Phaser rocket edge burst lifespan.
+const ROCKET_EDGE_BURST_LIFESPAN_MS = 220;
+// Web-only tuning: Phaser rocket choreography budget, including edge burst cleanup tails.
+const ROCKET_FX_BUDGET_MS =
+  ROCKET_MAX_FLIGHT_CELLS * ROCKET_SWEEP_MS_PER_CELL +
+  ROCKET_EDGE_BURST_LIFESPAN_MS +
+  VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS;
 // Web-only tuning: Phaser camera shake intensity.
 const ROCKET_SHAKE_INTENSITY = 0.0045;
 // Web-only tuning: Phaser camera shake duration.
 const ROCKET_SHAKE_DURATION_MS = 120;
-// Web-only tuning: Phaser propeller choreography budget.
-const PROPELLER_FX_BUDGET_MS = 760;
 // Web-only tuning: Phaser drone lift anticipation.
 const PROPELLER_LIFT_MS = 120;
 // Web-only tuning: Phaser drone arc flight.
@@ -225,8 +239,13 @@ const PROPELLER_SECONDARY_STAGGER_MS = 30;
 const PROPELLER_SECONDARY_STAGGER_MAX_MS = 120;
 // Web-only tuning: Phaser impact shockwave duration.
 const PROPELLER_IMPACT_SHOCKWAVE_MS = 220;
-// Web-only tuning: Phaser lightBall choreography budget.
-const LIGHTBALL_FX_BUDGET_MS = 780;
+// Web-only tuning: Phaser impact spark burst lifespan.
+const PROPELLER_IMPACT_BURST_LIFESPAN_MS = 260;
+// Web-only tuning: Phaser propeller choreography budget, including impact particle cleanup tail.
+const PROPELLER_FX_BUDGET_MS = PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + Math.max(
+  PROPELLER_IMPACT_SHOCKWAVE_MS,
+  PROPELLER_IMPACT_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
+);
 // Web-only tuning: Phaser lightBall charge anticipation.
 const LIGHTBALL_CHARGE_MS = 140;
 // Web-only tuning: Phaser zap target cadence.
@@ -239,6 +258,13 @@ const LIGHTBALL_ZAP_JITTER_PX = 12;
 const LIGHTBALL_FULL_SHOCKWAVE_MS = 340;
 // Web-only tuning: Phaser zap delay cap.
 const LIGHTBALL_TARGET_STAGGER_MAX_MS = 180;
+// Web-only tuning: Phaser zap impact burst lifespan.
+const LIGHTBALL_ZAP_BURST_LIFESPAN_MS = 220;
+// Web-only tuning: Phaser lightBall choreography budget, including shockwave and particle tails.
+const LIGHTBALL_FX_BUDGET_MS = LIGHTBALL_CHARGE_MS + LIGHTBALL_TARGET_STAGGER_MAX_MS + LIGHTBALL_ZAP_LIFESPAN_MS + Math.max(
+  LIGHTBALL_FULL_SHOCKWAVE_MS,
+  LIGHTBALL_ZAP_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
+);
 const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
 // Web-only tuning: Phaser match-pop camera shake has no direct iOS equivalent.
 // Minimum clear size, in tiles, that gives a medium match pop a camera shake.
@@ -537,7 +563,11 @@ export class BoardScene extends Phaser.Scene {
     const clearedKeys = clearedKeysFromDelta(delta);
     const flashColors = clearFlashColors(delta);
     const popStagger = powerUpPopStagger(delta, baseline, clearedKeys);
-    if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
+    const startPowerUpEffectsAfterPopRender = () => {
+      if (delta.powerUpEvents.length === 0) return;
+      this.playPowerUpEffects(delta);
+      this.recordPowerUpFxAfterPopRender();
+    };
     if (delta.moves.length === 0 && delta.spawns.length === 0) {
       const finish = () => {
         this.snapshot = nextSnapshot;
@@ -545,8 +575,11 @@ export class BoardScene extends Phaser.Scene {
         this.playDeltaEffects(delta, clearedKeys);
         this.finishAnimation();
       };
-      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors, popStagger);
-      else finish();
+      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors, popStagger, startPowerUpEffectsAfterPopRender);
+      else {
+        if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
+        finish();
+      }
       return;
     }
     const runCascade = () => {
@@ -556,8 +589,11 @@ export class BoardScene extends Phaser.Scene {
         this.finishAnimation();
       });
     };
-    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors, popStagger);
-    else runCascade();
+    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors, popStagger, startPowerUpEffectsAfterPopRender);
+    else {
+      if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
+      runCascade();
+    }
   }
 
   private recordTilePopAnimation(count: number): void {
@@ -570,18 +606,21 @@ export class BoardScene extends Phaser.Scene {
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
     this.snapshot = postSwapSnapshot;
     this.renderSnapshot();
-    const popKeys = unionKeys(initialMatchKeys(postSwapSnapshot), powerUpEventKeys(delta));
+    const popKeys = resolvedPopKeys(initialMatchKeys(postSwapSnapshot), delta);
     const flashColors = clearFlashColors(delta);
     const popStagger = powerUpPopStagger(delta, postSwapSnapshot, popKeys);
     this.time.delayedCall(motionTiming.matchLock, () => {
-      if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
       this.playTilePops(postSwapSnapshot, popKeys, () => {
         const postClear = buildPostClearSnapshot(postSwapSnapshot, popKeys);
         this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
           this.playDeltaEffects(delta, popKeys);
           this.finishAnimation();
         });
-      }, flashColors, popStagger);
+      }, flashColors, popStagger, () => {
+        if (delta.powerUpEvents.length === 0) return;
+        this.playPowerUpEffects(delta);
+        this.recordPowerUpFxAfterPopRender();
+      });
     });
   }
 
@@ -745,7 +784,8 @@ export class BoardScene extends Phaser.Scene {
     popKeys: Set<string>,
     onComplete: () => void,
     flashColors = new Map<string, number>(),
-    delayOverrides = new Map<string, number>()
+    delayOverrides = new Map<string, number>(),
+    afterRender?: () => void
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onComplete();
@@ -754,6 +794,7 @@ export class BoardScene extends Phaser.Scene {
 
     this.snapshot = sourceSnapshot;
     this.renderSnapshot(popKeys);
+    afterRender?.();
     this.recordTilePopAnimation(popKeys.size);
     const positions: GridPosition[] = [];
     for (const position of sourceSnapshot.grid.allPositions) {
@@ -1043,7 +1084,7 @@ export class BoardScene extends Phaser.Scene {
         texture: vfxTextureKeys.spark,
         count: 18,
         speed: this.tileSize * 3.4,
-        lifespanMs: 340,
+        lifespanMs: TNT_SPARK_BURST_LIFESPAN_MS,
         tint: 0xfff1b8,
         scale: Math.max(0.42, this.tileSize / 120)
       });
@@ -1051,13 +1092,14 @@ export class BoardScene extends Phaser.Scene {
         texture: vfxTextureKeys.shard,
         count: 12,
         speed: this.tileSize * 2.5,
-        lifespanMs: 420,
+        lifespanMs: TNT_SHARD_BURST_LIFESPAN_MS,
         tint: 0xff8a3d,
         scale: Math.max(0.34, this.tileSize / 150)
       });
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
     });
     this.time.delayedCall(POWERUP_FX_BUDGET_MS, () => {
+      if (!this.sys.isActive() || !this.fxLayer?.active) return;
       if (fuse.active) fuse.destroy();
     });
   }
@@ -1105,7 +1147,7 @@ export class BoardScene extends Phaser.Scene {
             texture: vfxTextureKeys.spark,
             count: 8,
             speed: this.tileSize * 1.8,
-            lifespanMs: 220,
+            lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
             tint: 0x9bfff2,
             scale: Math.max(0.24, this.tileSize / 180)
           });
@@ -1205,7 +1247,7 @@ export class BoardScene extends Phaser.Scene {
               texture: vfxTextureKeys.spark,
               count: 10,
               speed: this.tileSize * 1.8,
-              lifespanMs: 260,
+              lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS,
               tint: 0xf7d154,
               scale: Math.max(0.3, this.tileSize / 160)
             });
@@ -1215,6 +1257,7 @@ export class BoardScene extends Phaser.Scene {
     });
 
     this.time.delayedCall(PROPELLER_FX_BUDGET_MS, () => {
+      if (!this.sys.isActive()) return;
       spin.stop();
       if (drone.active) drone.destroy();
     });
@@ -1261,7 +1304,7 @@ export class BoardScene extends Phaser.Scene {
           texture: vfxTextureKeys.spark,
           count: 7,
           speed: this.tileSize * 1.5,
-          lifespanMs: 220,
+          lifespanMs: LIGHTBALL_ZAP_BURST_LIFESPAN_MS,
           tint: 0xf15bd7,
           scale: Math.max(0.24, this.tileSize / 180)
         });
@@ -1321,6 +1364,13 @@ export class BoardScene extends Phaser.Scene {
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & { __gwPowerUpFxStartCount?: number };
     target.__gwPowerUpFxStartCount = (target.__gwPowerUpFxStartCount ?? 0) + 1;
+  }
+
+  private recordPowerUpFxAfterPopRender(): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwPowerUpFxAfterPopRenderCount?: number };
+    target.__gwPowerUpFxAfterPopRenderCount = (target.__gwPowerUpFxAfterPopRenderCount ?? 0) + 1;
   }
 
   private recordTntDetonation(): void {
@@ -1968,15 +2018,6 @@ function initialMatchKeys(snapshot: BoardSnapshot): Set<string> {
   return keys;
 }
 
-function powerUpEventKeys(delta: BoardDelta): Set<string> {
-  const keys = new Set<string>();
-  for (const event of delta.powerUpEvents) {
-    keys.add(positionKey(event.origin));
-    for (const position of event.affectedPositions) keys.add(positionKey(position));
-  }
-  return keys;
-}
-
 function clearFlashColors(delta: BoardDelta): Map<string, number> {
   const colors = new Map<string, number>();
   for (const clear of delta.clears) {
@@ -2040,27 +2081,6 @@ function interpolatePath(path: ReadonlyArray<{ x: number; y: number }>, t: numbe
 function setEarliestDelay(delays: Map<string, number>, key: string, delay: number): void {
   const current = delays.get(key);
   if (current === undefined || delay < current) delays.set(key, delay);
-}
-
-function unionKeys(...sets: ReadonlyArray<ReadonlySet<string>>): Set<string> {
-  const result = new Set<string>();
-  for (const set of sets) {
-    for (const key of set) result.add(key);
-  }
-  return result;
-}
-
-function emptyVisualCell(tileType: TileType): CellState {
-  return {
-    baseTile: tileType,
-    powerUp: null,
-    overlay: null,
-    underlay: null,
-    generator: null,
-    isMovable: true,
-    debugTileId: null,
-    debugDesignLocked: false
-  };
 }
 
 function canDragCell(cell: CellState): boolean {

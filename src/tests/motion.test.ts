@@ -8,6 +8,7 @@ import { computeCentroidStagger } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
 import { quadraticFlightPath } from "../game/motion";
 import { radialStagger } from "../game/motion";
+import { resolvedPopKeys } from "../game/motion";
 import { rowDestructionOrder } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
 import { sweepStagger } from "../game/motion";
@@ -139,6 +140,25 @@ describe("clearedKeysFromDelta", () => {
     ];
 
     expect(clearedKeysFromDelta(delta)).toEqual(new Set(["2,5"]));
+  });
+});
+
+describe("resolvedPopKeys", () => {
+  it("combines match keys with only positions that actually cleared", () => {
+    const delta = emptyDelta();
+    delta.clears = [
+      { position: { row: 0, col: 0 }, tileType: "packet", clearedByPowerUp: true, contributedToObjective: false, objectiveId: null }
+    ];
+    delta.powerUpEvents = [
+      {
+        powerUpType: { kind: "tnt" },
+        origin: { row: 0, col: 0 },
+        affectedPositions: [{ row: 0, col: 0 }, { row: 1, col: 1 }],
+        trigger: { kind: "tap" }
+      }
+    ];
+
+    expect(resolvedPopKeys(new Set(["2,2"]), delta)).toEqual(new Set(["0,0", "2,2"]));
   });
 });
 

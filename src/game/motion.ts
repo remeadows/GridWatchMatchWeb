@@ -134,6 +134,10 @@ export function clearedKeysFromDelta(delta: BoardDelta): Set<string> {
   return new Set(delta.clears.map((clear) => `${clear.position.row},${clear.position.col}`));
 }
 
+export function resolvedPopKeys(matchKeys: ReadonlySet<string>, delta: BoardDelta): Set<string> {
+  return new Set([...matchKeys, ...clearedKeysFromDelta(delta)]);
+}
+
 /**
  * Distance-from-origin delay map for effects whose force radiates outward.
  * Web-only timing adapter for Phaser choreography that maps the same affected
