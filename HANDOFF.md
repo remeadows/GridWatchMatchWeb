@@ -1,6 +1,6 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## Current Status
 
@@ -66,6 +66,17 @@ Task 9 verification on 2026-06-12:
 - Failing e2e first: `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line` failed because `qa-win-animated` did not exist.
 - `npx vitest run src/tests/motion.test.ts`: passed, 34 tests.
 - `npx playwright test tests/e2e/app.spec.ts --grep "animated win destroys" --reporter=line`: passed, 2 tests.
+- `npm run test`: passed, 157 tests.
+- `npm run validate:levels`: passed, 100 levels.
+- `npm run build`: passed.
+- `npm run test:e2e`: passed, 36 tests.
+
+PR review follow-up on 2026-06-12:
+
+- Addressed queued PR feedback by refreshing the handoff date, replacing the remaining booster-drag `page.mouse` path with synchronous PointerEvent dispatch, relaxing the rocket e2e assertion to require a launch without assuming a doubled count, expanding the resolve animation budget for staggered power-up clear paths, and making manual CodeRabbit gate overrides match the full finding text.
+- Local CodeRabbit CLI remained paused per user instruction; PR-side review/checks were used instead.
+- `bash -n cli/codex-gate.sh`: passed.
+- `git diff --check`: passed.
 - `npm run test`: passed, 157 tests.
 - `npm run validate:levels`: passed, 100 levels.
 - `npm run build`: passed.

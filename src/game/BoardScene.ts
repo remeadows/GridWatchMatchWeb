@@ -319,17 +319,27 @@ const CLEAR_AND_CASCADE_BUDGET_MS =
   MATCH_POP_ANTICIPATION_MS +
   MATCH_POP_MS +
   SPAWN_MOVE_MS;
+const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
+  TNT_FUSE_MS + TNT_RADIAL_STAGGER_MAX_MS,
+  PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + PROPELLER_SECONDARY_STAGGER_MAX_MS,
+  LIGHTBALL_CHARGE_MS + LIGHTBALL_TARGET_STAGGER_MAX_MS
+);
+const POWERUP_RESOLVE_BUDGET_MS =
+  POWERUP_POP_STAGGER_BUDGET_MS +
+  MATCH_POP_ANTICIPATION_MS +
+  MATCH_POP_MS +
+  SPAWN_MOVE_MS;
 
 // Worst-case wall-clock for one resolved swap's animation chain: swap settle →
-// match lock → the slower of clear/cascade animation or power-up FX. The action
-// queue must pace SLOWER than this so a queued action never starts while the
-// previous BoardScene tweens are still running (which would render over in-flight
-// pops/cascades/FX). Derived from named timing constants so it stays correct when
-// those timings change.
+// match lock → the slowest clear/cascade, power-up FX, or power-up staggered pop
+// path. The action queue must pace SLOWER than this so a queued action never
+// starts while the previous BoardScene tweens are still running (which would
+// render over in-flight pops/cascades/FX). Derived from named timing constants so
+// it stays correct when those timings change.
 export const RESOLVE_ANIMATION_BUDGET_MS =
   motionTiming.swap +
   MATCH_LOCK_MS +
-  Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS) +
+  Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS, POWERUP_RESOLVE_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
 // Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158

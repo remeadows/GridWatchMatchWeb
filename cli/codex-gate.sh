@@ -192,6 +192,23 @@ override_line_has_marker() {
     || "${line_l}" == *"disagree:"* ]]
 }
 
+normalize_override_text() {
+  lowercase | tr -cs '[:alnum:]/._:-' ' ' | awk '{$1=$1; print}'
+}
+
+manual_override_line_matches_finding() {
+  local line_l="$1"
+  local file_l="$2"
+  local instructions_l="$3"
+  local normalized_line normalized_finding
+
+  [[ "${line_l}" == *"override:"* || "${line_l}" == *"disagree:"* || "${line_l}" == *"manual override"* ]] || return 1
+  override_line_matches_file "${line_l}" "${file_l}" || return 1
+  normalized_line="$(printf '%s' "${line_l}" | normalize_override_text)"
+  normalized_finding="$(printf '%s' "${instructions_l}" | normalize_override_text)"
+  [[ -n "${normalized_finding}" && "${normalized_line}" == *"${normalized_finding}"* ]]
+}
+
 finding_is_overridden() {
   local file_name="$1"
   local instructions="$2"
@@ -206,6 +223,9 @@ finding_is_overridden() {
     line_l="$(printf '%s' "${override_line}" | lowercase)"
     override_line_matches_file "${line_l}" "${file_l}" || continue
     override_line_has_marker "${line_l}" || continue
+
+    if manual_override_line_matches_finding "${line_l}" "${file_l}" "${instructions_l}"; then return 0; fi
+    [[ "${line_l}" == *"stale"* ]] || continue
 
     # Override lines must first match a specific assertion phrase in overrides.md,
     # then the finding text must mention the narrow symbol family covered by it.
@@ -283,7 +303,7 @@ log "Threshold: CR_MAX_SEVERITY=${CR_MAX_SEVERITY}  blocking=${BLOCKING_COUNT}"
   echo "1. Open the file at the reported location."
   echo "2. Apply the fix described in codegenInstructions."
   echo "3. If you disagree, append the finding to \`.coderabbit/overrides.md\`"
-  echo "   with a one-line rationale prefixed by \`override:\` or \`disagree:\`."
+  echo "   as one line: \`override: <file> :: <full finding text> :: <rationale>\`"
   echo "4. Re-run \`bash cli/codex-gate.sh\` until clean or CR_MAX_LOOPS hit."
 } > "${CODEX_PROMPT_FILE}"
 
