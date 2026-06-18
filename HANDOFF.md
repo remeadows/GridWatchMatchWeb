@@ -4,11 +4,14 @@ Last updated: 2026-06-04
 
 ## Current Status
 
-GridWatch Match Web is live on GitHub Pages:
+GridWatch Match Web is hosted on Cloudflare Pages:
 
-`https://remeadows.github.io/GridWatchMatchWeb/`
+`https://GridWatchMatchWeb.warsignallabs.net`
 
-The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`. GitHub Pages and CodeQL both completed successfully for that commit.
+Cloudflare's Git integration auto-builds on push to `main` (build command
+`npm run build`, output directory `dist`, Node pinned via `.nvmrc`).
+
+The repo is clean on `main` after commit `6578026 Use live tile drag for swaps`. CI and CodeQL both completed successfully for that commit.
 
 ## Latest Work Completed
 

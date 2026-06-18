@@ -11,7 +11,7 @@ Read `MEMORY.md` and `HANDOFF.md` before making changes. `MEMORY.md` holds durab
 - React + TypeScript + Vite for app shell, HUD, modals, meta screens, settings, account, intel, and store stub.
 - Phaser for the board renderer, tweens, particles, input hit testing, and board VFX.
 - Pure TypeScript engine in `src/engine`; no DOM, React, Phaser, browser storage, audio, analytics, or rendering imports inside engine modules.
-- Static GitHub Pages hosting only. No backend, secrets, or real-money fulfillment in this repo.
+- Static Cloudflare Pages hosting only (served from the root of `GridWatchMatchWeb.warsignallabs.net`). No backend, secrets, or real-money fulfillment in this repo.
 
 ## Source Of Truth
 
