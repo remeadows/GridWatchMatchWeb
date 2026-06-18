@@ -2,14 +2,14 @@
 
 ## Summary
 
-Build `GridWatchMatchWeb` as a public static web app hosted from `remeadows/GridWatchMatchWeb` on GitHub Pages.
+Build `GridWatchMatchWeb` as a public static web app built from `remeadows/GridWatchMatchWeb` and hosted on Cloudflare Pages at `GridWatchMatchWeb.warsignallabs.net`.
 
 Use React 19 + Phaser 4 + Vite 8 + TypeScript. React owns menus, HUD, modals, settings, account, intel, rules, tutorial, and store stub. Phaser owns the match-3 board rendering, input, animation, and VFX. The board engine is pure TypeScript and renderer-free, matching the current Swift source behavior.
 
 ## Key Changes
 
 - Initialize `GridWatchMatchWeb` as its own git repo, remote `https://github.com/remeadows/GridWatchMatchWeb.git`.
-- Add app scaffold: `AGENTS.md`, `PLAN.md`, `README.md`, Vite config, React/Phaser app shell, CI, Pages workflow, tests.
+- Add app scaffold: `AGENTS.md`, `PLAN.md`, `README.md`, Vite config, React/Phaser app shell, CI workflow, tests.
 - Add asset sync script from the iOS repo:
   - Copy all 100 level JSON files.
   - Copy tiles, power-ups, backgrounds, villains, heroes, app icon, audio, Lottie, and video assets.
@@ -37,7 +37,7 @@ Use React 19 + Phaser 4 + Vite 8 + TypeScript. React owns menus, HUD, modals, se
   - all 100 levels initialize with fixed seeds and have no broken invariants
   - replay determinism, Play On, boosters, win/fail, scoring
 - Playwright:
-  - GitHub Pages base path boots
+  - root base path boots
   - Home -> Operations -> Level 1 -> Game
   - deterministic valid swap changes board and HUD
   - booster use, fail + Play On, win modal, next level unlock
@@ -51,12 +51,13 @@ Use React 19 + Phaser 4 + Vite 8 + TypeScript. React owns menus, HUD, modals, se
   - `npm run test`
   - `npm run build`
   - `npm audit --audit-level=high`
-  - deploy to GitHub Pages from `main`
+- Deployment:
+  - Cloudflare Pages auto-builds and deploys on push to `main` via its Git integration (independent of the CI workflow above).
 
 ## Assumptions
 
 - Canonical public repo is confirmed as `remeadows/GridWatchMatchWeb`.
-- GitHub Pages is the v1 host.
+- Cloudflare Pages is the v1 host (`GridWatchMatchWeb.warsignallabs.net`).
 - Current Swift source and current 100 JSON levels are authoritative where docs disagree.
 - Web parity uses platform equivalents: IndexedDB for SwiftData, Web Audio for AVAudioPlayer, Vibration/no-op for haptics, optional disabled-by-default Firebase Web, and a store stub for StoreKit.
 

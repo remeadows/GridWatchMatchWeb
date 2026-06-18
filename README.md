@@ -34,7 +34,7 @@ Controls:
 - React 19 + TypeScript + Vite 8
 - Phaser 4 board renderer
 - Pure TypeScript board engine
-- Static GitHub Pages deployment
+- Static Cloudflare Pages deployment
 
 ## Local Setup
 
@@ -75,7 +75,18 @@ npm run test:e2e
 
 ## Deployment
 
-GitHub Actions builds and deploys `dist/` to GitHub Pages from `main`.
+Hosted on [Cloudflare Pages](https://pages.cloudflare.com/) at
+`https://GridWatchMatchWeb.warsignallabs.net` (served from the subdomain root).
+
+Cloudflare's Git integration auto-builds on push to `main`:
+
+- **Build command:** `npm run build`
+- **Build output directory:** `dist`
+- **Node version:** pinned via `.nvmrc`
+
+The GitHub Actions `CI` workflow (`.github/workflows/ci.yml`) runs
+validate/test/audit/build on PRs and `main` for quality signal but does **not**
+deploy — Cloudflare owns deployment.
 
 ## Monetization
 
