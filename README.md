@@ -2,7 +2,7 @@
 
 Browser port of GridWatch Match, a cyberpunk match-3 puzzle game by WarSignalLabs.
 
-Play now: https://remeadows.github.io/GridWatchMatchWeb/
+Play now: https://GridWatchMatchWeb.warsignallabs.net
 
 Built for the Community Dev Challenge: "Make a game we can play."
 
