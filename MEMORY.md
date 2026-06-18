@@ -7,9 +7,9 @@ Last updated: 2026-06-04
 - This repo is the web port only: `/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatchWeb`.
 - Do not modify the iOS source repo while working on the web game. The iOS repo is authoritative for parity and assets, but web work stays in this repo.
 - Public GitHub repo: `https://github.com/remeadows/GridWatchMatchWeb`.
-- Public playable URL: `https://remeadows.github.io/GridWatchMatchWeb/`.
+- Public playable URL: `https://GridWatchMatchWeb.warsignallabs.net`.
 - The project is for the Community Dev Challenge "Make a game we can play"; the core requirement is a public, immediately playable game link.
-- Static GitHub Pages app only. No backend, secrets, API keys, tokens, `.env` files, or real-money purchase fulfillment.
+- Static Cloudflare Pages app only. No backend, secrets, API keys, tokens, `.env` files, or real-money purchase fulfillment.
 
 ## Product Priorities
 
@@ -33,7 +33,7 @@ Last updated: 2026-06-04
 ## Latest Known Good State
 
 - Commit: `6578026 Use live tile drag for swaps`.
-- GitHub Pages deploy passed for that commit.
+- Deploy passed for that commit.
 - CodeQL passed for that commit.
 - Verification after that commit:
   - `npm run test` passed: 115 tests.
