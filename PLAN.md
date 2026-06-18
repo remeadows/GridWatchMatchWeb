@@ -51,7 +51,8 @@ Use React 19 + Phaser 4 + Vite 8 + TypeScript. React owns menus, HUD, modals, se
   - `npm run test`
   - `npm run build`
   - `npm audit --audit-level=high`
-  - deploy via Cloudflare Pages Git integration on push to `main`
+- Deployment:
+  - Cloudflare Pages auto-builds and deploys on push to `main` via its Git integration (independent of the CI workflow above).
 
 ## Assumptions
 
