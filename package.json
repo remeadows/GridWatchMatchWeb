@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^6.0.2",
-    "phaser": "^4.1.0",
+    "phaser": "^4.2.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
