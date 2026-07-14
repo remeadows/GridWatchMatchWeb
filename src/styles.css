@@ -423,6 +423,53 @@ button:disabled {
   border-color: var(--gold);
 }
 
+.identity-panel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.identity-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin: 0;
+}
+
+.identity-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.identity-row span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.identity-row input {
+  width: 100%;
+  padding: 0 14px;
+}
+
+.identity-status dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.identity-status dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.identity-notice {
+  color: var(--red);
+}
+
 .narrow {
   max-width: 760px;
 }

@@ -13,6 +13,7 @@ import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { winSequenceDurationMs } from "./game/motion";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
+import { useAuth } from "./hooks/useAuth";
 import {
   areaProgressLabel,
   awardLevelCompletion,
@@ -53,6 +54,7 @@ export default function App() {
   const [save, setSave] = useState<SaveState | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const appliedInitialRoute = useRef(false);
+  const auth = useAuth();
 
   useEffect(() => {
     let active = true;
@@ -107,7 +109,7 @@ export default function App() {
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
       {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} />}
-      {screen.name === "account" && <AccountScreen save={save} commitSave={commitSave} />}
+      {screen.name === "account" && <AccountScreen save={save} commitSave={commitSave} auth={auth} />}
       {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} />}
       {screen.name === "rules" && <RulesScreen save={save} commitSave={commitSave} />}
       {screen.name === "intel" && <IntelScreen save={save} commitSave={commitSave} />}
@@ -720,10 +722,11 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   );
 }
 
-function AccountScreen({ save, commitSave }: { save: SaveState; commitSave: (save: SaveState) => void }) {
+function AccountScreen({ save, commitSave, auth }: { save: SaveState; commitSave: (save: SaveState) => void; auth: ReturnType<typeof useAuth> }) {
   return (
     <section className="content-column">
       <PageHeader title="Account" subtitle="Select the operative portrait for missions." />
+      <OperatorIdentityPanel auth={auth} />
       <div className="hero-grid">
         {heroes.map((hero) => {
           const unlocked = isHeroUnlocked(save, hero.unlockAreaId);
@@ -742,6 +745,135 @@ function AccountScreen({ save, commitSave }: { save: SaveState; commitSave: (sav
         })}
       </div>
     </section>
+  );
+}
+
+function OperatorIdentityPanel({ auth }: { auth: ReturnType<typeof useAuth> }) {
+  const [email, setEmail] = useState("");
+  const [handleDraft, setHandleDraft] = useState("");
+  const [linkSent, setLinkSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const signedIn = !!auth.session;
+
+  const sendLink = async () => {
+    setBusy(true);
+    const err = await auth.signInWithEmail(email);
+    setBusy(false);
+    if (err) {
+      setNotice(err);
+    } else {
+      setLinkSent(true);
+      setNotice(null);
+    }
+  };
+
+  const oauth = async (provider: "google" | "github") => {
+    setBusy(true);
+    const err = await auth.signInWithProvider(provider);
+    setBusy(false);
+    if (err) setNotice(err);
+  };
+
+  const submitHandle = async () => {
+    setBusy(true);
+    const err = await auth.saveHandle(handleDraft);
+    setBusy(false);
+    setNotice(err);
+  };
+
+  if (auth.loading) {
+    return (
+      <article className="info-section identity-panel">
+        <h2>Operator Identity</h2>
+        <p>Checking sign-in state...</p>
+      </article>
+    );
+  }
+
+  if (!signedIn) {
+    return (
+      <article className="info-section identity-panel">
+        <h2>Operator Identity</h2>
+        <p>
+          Connect an operator identity to sync progress with GridWatch Drift and the Command
+          Nexus hub — one handle, every sector.
+        </p>
+        {!linkSent ? (
+          <>
+            <label className="identity-row">
+              <span>Operator Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+              />
+            </label>
+            <div className="card-actions">
+              <button className="primary-action" type="button" disabled={busy || !email} onClick={() => void sendLink()}>
+                Send Magic Link
+              </button>
+              <button type="button" disabled={busy} onClick={() => void oauth("google")}>
+                Google
+              </button>
+              <button type="button" disabled={busy} onClick={() => void oauth("github")}>
+                GitHub
+              </button>
+            </div>
+          </>
+        ) : (
+          <p>A sign-in link was sent to {email}. Open it on this device to complete sign-in.</p>
+        )}
+        {notice && <p className="identity-notice" role="alert">{notice}</p>}
+      </article>
+    );
+  }
+
+  return (
+    <article className="info-section identity-panel">
+      <h2>Operator Identity</h2>
+      <p>
+        Same identity as GridWatch Drift and the Command Nexus hub — one handle, every sector.
+      </p>
+      <dl className="identity-status">
+        <div>
+          <dt>Email</dt>
+          <dd>{auth.session?.user.email ?? "Linked"}</dd>
+        </div>
+        <div>
+          <dt>Handle</dt>
+          <dd>{auth.handle ?? "Not registered"}</dd>
+        </div>
+      </dl>
+      {!auth.handle ? (
+        <>
+          <label className="identity-row">
+            <span>Operator Handle</span>
+            <input
+              type="text"
+              value={handleDraft}
+              maxLength={12}
+              onChange={(e) => setHandleDraft(e.target.value)}
+              placeholder="1-12 characters"
+            />
+          </label>
+          <div className="card-actions">
+            <button className="primary-action" type="button" disabled={busy || !handleDraft} onClick={() => void submitHandle()}>
+              Register Handle
+            </button>
+          </div>
+        </>
+      ) : null}
+      {notice && <p className="identity-notice" role="alert">{notice}</p>}
+      <div className="card-actions">
+        <button className="danger-button" type="button" onClick={() => void auth.signOut()}>
+          Sign Out
+        </button>
+      </div>
+    </article>
   );
 }
 
