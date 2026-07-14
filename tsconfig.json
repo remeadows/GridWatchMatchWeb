@@ -17,6 +17,7 @@
     "jsx": "react-jsx"
   },
   "include": ["src", "tests", "scripts", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"],
+  "exclude": ["worker"],
   "references": []
 }
 

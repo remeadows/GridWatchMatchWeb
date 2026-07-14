@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "sync:assets": "node scripts/sync-ios-assets.mjs",
     "validate:levels": "node scripts/validate-levels.mjs",
+    "generate:level-limits": "node scripts/generate-level-limits.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
@@ -21,6 +22,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260714.1",
     "@playwright/test": "^1.60.0",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
