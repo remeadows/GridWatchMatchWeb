@@ -11,7 +11,9 @@ test.beforeEach(async ({ page }) => {
   await clearStorage(page);
 });
 
-test("boots from a GitHub Pages style base path", async ({ page }) => {
+test("boots from a non-root deep-link path via SPA fallback", async ({ page }) => {
+  // App is served at the host root (base "/") on Cloudflare Pages; deep links
+  // to a sub-path must still boot via the SPA history fallback.
   await page.goto("/GridWatchMatchWeb/?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
 });

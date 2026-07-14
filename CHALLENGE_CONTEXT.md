@@ -18,7 +18,7 @@ The judging bar is simple and important: the game must be playable from a public
 
 ## Hosting
 
-Recommended hosting includes GitHub Pages, itch.io, or Vercel. This repo targets GitHub Pages.
+Recommended hosting includes GitHub Pages, itch.io, or Vercel. This repo targets Cloudflare Workers + static Assets (`GridWatchMatchWeb.warsignallabs.net`) — see the Phase 3 notes for the score-submission Worker.
 
 ## Deadline
 
