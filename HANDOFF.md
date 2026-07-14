@@ -1,10 +1,64 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-06-12
+Last updated: 2026-07-14
 
-## Current Status
+## ⚠ Phase 3 shipped (2026-07-14): Supabase auth + server-mediated leaderboards
 
-GridWatch Match Web is hosted on Cloudflare Pages:
+GridWatch Match now has an operator identity + real leaderboards, built into the
+Command Nexus GridWatch fleet. Design: Command Nexus repo
+`docs/superpowers/specs/2026-07-14-command-nexus-architecture-design.md` (D5); plan +
+per-task record: `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`.
+
+- **Auth:** guest-first Supabase (magic link + Google/GitHub + 1–12 char handle) on the
+  shared **GridWatchGamesDB** project (`mggxfzzxrpjgpzhwiwqi.supabase.co`) — the SAME
+  identity as GridWatch Drift and the Command Nexus hub. UI lives in the Account screen
+  (`src/App.tsx` OperatorIdentityPanel); client in `src/hooks/useAuth.ts` +
+  `src/services/{supabase,handle}.ts`. Game is fully playable signed-out/offline.
+- **Scores are server-mediated (anti-cheat).** The client NEVER submits a score — on a
+  level win (`finishWin`, not QA, signed-in) it POSTs raw telemetry + the deterministic
+  engine `actionLog` to **`/api/score`** (`src/services/scoreApi.ts`). The **Worker**
+  (`worker/index.ts` + pure `worker/validation.ts`) verifies the Supabase user,
+  validates plausibility (tight per-move bounds; Play-On runs relaxed + flagged),
+  derives the score server-side (`tiles*10+powerups*25+chain*50`, capped 25000/level),
+  and writes improve-only best rows via the service-role key. Headline `standard` row =
+  **campaign total** (sum of per-level `level-NNN` bests); daily/weekly = best single
+  run. `scores` is Worker-write-only (client can't touch it). 170 unit tests.
+- **Hosting migrated Pages → Workers + Assets** (`wrangler.jsonc`; SPA fallback). The
+  game is served by the same Worker that owns `/api/*`. Deploy: `npm run build &&
+  npx wrangler deploy` (Workers Builds git-connection is the intended CI — see below).
+- **Currently deployed to workers.dev only:**
+  `https://gridwatch-match.russell-meadows.workers.dev` (verified: game serves 200,
+  `/api/score` returns 401 unauth / 405 GET / 404 unknown). The custom domain
+  `gridwatchmatchweb.warsignallabs.net` is **still on the old Pages project** — see
+  cutover steps below.
+
+### Remaining to finish Phase 3 (Russ-gated)
+1. **Set the Worker secret:** `npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY` for
+   worker `gridwatch-match` (value = the same service-role key Drift uses; in Drift's
+   gitignored `.dev.vars`). Without it, score WRITES fail (auth/serving already work).
+2. **Domain cutover:** in the Cloudflare dashboard detach
+   `gridwatchmatchweb.warsignallabs.net` from Pages project `gridwatchmatch`, then
+   uncomment the `routes` block in `wrangler.jsonc` and `npx wrangler deploy`. Connect
+   the repo to **Workers Builds** to keep push-to-deploy.
+3. **Live score E2E (human-playability gate):** signed in, win a level → the won modal
+   should show "SCORE TRANSMITTED — CAMPAIGN TOTAL …" and the hub's Match tab
+   (nexus.warsignallabs.net, already live) should show the row.
+
+### Known follow-ups (non-blocking)
+- Plausibility bounds (tiles ≤15/move, powerups ≤4/move, chain ≤5/move) are conservative
+  — re-tune from real playtest telemetry so an exceptional legit run isn't 422-rejected
+  (the stored action-log proof is the future replay-verification path).
+- `playOnUsed=true` runs can reach the per-level cap via fabricated telemetry but are
+  metadata-flagged and self-exclude from the competitive board — accepted per Russ's
+  ranking model; a flagged-run filter/exclusion on the board is a future option.
+- No App-level unit test for the client telemetry accumulation/gating/reset (verified by
+  inspection + live QA); `MAX_PLAY_ONS=20` is an arbitrary backstop.
+
+---
+
+## Pre-Phase-3 status (historical)
+
+GridWatch Match Web was hosted on Cloudflare Pages:
 
 `https://GridWatchMatchWeb.warsignallabs.net`
 
