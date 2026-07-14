@@ -9,10 +9,12 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "single-page-application"
   },
-  // NOTE: no "routes" yet — the custom domain gridwatchmatchweb.warsignallabs.net is
-  // still attached to the old Cloudflare Pages project. The cutover task detaches it
-  // there first, then adds:
-  // "routes": [{ "pattern": "gridwatchmatchweb.warsignallabs.net", "custom_domain": true }],
+  // Custom domain cut over from the old Cloudflare Pages project 2026-07-14 (Russ-
+  // authorized). The domain was detached from Pages project `gridwatchmatch` first,
+  // then wrangler deploy provisioned it here.
+  "routes": [
+    { "pattern": "gridwatchmatchweb.warsignallabs.net", "custom_domain": true }
+  ],
   "vars": {
     "SUPABASE_URL": "https://mggxfzzxrpjgpzhwiwqi.supabase.co",
     "SUPABASE_ANON_KEY": "sb_publishable_588CEYGJhys5YBDloHGJzw_A_Ew7wgL"
