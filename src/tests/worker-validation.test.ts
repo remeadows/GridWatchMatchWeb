@@ -59,6 +59,67 @@ describe("deriveScore", () => {
   });
 });
 
+describe("deriveScore anti-inflation", () => {
+  it("caps max-plausible telemetry well under LEVEL_SCORE_CAP on the tightest level", () => {
+    // Tightest level: moveLimit 17 (min across all 100 levels — see level-limits.json).
+    const tightestLevelId = 34;
+    const moveLimit = moveLimitFor(tightestLevelId)!;
+    expect(moveLimit).toBe(17);
+
+    const moveCount = moveLimit;
+    const maxTelemetry = {
+      tilesCleared: moveCount * 15,
+      powerUpEvents: moveCount * 4,
+      chainSum: moveCount * 5,
+      moveCount,
+      stars: starsFor(moveCount, moveLimit),
+      playOnUsed: false,
+    };
+
+    const result = validateSubmission(
+      okBody({ levelId: tightestLevelId }, maxTelemetry),
+    );
+    expect(result.ok).toBe(true);
+    expect(deriveScore(maxTelemetry)).toBe(moveCount * 500);
+    expect(deriveScore(maxTelemetry)).toBeLessThan(LEVEL_SCORE_CAP);
+  });
+
+  it("rejects the old attack telemetry that used to hit the cap (chainSum = moveCount*20)", () => {
+    const levelId = 34;
+    const moveLimit = moveLimitFor(levelId)!;
+    const moveCount = moveLimit;
+    const attackTelemetry = {
+      tilesCleared: 1,
+      powerUpEvents: 0,
+      chainSum: moveCount * 20,
+      moveCount,
+      stars: starsFor(moveCount, moveLimit),
+      playOnUsed: false,
+    };
+
+    expect(validateSubmission(okBody({ levelId }, attackTelemetry)).ok).toBe(false);
+  });
+
+  it("keeps LEVEL_SCORE_CAP an unreachable backstop on the largest level (moveLimit 48)", () => {
+    const largestLevelId = 61;
+    const moveLimit = moveLimitFor(largestLevelId)!;
+    expect(moveLimit).toBe(48);
+
+    const moveCount = moveLimit;
+    const maxTelemetry = {
+      tilesCleared: moveCount * 15,
+      powerUpEvents: moveCount * 4,
+      chainSum: moveCount * 5,
+      moveCount,
+      stars: starsFor(moveCount, moveLimit),
+      playOnUsed: false,
+    };
+
+    expect(deriveScore(maxTelemetry)).toBe(24000);
+    expect(deriveScore(maxTelemetry)).toBeLessThan(LEVEL_SCORE_CAP);
+  });
+});
+
 describe("categories", () => {
   it("pads level categories", () => expect(levelCategory(7)).toBe("level-007"));
   it("stamps ISO periods (spot checks match hub/Drift)", () => {

@@ -59,11 +59,15 @@ export function validateSubmission(body: unknown):
   const { tilesCleared, powerUpEvents, chainSum, moveCount, stars, playOnUsed } = t as Partial<Telemetry>;
   if (!isInt(moveCount) || moveCount < 1 || moveCount > moveLimit)
     return { ok: false, error: "Implausible move count." };
-  if (!isInt(tilesCleared) || tilesCleared < 1 || tilesCleared > moveCount * 49)
+  // Per-move bounds sum to a 500 pts/move ceiling (~3x a strong real run) via the
+  // score formula, so LEVEL_SCORE_CAP stays an unreachable backstop — fabricated
+  // telemetry can't reach it. Conservative pending real-play telemetry; the stored
+  // action-log proof is the future replay-verification path.
+  if (!isInt(tilesCleared) || tilesCleared < 1 || tilesCleared > moveCount * 15)
     return { ok: false, error: "Implausible clear count." };
-  if (!isInt(powerUpEvents) || powerUpEvents < 0 || powerUpEvents > moveCount * 10)
+  if (!isInt(powerUpEvents) || powerUpEvents < 0 || powerUpEvents > moveCount * 4)
     return { ok: false, error: "Implausible power-up count." };
-  if (!isInt(chainSum) || chainSum < 0 || chainSum > moveCount * 20)
+  if (!isInt(chainSum) || chainSum < 0 || chainSum > moveCount * 5)
     return { ok: false, error: "Implausible cascade depth." };
   if (typeof playOnUsed !== "boolean") return { ok: false, error: "Missing playOn flag." };
   if (!isInt(stars) || stars !== starsFor(moveCount, moveLimit))
