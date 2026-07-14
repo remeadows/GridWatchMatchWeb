@@ -26,23 +26,26 @@ per-task record: `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`
 - **Hosting migrated Pages → Workers + Assets** (`wrangler.jsonc`; SPA fallback). The
   game is served by the same Worker that owns `/api/*`. Deploy: `npm run build &&
   npx wrangler deploy` (Workers Builds git-connection is the intended CI — see below).
-- **Currently deployed to workers.dev only:**
-  `https://gridwatch-match.russell-meadows.workers.dev` (verified: game serves 200,
-  `/api/score` returns 401 unauth / 405 GET / 404 unknown). The custom domain
-  `gridwatchmatchweb.warsignallabs.net` is **still on the old Pages project** — see
-  cutover steps below.
+- **🚀 LIVE on the production custom domain: https://gridwatchmatchweb.warsignallabs.net**
+  (Workers + Assets). Cutover done 2026-07-14: domain detached from Pages project
+  `gridwatchmatch`, `routes` block added, Worker deployed. Verified live: game serves
+  200, SPA deep routes 200, assets 200, `/api/score` 401 unauth / 405 GET / 404 unknown.
+  `SUPABASE_SERVICE_ROLE_KEY` secret is set (confirmed via `wrangler secret list`).
+  workers.dev fallback: `gridwatch-match.russell-meadows.workers.dev`. Deploy is manual
+  (`npm run build && npx wrangler deploy`).
 
-### Remaining to finish Phase 3 (Russ-gated)
-1. **Set the Worker secret:** `npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY` for
-   worker `gridwatch-match` (value = the same service-role key Drift uses; in Drift's
-   gitignored `.dev.vars`). Without it, score WRITES fail (auth/serving already work).
-2. **Domain cutover:** in the Cloudflare dashboard detach
-   `gridwatchmatchweb.warsignallabs.net` from Pages project `gridwatchmatch`, then
-   uncomment the `routes` block in `wrangler.jsonc` and `npx wrangler deploy`. Connect
-   the repo to **Workers Builds** to keep push-to-deploy.
-3. **Live score E2E (human-playability gate):** signed in, win a level → the won modal
-   should show "SCORE TRANSMITTED — CAMPAIGN TOTAL …" and the hub's Match tab
-   (nexus.warsignallabs.net, already live) should show the row.
+### Remaining to finish Phase 3
+1. ✅ Worker secret set. 2. ✅ Domain cutover done.
+3. **Live score E2E (human-playability gate — the one open item):** signed in on
+   gridwatchmatchweb.warsignallabs.net, win a level → the won modal should show
+   "SCORE TRANSMITTED — CAMPAIGN TOTAL …" and the hub's Match tab
+   (nexus.warsignallabs.net, already live) should show the row. This first real win is
+   also what confirms the service-key DB-write path end-to-end (everything up to the
+   auth boundary is verified; a real submission is the honest way to confirm the write,
+   rather than posting fabricated telemetry).
+- Optional: connect the repo to **Workers Builds** to restore git-push-to-deploy (it
+  was Pages' git integration before; now deploys are manual). Old `gridwatchmatch`
+  Pages project + its `.pages.dev` still exist (harmless) — delete when convenient.
 
 ### Known follow-ups (non-blocking)
 - Plausibility bounds (tiles ≤15/move, powerups ≤4/move, chain ≤5/move) are conservative
