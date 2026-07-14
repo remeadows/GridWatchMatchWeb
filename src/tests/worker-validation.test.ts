@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   LEVEL_SCORE_CAP,
+  MAX_PLAY_ONS,
+  PLAY_ON_EXTRA_MOVES,
   dailyCategory,
   deriveScore,
   levelCategory,
@@ -49,6 +51,75 @@ describe("validateSubmission", () => {
     expect(validateSubmission(okBody({}, { stars: 1 })).ok).toBe(false); // 15/25 used → not 1 star
     expect(validateSubmission(okBody({ actionLog: undefined })).ok).toBe(false);
     expect(validateSubmission(okBody({}, { playOnUsed: "yes" })).ok).toBe(false);
+  });
+});
+
+describe("Play-On handling", () => {
+  const levelId = 1;
+  const moveLimit = moveLimitFor(levelId)!;
+
+  it("accepts a legit Play-On win that would fail strict validation", () => {
+    const moveCount = moveLimit + PLAY_ON_EXTRA_MOVES; // one Play-On used
+    const telemetry = {
+      tilesCleared: Math.min(moveCount * 15, 60),
+      powerUpEvents: 2,
+      chainSum: 4,
+      moveCount,
+      // Deliberately NOT equal to starsFor(moveCount, moveLimit) (which would be 1,
+      // since moveCount > moveLimit) — proves the equality check is relaxed.
+      stars: 3,
+      playOnUsed: true,
+    };
+    expect(starsFor(moveCount, moveLimit)).not.toBe(telemetry.stars);
+    expect(validateSubmission(okBody({ levelId }, telemetry)).ok).toBe(true);
+  });
+
+  it("rejects the same telemetry when playOnUsed is false", () => {
+    const moveCount = moveLimit + PLAY_ON_EXTRA_MOVES;
+    const telemetry = {
+      tilesCleared: Math.min(moveCount * 15, 60),
+      powerUpEvents: 2,
+      chainSum: 4,
+      moveCount,
+      stars: 3,
+      playOnUsed: false,
+    };
+    expect(validateSubmission(okBody({ levelId }, telemetry)).ok).toBe(false);
+  });
+
+  it("rejects a playOnUsed run with an absurd move count beyond MAX_PLAY_ONS", () => {
+    const moveCount = moveLimit + PLAY_ON_EXTRA_MOVES * MAX_PLAY_ONS + 1;
+    const telemetry = {
+      tilesCleared: 1,
+      powerUpEvents: 0,
+      chainSum: 0,
+      moveCount,
+      stars: 3,
+      playOnUsed: true,
+    };
+    expect(validateSubmission(okBody({ levelId }, telemetry)).ok).toBe(false);
+  });
+
+  it("rejects out-of-range star counts regardless of playOnUsed", () => {
+    const moveCount = moveLimit + PLAY_ON_EXTRA_MOVES;
+    const baseTelemetry = {
+      tilesCleared: Math.min(moveCount * 15, 60),
+      powerUpEvents: 2,
+      chainSum: 4,
+      moveCount,
+    };
+    expect(
+      validateSubmission(okBody({ levelId }, { ...baseTelemetry, stars: 0, playOnUsed: true })).ok,
+    ).toBe(false);
+    expect(
+      validateSubmission(okBody({ levelId }, { ...baseTelemetry, stars: 4, playOnUsed: true })).ok,
+    ).toBe(false);
+    expect(
+      validateSubmission(okBody({ levelId: 1 }, { ...okBody().telemetry, stars: 0, playOnUsed: false })).ok,
+    ).toBe(false);
+    expect(
+      validateSubmission(okBody({ levelId: 1 }, { ...okBody().telemetry, stars: 4, playOnUsed: false })).ok,
+    ).toBe(false);
   });
 });
 

@@ -3,6 +3,8 @@ import limits from "./level-limits.json";
 export const LEVEL_SCORE_CAP = 25000;
 export const CAMPAIGN_SCORE_CAP = 2500000;
 export const GAME_SLUG = "gridwatch-match";
+export const PLAY_ON_EXTRA_MOVES = 5; // mirror src/data/store.ts playOnExtraMoves
+export const MAX_PLAY_ONS = 20; // generous cap on repeated Play-On uses; keeps moveCount (and thus the moveCount-scaled score bounds) bounded so LEVEL_SCORE_CAP stays the backstop
 
 export interface Telemetry {
   tilesCleared: number;
@@ -57,7 +59,13 @@ export function validateSubmission(body: unknown):
   const t = b.telemetry as Record<string, unknown> | undefined;
   if (typeof t !== "object" || t === null) return { ok: false, error: "Missing telemetry." };
   const { tilesCleared, powerUpEvents, chainSum, moveCount, stars, playOnUsed } = t as Partial<Telemetry>;
-  if (!isInt(moveCount) || moveCount < 1 || moveCount > moveLimit)
+  if (typeof playOnUsed !== "boolean") return { ok: false, error: "Missing playOn flag." };
+  // Play-On (paid continue) extends the move limit client-side and can repeat, so
+  // moveCount can exceed the static limit and stars can't be server-recomputed.
+  // Relax ONLY for flagged playOnUsed runs (recorded in metadata per the ranking
+  // model); un-assisted runs stay strictly validated.
+  const maxMoves = playOnUsed ? moveLimit + PLAY_ON_EXTRA_MOVES * MAX_PLAY_ONS : moveLimit;
+  if (!isInt(moveCount) || moveCount < 1 || moveCount > maxMoves)
     return { ok: false, error: "Implausible move count." };
   // Per-move bounds sum to a 500 pts/move ceiling (~3x a strong real run) via the
   // score formula, so LEVEL_SCORE_CAP stays an unreachable backstop — fabricated
@@ -69,8 +77,8 @@ export function validateSubmission(body: unknown):
     return { ok: false, error: "Implausible power-up count." };
   if (!isInt(chainSum) || chainSum < 0 || chainSum > moveCount * 5)
     return { ok: false, error: "Implausible cascade depth." };
-  if (typeof playOnUsed !== "boolean") return { ok: false, error: "Missing playOn flag." };
-  if (!isInt(stars) || stars !== starsFor(moveCount, moveLimit))
+  if (!isInt(stars) || stars < 1 || stars > 3) return { ok: false, error: "Implausible star count." };
+  if (!playOnUsed && stars !== starsFor(moveCount, moveLimit))
     return { ok: false, error: "Star count does not match move usage." };
 
   const actionLog = Array.isArray(b.actionLog) ? b.actionLog : null;
