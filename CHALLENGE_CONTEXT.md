@@ -28,7 +28,7 @@ The challenge image lists the deadline as June 21, 2026 at 11:59 PM PT. Discord 
 
 - Do not commit API keys, secrets, tokens, or `.env` files.
 - OpenAI API usage can earn bonus points, but it is optional.
-- This web repo should remain a static app unless a future secure backend is explicitly added.
+- This web repo should remain a static app unless a future secure backend is explicitly added — that future was explicitly added 2026-07-14: a score-submission Worker (`worker/`), approved in the Command Nexus architecture design (D5).
 
 ## Product Implication
 
@@ -36,5 +36,5 @@ For this project, every implementation choice should prioritize a complete, reli
 
 - The board must feel responsive on pointer, touch, and mobile.
 - All seven rows must be reachable and playable at common viewport sizes.
-- Menus, level flow, fail/win modals, settings, persistence, and the store stub must work without backend services.
+- Menus, level flow, fail/win modals, settings, persistence, and the store stub must work without backend services. (Score submission is additive: everything still works signed-out/offline.)
 - README and deployment must be submission-ready before the challenge deadline.

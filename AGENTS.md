@@ -11,7 +11,7 @@ Read `MEMORY.md` and `HANDOFF.md` before making changes. `MEMORY.md` holds durab
 - React + TypeScript + Vite for app shell, HUD, modals, meta screens, settings, account, intel, and store stub.
 - Phaser for the board renderer, tweens, particles, input hit testing, and board VFX.
 - Pure TypeScript engine in `src/engine`; no DOM, React, Phaser, browser storage, audio, analytics, or rendering imports inside engine modules.
-- Static Cloudflare Pages hosting only (served from the root of `GridWatchMatchWeb.warsignallabs.net`). No backend, secrets, or real-money fulfillment in this repo.
+- Hosted on Cloudflare Workers + static Assets (served from the root of `GridWatchMatchWeb.warsignallabs.net`). The ONLY backend surface is `worker/index.ts` (`/api/*`): Supabase-auth-verified, server-mediated score submission (see `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`). No real-money fulfillment in this repo. The one secret (`SUPABASE_SERVICE_ROLE_KEY`) lives in wrangler secrets / gitignored `.dev.vars` — never in the repo.
 
 ## Source Of Truth
 
@@ -29,7 +29,7 @@ Read `MEMORY.md` and `HANDOFF.md` before making changes. `MEMORY.md` holds durab
 - Keep stable asset manifest keys; do not scatter raw copied paths across gameplay code.
 - Persist serializable app state only, not Phaser objects.
 - Use CSS variables/theme tokens; avoid hardcoded one-off colors outside theme files.
-- Store is stubbed until a secure backend exists.
+- Store remains a playable stub (score submission's Worker is NOT a store backend; real-money fulfillment stays out of this repo).
 - Firebase Web telemetry is optional and disabled by default.
 - Do not commit `.env*`, Firebase private files, Stripe keys, generated `dist/`, or local cache files.
 - Keep README submission-ready with what was made, how Codex helped, and how to play/controls.

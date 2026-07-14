@@ -183,7 +183,7 @@ Previously flaky drag-test loop from supervisor verification:
 
 - Work only in the web repo unless the user explicitly asks for iOS changes.
 - Do not add secrets, `.env` files, private Firebase files, Stripe keys, or generated `dist/`.
-- Do not introduce a backend for store or telemetry; the store remains a playable stub.
+- Phase 3 (2026-07-14) added the one sanctioned backend: the `/api/score` Worker for auth-verified score submission. The store remains a playable stub — no store/payment backend.
 - Keep `src/engine` renderer-free and deterministic.
 - For visible gameplay changes, run Playwright and inspect the browser manually before declaring the fix done.
 - When a Playwright test races against Phaser boot or layout settle, do not paper over it with retries, timeouts, or relaxed assertions. The fix must make the race deterministic — usually a readiness flag plus synchronous in-page dispatch — and must be verified with the 20-run loop above.

@@ -34,7 +34,7 @@ Controls:
 - React 19 + TypeScript + Vite 8
 - Phaser 4 board renderer
 - Pure TypeScript board engine
-- Static Cloudflare Pages deployment
+- Cloudflare Workers + static Assets deployment (a Worker serves `/api/*`; everything else is static)
 
 ## Local Setup
 
@@ -75,14 +75,17 @@ npm run test:e2e
 
 ## Deployment
 
-Hosted on [Cloudflare Pages](https://pages.cloudflare.com/) at
+Hosted on [Cloudflare Workers + static Assets](https://developers.cloudflare.com/workers/) at
 `https://GridWatchMatchWeb.warsignallabs.net` (served from the subdomain root).
 
-Cloudflare's Git integration auto-builds on push to `main`:
+Deployment via `npx wrangler deploy` (configured in `wrangler.jsonc`):
 
+- **Worker:** `worker/index.ts` (serves `/api/*`)
+- **Static assets:** `dist/` directory
 - **Build command:** `npm run build`
-- **Build output directory:** `dist`
 - **Node version:** pinned via `.nvmrc`
+
+Manual deployment or Workers Builds CI.
 
 The GitHub Actions `CI` workflow (`.github/workflows/ci.yml`) runs
 validate/test/audit/build on PRs and `main` for quality signal but does **not**
@@ -90,4 +93,4 @@ deploy — Cloudflare owns deployment.
 
 ## Monetization
 
-The web store is a playable stub. It shows the current coin packs and Security Clearance Pass surfaces, but real purchase fulfillment is disabled until a secure backend is added.
+The web store is a playable stub. It shows the current coin packs and Security Clearance Pass surfaces, but real purchase fulfillment is disabled and out of scope for this repo.
