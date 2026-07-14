@@ -26,7 +26,7 @@ Use React 19 + Phaser 4 + Vite 8 + TypeScript. React owns menus, HUD, modals, se
 - StoreKit becomes a playable web store stub:
   - Show coin packs and Security Clearance Pass UI.
   - Disable real purchase fulfillment with web beta messaging.
-  - No backend, secrets, or Stripe until a future monetization phase.
+  - No STORE backend, payment secrets, or Stripe until a future monetization phase (the Phase-3 score-submission Worker is not a store backend).
 
 ## Test Plan
 

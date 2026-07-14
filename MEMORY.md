@@ -9,7 +9,7 @@ Last updated: 2026-06-04
 - Public GitHub repo: `https://github.com/remeadows/GridWatchMatchWeb`.
 - Public playable URL: `https://remeadows.github.io/GridWatchMatchWeb/`.
 - The project is for the Community Dev Challenge "Make a game we can play"; the core requirement is a public, immediately playable game link.
-- Static GitHub Pages app only. No backend, secrets, API keys, tokens, `.env` files, or real-money purchase fulfillment.
+- Hosted on Cloudflare Workers + static Assets. The ONLY backend surface is `worker/index.ts` (`/api/score`): Supabase-auth-verified score submission. The one secret (`SUPABASE_SERVICE_ROLE_KEY`) lives in wrangler secrets / gitignored `.dev.vars`, never committed. No real-money fulfillment.
 
 ## Product Priorities
 
