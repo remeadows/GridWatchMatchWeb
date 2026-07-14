@@ -13,6 +13,7 @@ import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { winSequenceDurationMs } from "./game/motion";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
+import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { useAuth } from "./hooks/useAuth";
 import {
   areaProgressLabel,
@@ -108,7 +109,7 @@ export default function App() {
       {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
-      {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} />}
+      {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} auth={auth} />}
       {screen.name === "account" && <AccountScreen save={save} commitSave={commitSave} auth={auth} />}
       {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} />}
       {screen.name === "rules" && <RulesScreen save={save} commitSave={commitSave} />}
@@ -221,11 +222,19 @@ function LevelsScreen({ area, save, navigate }: { area: AreaInfo; save: SaveStat
   );
 }
 
-function GameScreen({ levelId, save, commitSave, navigate }: {
+type SubmitState =
+  | { kind: "idle" }
+  | { kind: "sending" }
+  | { kind: "done"; result: SubmitResult }
+  | { kind: "error"; message: string }
+  | { kind: "skipped"; reason: "test" | "signedOut" };
+
+function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   levelId: number;
   save: SaveState;
   commitSave: (save: SaveState) => void;
   navigate: (screen: Screen) => void;
+  auth: ReturnType<typeof useAuth>;
 }) {
   const [level, setLevel] = useState<LevelDefinition | null>(null);
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
@@ -240,6 +249,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   const [tutorialStep, setTutorialStep] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const [runId, setRunId] = useState(0);
+  const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
   const [selectedBooster, setSelectedBooster] = useState<BoosterType | null>(null);
   const [boosterDrag, setBoosterDrag] = useState<BoosterDragState | null>(null);
   const gameCanvasRef = useRef<GameCanvasHandle | null>(null);
@@ -260,6 +270,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
   const tutorialInitialMoveRef = useRef(0);
   const finalRef = useRef(false);
   const animationIdRef = useRef(0);
+  const runStatsRef = useRef({ tilesCleared: 0, powerUpEvents: 0, chainSum: 0 });
 
   useEffect(() => {
     statusRef.current = status;
@@ -290,6 +301,8 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     finalRef.current = false;
     queueRef.current = [];
     setQueueDepth(0);
+    runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
+    setSubmitState({ kind: "idle" });
     void loadLevel(levelId).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
@@ -343,6 +356,23 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
     const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed);
     commitSave(next);
     saveRef.current = next;
+
+    const isTestMode = new URLSearchParams(window.location.search).has("gwTestMode");
+    if (!isTestMode && auth.session) {
+      const token = auth.session.access_token;
+      setSubmitState({ kind: "sending" });
+      submitScore(token, currentLevel.id, {
+        ...runStatsRef.current,
+        moveCount: currentSnapshot.moveCount,
+        stars,
+        playOnUsed,
+      }, engine.actionLog())
+        .then((r) => setSubmitState({ kind: "done", result: r }))
+        .catch((err) => setSubmitState({ kind: "error", message: err instanceof Error ? err.message : "Transmit failed." }));
+    } else {
+      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : "signedOut" });
+    }
+
     setSnapshot(currentSnapshot);
     const completeWin = () => {
       setStatus("won");
@@ -373,7 +403,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
       window.clearTimeout(fallbackId);
       fallbackId = window.setTimeout(completeOnce, durationMs);
     }
-  }, [commitSave, playOnUsed]);
+  }, [commitSave, playOnUsed, auth.session]);
 
   const applyAction = useCallback((action: BoardAction) => {
     const engine = engineRef.current;
@@ -403,6 +433,9 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
       setScore(nextScore);
       setLastDelta(delta);
       setSnapshot(engine.snapshot);
+      runStatsRef.current.tilesCleared += delta.clears.length;
+      runStatsRef.current.powerUpEvents += delta.powerUpEvents.length;
+      runStatsRef.current.chainSum += Math.max(0, delta.chainDepth);
       setMessage(delta.shuffleAttempts > 0 ? `Grid reshuffled after ${delta.shuffleAttempts} attempt(s).` : "");
       if (delta.clears.length > 0) audioService.playSfx("sfx_tile_clear.mp3");
       if (delta.powerUpEvents.length > 0) audioService.playSfx("sfx_power_up.mp3");
@@ -702,6 +735,7 @@ function GameScreen({ levelId, save, commitSave, navigate }: {
         <ResultModal
           title="Grid secured"
           message={`${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
+          note={submitStatusLine(submitState)}
           primary={levelId < 100 ? "Next Level" : "Operations"}
           secondary="Level Select"
           onPrimary={() => navigate(levelId < 100 ? { name: "game", levelId: levelId + 1 } : { name: "areas" })}
@@ -978,9 +1012,10 @@ function StoreScreen() {
   );
 }
 
-function ResultModal({ title, message, primary, secondary, onPrimary, onSecondary }: {
+function ResultModal({ title, message, note, primary, secondary, onPrimary, onSecondary }: {
   title: string;
   message: string;
+  note?: React.ReactNode;
   primary: string;
   secondary: string;
   onPrimary: () => void;
@@ -991,6 +1026,7 @@ function ResultModal({ title, message, primary, secondary, onPrimary, onSecondar
       <div className="modal">
         <h2>{title}</h2>
         <p>{message}</p>
+        {note}
         <div className="modal-actions">
           <button onClick={onSecondary}>{secondary}</button>
           <button className="primary-action" onClick={onPrimary}>{primary}</button>
@@ -998,6 +1034,23 @@ function ResultModal({ title, message, primary, secondary, onPrimary, onSecondar
       </div>
     </div>
   );
+}
+
+function submitStatusLine(state: SubmitState): React.ReactNode {
+  switch (state.kind) {
+    case "sending":
+      return <p className="delta-line">TRANSMITTING SCORE&hellip;</p>;
+    case "done":
+      return state.result.levelImproved
+        ? <p className="delta-line">SCORE TRANSMITTED &mdash; CAMPAIGN TOTAL {state.result.campaignScore.toLocaleString()}</p>
+        : <p className="delta-line">ARCHIVE BEST STANDS ({state.result.levelBest.toLocaleString()})</p>;
+    case "error":
+      return <p className="identity-notice" role="alert">{state.message}</p>;
+    case "skipped":
+      return state.reason === "signedOut" ? <p className="delta-line">SIGN IN ON THE ACCOUNT SCREEN TO POST SCORES</p> : null;
+    default:
+      return null;
+  }
 }
 
 function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
