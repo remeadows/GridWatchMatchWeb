@@ -24,6 +24,7 @@ test("navigates Home to Operations to Level 1 and applies a deterministic swap",
   await page.getByRole("button", { name: "Open Levels" }).first().click();
   await page.getByRole("button", { name: "Level 1 Ready" }).click();
   await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
   await page.getByTestId("qa-swap").click();
   await expect(page.getByText(/Last clear:/)).toBeVisible();
 });
