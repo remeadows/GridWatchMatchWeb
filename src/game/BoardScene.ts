@@ -342,6 +342,14 @@ export const RESOLVE_ANIMATION_BUDGET_MS =
   Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS, POWERUP_RESOLVE_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
+// Input-freeze watchdog for a committed swap whose resolve handoff never
+// arrives (a thrown exception mid-cascade, a broken tween). Comfortably above
+// RESOLVE_ANIMATION_BUDGET_MS -- the worst-case wall-clock for a NORMAL
+// resolved swap -- so only a genuinely wedged drag ever fires it. Armed as a
+// Phaser clock timer (not window.setTimeout) so a backgrounded tab, where
+// tweens legitimately pause and resume later, never trips it.
+const DRAG_COMMIT_WATCHDOG_MS = RESOLVE_ANIMATION_BUDGET_MS + 500;
+
 // Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
 // so a one-cell move reads as a crisp snap, not a bounce.
 const swapEaseParams = [1.1];
@@ -363,6 +371,7 @@ export class BoardScene extends Phaser.Scene {
   private drag: ActiveDrag | null = null;
   private commitSettled = false;
   private pendingCommitCb: (() => void) | null = null;
+  private dragWatchdog: Phaser.Time.TimerEvent | null = null;
   private selected: GridPosition | null = null;
   private activeAnimationId: number | null = null;
   private lastAnimationId = 0;
@@ -588,6 +597,7 @@ export class BoardScene extends Phaser.Scene {
       // no ghosts, no race timer.
       if (this.drag && this.drag.committed && this.dragMatchesSwap(this.drag, action)) {
         const run = () => {
+          this.clearDragWatchdog();
           this.drag = null;
           this.pendingCommitCb = null;
           this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
@@ -706,6 +716,7 @@ export class BoardScene extends Phaser.Scene {
     // Primary: snap the committed live sprites back to their homes -- the tile
     // visibly tries the swap then rejects.
     if (drag && drag.committed && this.dragMatchesSwap(drag, action)) {
+      this.clearDragWatchdog();
       this.tweens.killTweensOf(drag.sprite);
       if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
       this.flashCell(action.from, 0xff4968, 190);
@@ -1586,6 +1597,7 @@ export class BoardScene extends Phaser.Scene {
     const shutdown = () => {
       this.removeDomPointerHandlers();
       this.setBoardReadyFlag(false);
+      this.clearDragWatchdog();
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);
@@ -1819,13 +1831,15 @@ export class BoardScene extends Phaser.Scene {
   // Commit optimistically: the lifted sprite and its partner tween to the
   // swapped centers. The engine round-trip then confirms (match -> continue from
   // these exact positions) or rejects (invalid -> snap back). No fixed-delay
-  // fallback; the resolve event drives the handoff.
+  // fallback; the resolve event drives the handoff. A watchdog is armed below
+  // purely as a safety net in case that handoff never arrives.
   private commitSwap(drag: ActiveDrag, target: GridPosition): void {
     drag.committed = true;
     drag.blockedMarker?.destroy();
     drag.blockedMarker = null;
     this.commitSettled = false;
     this.selected = null;
+    this.armDragWatchdog(drag);
 
     if (!drag.neighbor || !positionsEqual(drag.neighbor.position, target)) {
       const sprite = this.occupantNodes.get(positionKey(target));
@@ -1974,6 +1988,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private snapBackDrag(drag: ActiveDrag): void {
+    this.clearDragWatchdog();
     drag.blockedMarker?.destroy();
     drag.blockedMarker = null;
     const neighbor = drag.neighbor;
@@ -2015,6 +2030,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private releaseDrag(drag: ActiveDrag): void {
+    this.clearDragWatchdog();
     this.tweens.killTweensOf(drag.sprite);
     if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
     drag.blockedMarker?.destroy();
@@ -2025,7 +2041,36 @@ export class BoardScene extends Phaser.Scene {
     this.renderSnapshot();
   }
 
+  // Arms a Phaser clock timer (pauses/resumes with the game loop, unlike
+  // window.setTimeout) that recovers input if this exact drag is still the
+  // committed one once DRAG_COMMIT_WATCHDOG_MS elapses without a resolve
+  // handoff. A backgrounded tab pauses this timer along with tweens, so it
+  // only ever fires against a genuinely wedged resolve.
+  private armDragWatchdog(drag: ActiveDrag): void {
+    this.clearDragWatchdog();
+    this.dragWatchdog = this.time.delayedCall(DRAG_COMMIT_WATCHDOG_MS, () => {
+      this.dragWatchdog = null;
+      // The normal resolve handoff already completed and started a new drag
+      // (or cleared it); nothing to recover.
+      if (this.drag !== drag) return;
+      console.warn(
+        "[BoardScene] committed swap watchdog fired without a resolve handoff -- recovering board input.",
+        { from: drag.start, to: drag.neighbor?.position ?? null }
+      );
+      this.tweens.killTweensOf(drag.sprite);
+      if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
+      this.snapBackDrag(drag);
+    });
+  }
+
+  private clearDragWatchdog(): void {
+    if (!this.dragWatchdog) return;
+    this.time.removeEvent(this.dragWatchdog);
+    this.dragWatchdog = null;
+  }
+
   private hardClearDrag(): void {
+    this.clearDragWatchdog();
     const drag = this.drag;
     if (drag) {
       this.tweens.killTweensOf(drag.sprite);
