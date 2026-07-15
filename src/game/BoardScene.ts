@@ -342,12 +342,18 @@ export const RESOLVE_ANIMATION_BUDGET_MS =
   Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS, POWERUP_RESOLVE_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
-// Input-freeze watchdog for a committed swap whose resolve handoff never
-// arrives (a thrown exception mid-cascade, a broken tween). Comfortably above
-// RESOLVE_ANIMATION_BUDGET_MS -- the worst-case wall-clock for a NORMAL
-// resolved swap -- so only a genuinely wedged drag ever fires it. Armed as a
-// Phaser clock timer (not window.setTimeout) so a backgrounded tab, where
-// tweens legitimately pause and resume later, never trips it.
+// Input-freeze watchdog for a committed swap whose commit-settle handoff
+// never completes -- the settle tween itself never resolving (a broken or
+// killed tween), leaving this.drag set forever. NOT a guard against a
+// mid-cascade failure: the watchdog is cleared as soon as the settle handoff
+// runs (see the `run` closure in playResolvedAnimation, which clears it
+// before any cascade/pop work starts), and input is gated on this.drag alone
+// -- which is already cleared by then -- so a cascade-phase exception cannot
+// re-freeze input. Comfortably above RESOLVE_ANIMATION_BUDGET_MS -- the
+// worst-case wall-clock for a NORMAL resolved swap -- so only a genuinely
+// wedged commit-settle ever fires it. Armed as a Phaser clock timer (not
+// window.setTimeout) so a backgrounded tab, where tweens legitimately pause
+// and resume later, never trips it.
 const DRAG_COMMIT_WATCHDOG_MS = RESOLVE_ANIMATION_BUDGET_MS + 500;
 
 // Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
@@ -371,6 +377,12 @@ export class BoardScene extends Phaser.Scene {
   private drag: ActiveDrag | null = null;
   private commitSettled = false;
   private pendingCommitCb: (() => void) | null = null;
+  // The authoritative post-cascade snapshot captured alongside pendingCommitCb
+  // whenever the resolve handoff for a committed swap is deferred (waiting on
+  // the settle tween). Lets the watchdog resync to the true engine state if
+  // that settle tween never completes, instead of re-rendering the stale
+  // pre-swap this.snapshot. See recoverFromWedgedDrag.
+  private pendingResolvedSnapshot: BoardSnapshot | null = null;
   private dragWatchdog: Phaser.Time.TimerEvent | null = null;
   private selected: GridPosition | null = null;
   private activeAnimationId: number | null = null;
@@ -600,10 +612,17 @@ export class BoardScene extends Phaser.Scene {
           this.clearDragWatchdog();
           this.drag = null;
           this.pendingCommitCb = null;
+          this.pendingResolvedSnapshot = null;
           this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
         };
         if (this.commitSettled) run();
-        else this.pendingCommitCb = run;
+        else {
+          // Deferred: the settle tween hasn't finished yet. Stash the true
+          // (post-cascade) snapshot so the watchdog can jump straight to it
+          // if the settle tween never completes -- see recoverFromWedgedDrag.
+          this.pendingResolvedSnapshot = nextSnapshot;
+          this.pendingCommitCb = run;
+        }
         return;
       }
 
@@ -725,6 +744,7 @@ export class BoardScene extends Phaser.Scene {
       this.drag = null;
       this.commitSettled = false;
       this.pendingCommitCb = null;
+      this.pendingResolvedSnapshot = null;
       drag.blockedMarker?.destroy();
 
       if (this.reducedMotion) {
@@ -1996,6 +2016,7 @@ export class BoardScene extends Phaser.Scene {
     this.selected = null;
     this.commitSettled = false;
     this.pendingCommitCb = null;
+    this.pendingResolvedSnapshot = null;
 
     const finish = () => this.renderSnapshot();
     if (this.reducedMotion) {
@@ -2038,6 +2059,7 @@ export class BoardScene extends Phaser.Scene {
     this.selected = null;
     this.commitSettled = false;
     this.pendingCommitCb = null;
+    this.pendingResolvedSnapshot = null;
     this.renderSnapshot();
   }
 
@@ -2059,7 +2081,7 @@ export class BoardScene extends Phaser.Scene {
       );
       this.tweens.killTweensOf(drag.sprite);
       if (drag.neighbor) this.tweens.killTweensOf(drag.neighbor.sprite);
-      this.snapBackDrag(drag);
+      this.recoverFromWedgedDrag(drag);
     });
   }
 
@@ -2067,6 +2089,37 @@ export class BoardScene extends Phaser.Scene {
     if (!this.dragWatchdog) return;
     this.time.removeEvent(this.dragWatchdog);
     this.dragWatchdog = null;
+  }
+
+  // Recovery for a committed swap whose settle-tween handoff never arrived
+  // (armDragWatchdog fired). By this point the TRUE engine model has already
+  // advanced past this swap -- App.applyAction updates the model and
+  // dispatches the resolved animation event synchronously, well before this
+  // scene's settle tween would normally complete -- so re-rendering the
+  // scene's own (still pre-swap) this.snapshot via snapBackDrag would leave
+  // the board out of sync with the engine for a turn.
+  //
+  // If that resolved animation already reached playResolvedAnimation and got
+  // deferred (pendingCommitCb/pendingResolvedSnapshot set, because
+  // commitSettled was still false), we have the exact authoritative
+  // post-cascade snapshot on hand: release the wedged animation id and jump
+  // straight to it. If the resolved animation hasn't reached the scene at
+  // all yet, there is no authoritative snapshot retrievable from scene state
+  // -- the scene only ever receives snapshots via the push-based sync() path,
+  // there is no pull-based query into the engine -- so fall back to the
+  // ordinary snap-back, which is at least consistent with the this.snapshot
+  // the scene is currently holding; the next sync() call (carrying a fresh,
+  // higher-id animation) will bring it fully current.
+  private recoverFromWedgedDrag(drag: ActiveDrag): void {
+    if (this.pendingResolvedSnapshot) {
+      const resolvedSnapshot = this.pendingResolvedSnapshot;
+      this.finishAnimation();
+      this.hardClearDrag();
+      this.snapshot = resolvedSnapshot;
+      this.renderSnapshot();
+      return;
+    }
+    this.snapBackDrag(drag);
   }
 
   private hardClearDrag(): void {
@@ -2081,6 +2134,7 @@ export class BoardScene extends Phaser.Scene {
     this.selected = null;
     this.commitSettled = false;
     this.pendingCommitCb = null;
+    this.pendingResolvedSnapshot = null;
   }
 
   private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
