@@ -9,6 +9,7 @@ import {
   groupPowerUpEvents,
   matchTimeline,
   pieceDisplayProfile,
+  propellerFlightPlan,
   rocketLanePlan,
   tntDetonationPlan,
   tilePopVariation
@@ -142,6 +143,35 @@ describe("rocketLanePlan", () => {
       [{ row: 3, col: 3 }, { row: 2, col: 3 }, { row: 1, col: 3 }, { row: 0, col: 3 }],
       [{ row: 3, col: 3 }, { row: 4, col: 3 }, { row: 5, col: 3 }, { row: 6, col: 3 }]
     ]);
+  });
+});
+
+describe("propellerFlightPlan", () => {
+  it("uses a finite lift, arc, approach, and impact path toward the first affected target", () => {
+    const plan = propellerFlightPlan(
+      { row: 3, col: 3 },
+      [{ row: 1, col: 5 }, { row: 2, col: 4 }, { row: 4, col: 4 }]
+    );
+
+    expect(plan.target).toEqual({ row: 1, col: 5 });
+    expect(plan.liftAtMs).toBeGreaterThanOrEqual(90);
+    expect(plan.liftAtMs).toBeLessThanOrEqual(120);
+    expect(plan.flightAtMs).toBeGreaterThan(plan.liftAtMs);
+    expect(plan.reticleAtMs).toBeGreaterThanOrEqual(plan.flightAtMs);
+    expect(plan.impactAtMs).toBeGreaterThan(plan.reticleAtMs);
+    expect(plan.points.map((point) => point.phase)).toEqual(["lift", "arc", "approach", "impact"]);
+    expect(plan.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y))).toBe(true);
+    expect(plan.secondaryImpactAtMs).toHaveLength(2);
+    expect(plan.sequenceBudgetMs).toBeLessThanOrEqual(800);
+  });
+
+  it("never derives the target from the origin when affected positions are provided", () => {
+    const plan = propellerFlightPlan(
+      { row: 6, col: 6 },
+      [{ row: 0, col: 1 }]
+    );
+
+    expect(plan.target).toEqual({ row: 0, col: 1 });
   });
 });
 

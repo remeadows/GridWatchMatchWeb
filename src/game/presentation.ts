@@ -12,6 +12,11 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  PROPELLER_FLIGHT_MS,
+  PROPELLER_LIFT_MS,
+  PROPELLER_RETICLE_DELAY_MS,
+  PROPELLER_SECONDARY_STAGGER_MS,
+  PROPELLER_SEQUENCE_BUDGET_MS,
   ROCKET_IGNITION_MS,
   ROCKET_LANE_FLIGHT_MS,
   SWAP_SETTLE_MS,
@@ -92,6 +97,24 @@ export interface RocketLaneHeadPlan {
 export interface RocketLanePlan {
   ignitionMs: number;
   heads: RocketLaneHeadPlan[];
+}
+
+export interface PropellerFlightPoint {
+  atMs: number;
+  phase: "lift" | "arc" | "approach" | "impact";
+  x: number;
+  y: number;
+}
+
+export interface PropellerFlightPlan {
+  flightAtMs: number;
+  impactAtMs: number;
+  liftAtMs: number;
+  points: PropellerFlightPoint[];
+  reticleAtMs: number;
+  secondaryImpactAtMs: number[];
+  sequenceBudgetMs: number;
+  target: GridPosition;
 }
 
 export interface PresentationTraceEntry {
@@ -199,6 +222,43 @@ export function rocketLanePlan(
         passTimes
       };
     })
+  };
+}
+
+export function propellerFlightPlan(
+  origin: GridPosition,
+  affectedPositions: ReadonlyArray<GridPosition>
+): PropellerFlightPlan {
+  const target = affectedPositions[0] ?? origin;
+  const flightAtMs = PROPELLER_LIFT_MS + 1;
+  const reticleAtMs = flightAtMs + PROPELLER_RETICLE_DELAY_MS;
+  const impactAtMs = PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS;
+  const lift = { x: origin.col, y: origin.row - 0.35 };
+  const arc = {
+    x: (lift.x + target.col) / 2,
+    y: Math.min(lift.y, target.row) - Math.max(0.8, Math.abs(target.col - origin.col) * 0.28)
+  };
+  const approach = {
+    x: target.col + (arc.x - target.col) * 0.14,
+    y: target.row + (arc.y - target.row) * 0.14
+  };
+
+  return {
+    target,
+    liftAtMs: PROPELLER_LIFT_MS,
+    flightAtMs,
+    reticleAtMs,
+    impactAtMs,
+    points: [
+      { phase: "lift", atMs: PROPELLER_LIFT_MS, ...lift },
+      { phase: "arc", atMs: flightAtMs + Math.round(PROPELLER_FLIGHT_MS * 0.42), ...arc },
+      { phase: "approach", atMs: impactAtMs - Math.round(PROPELLER_FLIGHT_MS * 0.16), ...approach },
+      { phase: "impact", atMs: impactAtMs, x: target.col, y: target.row }
+    ],
+    secondaryImpactAtMs: affectedPositions.slice(1).map((_, index) => (
+      impactAtMs + (index + 1) * PROPELLER_SECONDARY_STAGGER_MS
+    )),
+    sequenceBudgetMs: PROPELLER_SEQUENCE_BUDGET_MS
   };
 }
 

@@ -28,6 +28,10 @@ import {
   ROCKET_LANE_FLIGHT_MS,
   ROCKET_TRAIL_CLEANUP_MS,
   ROCKET_TRAIL_LIFESPAN_MS,
+  PROPELLER_FLIGHT_MS,
+  PROPELLER_LIFT_MS,
+  PROPELLER_RETICLE_DELAY_MS,
+  PROPELLER_SECONDARY_STAGGER_MS,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
   TNT_CASCADE_AFTER_DETONATION_MS
@@ -48,7 +52,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -217,20 +221,12 @@ const ROCKET_FX_BUDGET_MS =
   ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS +
   ROCKET_EDGE_BURST_LIFESPAN_MS +
   VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS;
-// Web-only tuning: Phaser drone lift anticipation.
-const PROPELLER_LIFT_MS = 120;
-// Web-only tuning: Phaser drone arc flight.
-const PROPELLER_FLIGHT_MS = 450;
-// Web-only tuning: Phaser drone rotor loop.
-const PROPELLER_SPIN_MS = 150;
 // Web-only tuning: Phaser propeller sprite scale.
 const PROPELLER_DRONE_SCALE = 0.74;
 // Web-only tuning: Phaser quadratic arc height.
 const PROPELLER_ARC_LIFT_CELLS = 2.1;
 // Web-only tuning: Phaser arc sampling resolution.
 const PROPELLER_ARC_SAMPLES = 12;
-// Web-only tuning: Phaser secondary pop wave.
-const PROPELLER_SECONDARY_STAGGER_MS = 30;
 // Web-only tuning: Phaser secondary delay cap.
 const PROPELLER_SECONDARY_STAGGER_MAX_MS = 120;
 // Web-only tuning: Phaser impact shockwave duration.
@@ -958,12 +954,14 @@ export class BoardScene extends Phaser.Scene {
       // Dedicated combo choreography owns every rocket combo in Task 15. The
       // booster resolver also emits a normal rocket event, which owns this
       // task's two-head lane presentation.
-      if (group.kind === "combo" && (group.key === "tnt+tnt" || group.events.some((event) => event.powerUpType.kind === "rocket"))) continue;
+      if (group.kind === "combo" && (group.key === "tnt+tnt" || group.events.some((event) => (
+        event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller"
+      )))) continue;
       if (group.kind !== "combo") {
         for (const event of group.events) {
           this.playPowerUpEffect(
             event,
-            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket") && event.trigger.kind !== "combo"
+            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller") && event.trigger.kind !== "combo"
               ? onSingleSequencedPowerUpCascade
               : undefined
           );
@@ -1760,15 +1758,16 @@ export class BoardScene extends Phaser.Scene {
     if (!this.fxLayer || !this.snapshot) return;
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
-    const primary = targets[0];
-    if (!primary) return;
+    if (targets.length === 0) return;
     if (this.reducedMotion) {
       this.recordPropellerStrike(targets.length);
       return;
     }
 
-    const primaryCenter = this.cellCenter(primary);
+    const plan = propellerFlightPlan(event.origin, targets);
+    const primaryCenter = this.cellCenter(plan.target);
     this.recordPresentation("powerup-charge", "propeller");
+    this.recordPresentation("propeller-lift");
     this.cueBoardAudio("propellerLift");
     const drone = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpImageKeys.propeller);
@@ -1776,14 +1775,12 @@ export class BoardScene extends Phaser.Scene {
     icon.setBlendMode(Phaser.BlendModes.ADD);
     drone.add(icon);
     layer.add(drone);
-
-    const spin = this.tweens.add({
-      targets: icon,
-      angle: 360,
-      duration: PROPELLER_SPIN_MS,
-      repeat: -1,
-      ease: "Linear"
-    });
+    const liftRing = this.add.image(origin.x, origin.y, vfxTextureKeys.ring);
+    liftRing.setTint(0x70f2ea);
+    liftRing.setBlendMode(Phaser.BlendModes.ADD);
+    liftRing.setScale(Math.max(0.5, this.tileSize / 80));
+    layer.add(liftRing);
+    this.tweens.add({ targets: liftRing, alpha: 0, scaleX: liftRing.scaleX * 1.5, scaleY: liftRing.scaleY * 1.5, duration: PROPELLER_LIFT_MS, onComplete: () => liftRing.destroy() });
 
     this.tweens.add({
       targets: drone,
@@ -1793,7 +1790,15 @@ export class BoardScene extends Phaser.Scene {
       duration: PROPELLER_LIFT_MS,
       ease: "Sine.easeOut",
       onComplete: () => {
+        this.recordPresentation("propeller-flight");
         this.cueBoardAudio("propellerFly");
+        const reticle = this.add.image(primaryCenter.x, primaryCenter.y, vfxTextureKeys.ring);
+        reticle.setTint(0x70f2ea);
+        reticle.setAlpha(0.58);
+        reticle.setScale(Math.max(0.42, this.tileSize / 110));
+        layer.add(reticle);
+        this.time.delayedCall(PROPELLER_RETICLE_DELAY_MS, () => this.recordPresentation("propeller-reticle", positionKey(plan.target)));
+        this.tweens.add({ targets: reticle, alpha: 0, scaleX: reticle.scaleX * 1.4, scaleY: reticle.scaleY * 1.4, duration: PROPELLER_FLIGHT_MS, onComplete: () => reticle.destroy() });
         const path = quadraticFlightPath(
           { x: drone.x, y: drone.y },
           primaryCenter,
@@ -1806,30 +1811,29 @@ export class BoardScene extends Phaser.Scene {
           duration: PROPELLER_FLIGHT_MS,
           ease: "Sine.easeInOut",
           onUpdate: (tween) => {
-            const point = interpolatePath(path, tween.getValue() ?? 0);
+            const progress = tween.getValue() ?? 0;
+            const point = interpolatePath(path, progress);
+            const next = interpolatePath(path, Math.min(1, progress + 0.04));
             drone.setPosition(point.x, point.y);
+            drone.setAngle(Phaser.Math.RadToDeg(Math.atan2(next.y - point.y, next.x - point.x)) * 0.22);
           },
           onComplete: () => {
+            this.recordPresentation("propeller-impact", positionKey(plan.target));
             this.recordPresentation("powerup-impact", "propeller");
             this.cueBoardAudio("propellerImpact");
             audioService.vibrate(18);
-            onImpact?.();
-            spin.stop();
             drone.destroy();
             this.recordPropellerStrike(targets.length);
-            shockwave(this, layer, primaryCenter.x, primaryCenter.y, {
-              radiusPx: this.tileSize * 0.9,
-              durationMs: PROPELLER_IMPACT_SHOCKWAVE_MS,
-              tint: 0xf7d154
+            impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.72, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            targets.slice(1).forEach((target, index) => {
+              this.time.delayedCall((index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
+                if (!this.sys.isActive() || !this.fxLayer) return;
+                const center = this.cellCenter(target);
+                this.recordPresentation("propeller-secondary-impact", positionKey(target));
+                impactBurst(this, this.fxLayer, center.x, center.y, { intensity: 0.4, lifespanMs: 160, tint: 0x70f2ea }, this.vfxCleanup);
+              });
             });
-            burst(this, layer, primaryCenter.x, primaryCenter.y, {
-              texture: vfxTextureKeys.spark,
-              count: 10,
-              speed: this.tileSize * 1.8,
-              lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS,
-              tint: 0xf7d154,
-              scale: Math.max(0.3, this.tileSize / 160)
-            });
+            this.time.delayedCall(Math.max(1, targets.length - 1) * PROPELLER_SECONDARY_STAGGER_MS, () => onImpact?.());
           }
         });
       }
@@ -1837,7 +1841,6 @@ export class BoardScene extends Phaser.Scene {
 
     this.time.delayedCall(PROPELLER_FX_BUDGET_MS, () => {
       if (!this.sys.isActive()) return;
-      spin.stop();
       if (drone.active) drone.destroy();
     });
   }
@@ -2722,7 +2725,7 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
 
 function hasSingleSequencedPowerUp(delta: BoardDelta): boolean {
   return delta.powerUpEvents.some((event) => (
-    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket") && event.trigger.kind !== "combo"
+    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller") && event.trigger.kind !== "combo"
   ));
 }
 

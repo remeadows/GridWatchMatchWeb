@@ -213,6 +213,33 @@ test.describe("single rocket", () => {
   });
 });
 
+test.describe("single propeller", () => {
+  test("lifts, marks its affected target, strikes it, then resolves secondary impacts", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await page.getByTestId("booster-propeller").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const lift = traceEntry(trace, "propeller-lift");
+    const flight = traceEntry(trace, "propeller-flight");
+    const reticle = traceEntry(trace, "propeller-reticle");
+    const impact = traceEntry(trace, "propeller-impact");
+    const secondary = trace.filter((entry) => entry.kind === "propeller-secondary-impact");
+
+    expect(lift.atMs).toBeLessThan(flight.atMs);
+    expect(flight.atMs).toBeLessThan(reticle.atMs);
+    expect(reticle.atMs).toBeLessThan(impact.atMs);
+    expect(secondary.every((entry) => entry.atMs >= impact.atMs)).toBe(true);
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
