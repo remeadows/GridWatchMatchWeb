@@ -14,6 +14,13 @@ import {
   MATCH_RECOGNITION_HOLD_MS,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
+  TNT_ARM_AT_MS,
+  TNT_CASCADE_AFTER_DETONATION_MS,
+  TNT_CHARGE_AT_MS,
+  TNT_DETONATION_AT_MS,
+  TNT_RADIAL_IMPACT_MAX_MS,
+  TNT_RADIAL_IMPACT_STAGGER_MS,
+  TNT_SEQUENCE_BUDGET_MS,
   TILE_POP_PLAYBACK_RATE_MAX,
   TILE_POP_PLAYBACK_RATE_MIN
 } from "../data/presentationTiming";
@@ -56,6 +63,15 @@ export interface MatchTimeline {
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;
+}
+
+export interface TntDetonationPlan {
+  armAtMs: number;
+  chargeAtMs: number;
+  detonationAtMs: number;
+  impactAtMs: number[];
+  cascadeStartAtMs: number;
+  sequenceBudgetMs: number;
 }
 
 export interface PresentationTraceEntry {
@@ -109,6 +125,23 @@ export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): Created
   return spawns.flatMap((spawn) => (
     spawn.asPowerUp ? [{ position: spawn.position, powerUp: spawn.asPowerUp }] : []
   ));
+}
+
+export function tntDetonationPlan(origin: GridPosition, affectedPositions: ReadonlyArray<GridPosition>): TntDetonationPlan {
+  const impactAtMs = [...affectedPositions]
+    .sort((left, right) => manhattanDistance(origin, left) - manhattanDistance(origin, right))
+    .map((position) => TNT_DETONATION_AT_MS + Math.min(
+      TNT_RADIAL_IMPACT_MAX_MS,
+      manhattanDistance(origin, position) * TNT_RADIAL_IMPACT_STAGGER_MS
+    ));
+  return {
+    armAtMs: TNT_ARM_AT_MS,
+    chargeAtMs: TNT_CHARGE_AT_MS,
+    detonationAtMs: TNT_DETONATION_AT_MS,
+    impactAtMs,
+    cascadeStartAtMs: TNT_DETONATION_AT_MS + TNT_CASCADE_AFTER_DETONATION_MS,
+    sequenceBudgetMs: TNT_SEQUENCE_BUDGET_MS
+  };
 }
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {
@@ -174,4 +207,8 @@ function stableHash(input: string): number {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash;
+}
+
+function manhattanDistance(left: GridPosition, right: GridPosition): number {
+  return Math.abs(left.row - right.row) + Math.abs(left.col - right.col);
 }

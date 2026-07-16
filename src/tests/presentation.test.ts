@@ -9,6 +9,7 @@ import {
   groupPowerUpEvents,
   matchTimeline,
   pieceDisplayProfile,
+  tntDetonationPlan,
   tilePopVariation
 } from "../game/presentation";
 
@@ -84,6 +85,26 @@ describe("createdPowerUpSpawns", () => {
     expect(createdPowerUpSpawns([ordinary, creation])).toEqual([
       { position: creation.position, powerUp: propeller }
     ]);
+  });
+});
+
+describe("tntDetonationPlan", () => {
+  it("orders the TNT arm, charge, detonation, radial impacts, and cascade within budget", () => {
+    const plan = tntDetonationPlan({ row: 3, col: 3 }, [
+      { row: 3, col: 3 },
+      { row: 2, col: 3 },
+      { row: 1, col: 3 }
+    ]);
+
+    expect(plan.armAtMs).toBe(0);
+    expect(plan.chargeAtMs).toBeGreaterThanOrEqual(70);
+    expect(plan.chargeAtMs).toBeLessThanOrEqual(110);
+    expect(plan.detonationAtMs).toBeGreaterThanOrEqual(120);
+    expect(plan.detonationAtMs).toBeLessThanOrEqual(160);
+    expect(plan.impactAtMs).toEqual([plan.detonationAtMs, plan.detonationAtMs + 24, plan.detonationAtMs + 48]);
+    expect(plan.cascadeStartAtMs - plan.detonationAtMs).toBeGreaterThanOrEqual(140);
+    expect(plan.cascadeStartAtMs - plan.detonationAtMs).toBeLessThanOrEqual(220);
+    expect(plan.sequenceBudgetMs).toBeLessThanOrEqual(850);
   });
 });
 

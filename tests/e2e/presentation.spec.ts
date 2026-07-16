@@ -148,6 +148,40 @@ test.describe("power-up creation", () => {
   });
 });
 
+test.describe("single TNT", () => {
+  test("arms, detonates, and drives radial tile impacts before cascade", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await page.getByTestId("booster-tnt").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const arm = traceEntry(trace, "tnt-arm");
+    const charge = traceEntry(trace, "tnt-charge");
+    const detonation = traceEntry(trace, "tnt-detonation");
+    const impacts = trace.filter((entry) => entry.kind === "tnt-tile-impact");
+    const cascadeStart = traceEntry(trace, "cascade-start");
+    const audio = trace.filter((entry) => entry.kind === "audio-cue").map((entry) => entry.detail);
+
+    expect(arm.atMs).toBeLessThan(charge.atMs);
+    expect(charge.atMs).toBeLessThan(detonation.atMs);
+    expect(impacts.length).toBeGreaterThan(1);
+    expect(impacts.every((entry, index) => index === 0 || entry.atMs >= impacts[index - 1].atMs)).toBe(true);
+    expect(detonation.atMs).toBeLessThan(cascadeStart.atMs);
+    expect(audio).toContain("tntArm");
+    expect(audio).toContain("tntBlast");
+    expect(trace.filter((entry) => entry.kind === "screen-flash")).toHaveLength(1);
+    expect(trace.filter((entry) => entry.kind === "shockwave")).toHaveLength(1);
+    expect(trace.filter((entry) => entry.kind === "shake-request")).toHaveLength(1);
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -221,6 +255,38 @@ async function dragBoardCells(page: Page, from: { row: number; col: number }, to
     }
     dispatch("pointerup", end, 0);
   }, { from, to });
+}
+
+async function boardCellPoint(page: Page, position: { row: number; col: number }): Promise<{ x: number; y: number }> {
+  const point = await page.evaluate(({ position }) => {
+    const testWindow = window as Window & {
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    return testWindow.__gwBoardCellClientPoint?.(position.row, position.col) ?? null;
+  }, { position });
+  if (!point) throw new Error(`Board cell point unavailable for ${position.row},${position.col}`);
+  return point;
+}
+
+async function clickBoardPoint(page: Page, point: { x: number; y: number }): Promise<void> {
+  await page.evaluate(({ point }) => {
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="board-canvas"] canvas');
+    if (!canvas) throw new Error("Board canvas not found");
+    const base = {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: point.x,
+      clientY: point.y,
+      composed: true,
+      isPrimary: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      view: window
+    };
+    canvas.dispatchEvent(new PointerEvent("pointerdown", { ...base, buttons: 1 }));
+    canvas.dispatchEvent(new PointerEvent("pointerup", { ...base, buttons: 0 }));
+  }, { point });
 }
 
 async function presentationTrace(page: Page): Promise<PresentationTraceEntry[]> {
