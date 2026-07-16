@@ -8,9 +8,19 @@ import {
   CASCADE_LANDING_SQUASH_MS,
   CASCADE_START_AFTER_IMPACT_MS,
   DRAG_LIFT_MS,
+  MATCH_AFTERIMAGE_MS,
+  MATCH_COLORED_DEBRIS_COUNT,
+  MATCH_DEBRIS_CLEANUP_MS,
+  MATCH_DEBRIS_LIFESPAN_MS,
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  MATCH_SHAKE_DURATION_MS,
+  MATCH_SHAKE_STRONG_INTENSITY,
+  MATCH_SHAKE_STRONG_THRESHOLD_TILES,
+  MATCH_SHAKE_WEAK_INTENSITY,
+  MATCH_SHAKE_WEAK_THRESHOLD_TILES,
+  MATCH_SMOKE_PUFF_COUNT,
   MATCH_WAVE_MAX_MS,
   MATCH_WAVE_PER_GRID_MS,
   SWAP_SETTLE_MS,
@@ -257,18 +267,6 @@ const LIGHTBALL_FX_BUDGET_MS = LIGHTBALL_CHARGE_MS + LIGHTBALL_TARGET_STAGGER_MA
   LIGHTBALL_ZAP_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
 const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
-// Web-only tuning: Phaser match-pop camera shake has no direct iOS equivalent.
-// Minimum clear size, in tiles, that gives a medium match pop a camera shake.
-const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
-// Minimum clear size, in tiles, that gives a large match pop a stronger camera shake.
-const MATCH_SHAKE_STRONG_THRESHOLD_TILES = 5;
-// Phaser camera shake intensity for medium match pops, normalized 0..1.
-const MATCH_SHAKE_WEAK_INTENSITY = 0.004;
-// Phaser camera shake intensity for large match pops, normalized 0..1.
-const MATCH_SHAKE_STRONG_INTENSITY = 0.006;
-// Match pop camera shake duration in milliseconds.
-const MATCH_SHAKE_DURATION_MS = 130;
-
 const motionTiming = {
   blockedJiggle: 72,
   blockedFlash: 230,
@@ -1025,33 +1023,42 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
+    this.recordPresentation("match-group-start", String(popObjects.length));
     let remaining = popObjects.length;
     let cascadeScheduled = false;
     let playedClusterBody = false;
+    let cleanupScheduled = false;
     const seed = this.snapshot?.rngSeed ?? "0";
     if (popObjects.length >= MATCH_SHAKE_WEAK_THRESHOLD_TILES) {
+      const intensity = popObjects.length >= MATCH_SHAKE_STRONG_THRESHOLD_TILES
+        ? MATCH_SHAKE_STRONG_INTENSITY
+        : MATCH_SHAKE_WEAK_INTENSITY;
+      this.recordPresentation("shake-request", String(intensity));
       shake(
         this,
-        popObjects.length >= MATCH_SHAKE_STRONG_THRESHOLD_TILES
-          ? MATCH_SHAKE_STRONG_INTENSITY
-          : MATCH_SHAKE_WEAK_INTENSITY,
+        intensity,
         MATCH_SHAKE_DURATION_MS,
         this.reducedMotion
       );
     }
     for (const entry of popObjects) {
-      const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
       const startPop = () => {
+        const piece = entry.object.getByName("piece") as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null;
+        const popTarget = piece ?? entry.object;
+        const baseScaleX = piece?.scaleX ?? entry.object.scaleX;
+        const baseScaleY = piece?.scaleY ?? entry.object.scaleY;
         this.tweens.add({
-          targets: entry.object,
-          scaleX: 1.05,
-          scaleY: 0.91,
+          targets: popTarget,
+          scaleX: baseScaleX * 1.05,
+          scaleY: baseScaleY * 0.91,
           duration: MATCH_POP_COMPRESSION_MS,
           ease: "Sine.easeOut",
           onComplete: () => {
-            const plannedElapsedMs = this.hasPlannedMatchImpact ? 0 : MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS;
-            this.hasPlannedMatchImpact = true;
-            this.recordPresentation("match-impact", undefined, plannedElapsedMs);
+            if (!this.hasPlannedMatchImpact) {
+              this.hasPlannedMatchImpact = true;
+              this.recordPresentation("match-impact", String(popObjects.length), MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS);
+            }
+            this.recordPresentation("tile-impact", positionKey(entry.position));
             if (!playedClusterBody) {
               playedClusterBody = true;
               this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
@@ -1062,19 +1069,24 @@ export class BoardScene extends Phaser.Scene {
               playbackRate: variation.playbackRate
             });
             this.playMatchBurst(entry.object, entry.tint);
+            if (!cleanupScheduled) {
+              cleanupScheduled = true;
+              this.recordPresentation("debris-cleanup-pending");
+              this.time.delayedCall(MATCH_DEBRIS_CLEANUP_MS, () => {
+                if (this.sys.isActive()) this.recordPresentation("debris-cleanup-complete");
+              });
+            }
+            piece?.setVisible(false);
             this.tweens.add({
               targets: entry.object,
               alpha: 0,
-              scaleX: MATCH_BURST_SCALE,
-              scaleY: MATCH_BURST_SCALE,
-              angle,
-              duration: MATCH_IMPACT_MS,
+              duration: MATCH_AFTERIMAGE_MS,
               ease: "Quad.easeOut",
               onComplete: () => {
                 entry.object.destroy();
                 if (!cascadeScheduled && onCascadeStart) {
                   cascadeScheduled = true;
-                  onCascadeStart();
+                  this.time.delayedCall(Math.max(0, CASCADE_START_AFTER_IMPACT_MS - MATCH_AFTERIMAGE_MS), onCascadeStart);
                 }
                 remaining -= 1;
                 if (remaining === 0) onComplete();
@@ -1091,28 +1103,79 @@ export class BoardScene extends Phaser.Scene {
   private playMatchBurst(object: Phaser.GameObjects.Container, tint: number): void {
     if (!this.fxLayer) return;
     this.recordMatchBurst();
+    this.recordPresentation("vfx-particles", String(MATCH_COLORED_DEBRIS_COUNT + MATCH_SMOKE_PUFF_COUNT));
+    const core = this.add.image(object.x, object.y, vfxTextureKeys.hotCore);
+    core.setTint(tint);
+    core.setBlendMode(Phaser.BlendModes.ADD);
+    core.setScale(Math.max(0.7, this.tileSize / 34));
+    this.fxLayer.add(core);
+    this.vfxCleanup.trackObject(core);
+    const coreTween = this.tweens.add({
+      targets: core,
+      alpha: 0,
+      scaleX: core.scaleX * 1.5,
+      scaleY: core.scaleY * 1.5,
+      duration: MATCH_AFTERIMAGE_MS,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        this.vfxCleanup.release(core);
+        this.vfxCleanup.release(coreTween);
+        core.destroy();
+      }
+    });
+    this.vfxCleanup.trackTween(coreTween);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.spark,
-      count: MATCH_BURST_PARTICLE_COUNT,
-      speed: this.tileSize * MATCH_BURST_SPEED_TILE_FACTOR,
-      lifespanMs: MATCH_BURST_LIFESPAN_MS,
+      count: 3,
+      speed: this.tileSize * 1.9,
+      lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(MATCH_BURST_MIN_PARTICLE_SCALE, this.tileSize / MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR)
-    });
-    const glow = this.add.graphics();
-    glow.fillStyle(tint, 0.28);
-    glow.fillCircle(0, 0, this.tileSize * 0.42);
-    glow.setBlendMode(Phaser.BlendModes.ADD);
-    object.addAt(glow, 0);
-    this.tweens.add({
-      targets: glow,
+      scale: Math.max(0.22, this.tileSize / 190)
+    }, this.vfxCleanup);
+    burst(this, this.fxLayer, object.x, object.y, {
+      texture: vfxTextureKeys.shard,
+      count: 3,
+      speed: this.tileSize * 1.45,
+      lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
+      tint,
+      scale: Math.max(0.22, this.tileSize / 220)
+    }, this.vfxCleanup);
+    burst(this, this.fxLayer, object.x, object.y, {
+      texture: vfxTextureKeys.shardWide,
+      count: 1,
+      speed: this.tileSize * 1.3,
+      lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
+      tint,
+      scale: Math.max(0.2, this.tileSize / 235)
+    }, this.vfxCleanup);
+    burst(this, this.fxLayer, object.x, object.y, {
+      texture: vfxTextureKeys.smoke,
+      count: MATCH_SMOKE_PUFF_COUNT,
+      speed: this.tileSize * 0.45,
+      lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
+      tint: 0xffffff,
+      scale: Math.max(0.24, this.tileSize / 200)
+    }, this.vfxCleanup);
+    const afterimage = this.add.image(object.x, object.y, vfxTextureKeys.glow);
+    afterimage.setTint(tint);
+    afterimage.setBlendMode(Phaser.BlendModes.ADD);
+    afterimage.setScale(Math.max(0.7, this.tileSize / 28));
+    this.fxLayer.add(afterimage);
+    this.vfxCleanup.trackObject(afterimage);
+    const afterimageTween = this.tweens.add({
+      targets: afterimage,
       alpha: 0,
-      scaleX: 1.35,
-      scaleY: 1.35,
-      duration: MATCH_POP_COMPRESSION_MS + 90,
+      scaleX: afterimage.scaleX * 1.18,
+      scaleY: afterimage.scaleY * 1.18,
+      duration: MATCH_AFTERIMAGE_MS,
       ease: "Sine.easeOut",
-      onComplete: () => glow.destroy()
+      onComplete: () => {
+        this.vfxCleanup.release(afterimage);
+        this.vfxCleanup.release(afterimageTween);
+        afterimage.destroy();
+      }
     });
+    this.vfxCleanup.trackTween(afterimageTween);
   }
 
   private playWinTilePop(sourceSnapshot: BoardSnapshot, position: GridPosition, seed: string): void {

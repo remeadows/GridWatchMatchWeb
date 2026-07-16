@@ -91,6 +91,39 @@ test.describe("normal presentation timeline", () => {
   });
 });
 
+test.describe("standard match impact", () => {
+  test("groups one clear wave and lets bounded debris overlap the cascade", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await page.getByTestId("qa-swap").click();
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "debris-cleanup-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const groupStarts = trace.filter((entry) => entry.kind === "match-group-start");
+    const groupImpacts = trace.filter((entry) => entry.kind === "match-impact");
+    const particleCount = trace
+      .filter((entry) => entry.kind === "vfx-particles")
+      .reduce((total, entry) => total + Number(entry.detail ?? 0), 0);
+    const cascadeStart = traceEntry(trace, "cascade-start");
+    const cleanupPending = traceEntry(trace, "debris-cleanup-pending");
+    const cleanupComplete = traceEntry(trace, "debris-cleanup-complete");
+
+    expect(groupStarts).toHaveLength(1);
+    expect(groupImpacts).toHaveLength(1);
+    expect(particleCount).toBeGreaterThan(0);
+    expect(particleCount).toBeLessThanOrEqual(27);
+    expect(trace.some((entry) => entry.kind === "screen-flash")).toBe(false);
+    expect(trace.some((entry) => entry.kind === "shake-request")).toBe(false);
+    expect(cleanupPending.atMs).toBeLessThanOrEqual(cascadeStart.atMs);
+    expect(cascadeStart.atMs).toBeLessThan(cleanupComplete.atMs);
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -104,7 +137,7 @@ test.describe("audio cue ordering", () => {
     });
 
     const trace = await presentationTrace(page);
-    const impactTimes = new Set(trace.filter((entry) => entry.kind === "match-impact").map((entry) => entry.atMs));
+    const tileImpactTimes = new Set(trace.filter((entry) => entry.kind === "tile-impact").map((entry) => entry.atMs));
     const landing = traceEntry(trace, "cascade-land");
     const tileImpactCues = trace.filter((entry) => entry.kind === "audio-cue" && (
       entry.detail === "tileClusterBody" || entry.detail === "tilePopA" || entry.detail === "tilePopB"
@@ -112,7 +145,7 @@ test.describe("audio cue ordering", () => {
     const landingCue = trace.find((entry) => entry.kind === "audio-cue" && entry.detail === "cascadeLand");
 
     expect(tileImpactCues.length).toBeGreaterThan(1);
-    expect(tileImpactCues.every((entry) => impactTimes.has(entry.atMs))).toBe(true);
+    expect(tileImpactCues.every((entry) => tileImpactTimes.has(entry.atMs))).toBe(true);
     expect(landingCue?.atMs).toBe(landing.atMs);
   });
 });

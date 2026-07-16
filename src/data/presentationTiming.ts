@@ -4,6 +4,16 @@ export const SWAP_SETTLE_MS = 50;
 export const MATCH_RECOGNITION_HOLD_MS = 45;
 export const MATCH_POP_COMPRESSION_MS = 40;
 export const MATCH_IMPACT_MS = 100;
+export const MATCH_AFTERIMAGE_MS = 70;
+export const MATCH_COLORED_DEBRIS_COUNT = 7;
+export const MATCH_SMOKE_PUFF_COUNT = 1;
+export const MATCH_DEBRIS_LIFESPAN_MS = 320;
+export const MATCH_DEBRIS_CLEANUP_MS = 400;
+export const MATCH_SHAKE_WEAK_THRESHOLD_TILES = 4;
+export const MATCH_SHAKE_STRONG_THRESHOLD_TILES = 5;
+export const MATCH_SHAKE_WEAK_INTENSITY = 0.004;
+export const MATCH_SHAKE_STRONG_INTENSITY = 0.006;
+export const MATCH_SHAKE_DURATION_MS = 130;
 export const MATCH_WAVE_PER_GRID_MS = 18;
 export const MATCH_WAVE_MAX_MS = 64;
 export const CASCADE_START_AFTER_IMPACT_MS = 100;
@@ -25,6 +35,8 @@ export const PRESENTATION_TIMING = {
   recognitionHoldMs: MATCH_RECOGNITION_HOLD_MS,
   popCompressionMs: MATCH_POP_COMPRESSION_MS,
   impactMs: MATCH_IMPACT_MS,
+  afterimageMs: MATCH_AFTERIMAGE_MS,
+  debrisCleanupMs: MATCH_DEBRIS_CLEANUP_MS,
   matchWavePerGridMs: MATCH_WAVE_PER_GRID_MS,
   matchWaveMaxMs: MATCH_WAVE_MAX_MS,
   cascadeStartAfterImpactMs: CASCADE_START_AFTER_IMPACT_MS,
