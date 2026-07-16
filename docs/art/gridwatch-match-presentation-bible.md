@@ -38,3 +38,10 @@ GridWatch Match should be immediately readable, tactile, and escalatory. Royal M
 - Limit full-board flash alpha to 0.38 for at most 80 ms; never create a strobe.
 - Reduced motion reaches the final board state within 180 ms without travel, shake, flash, or particle emission.
 - Phaser owns presentation. The engine remains pure and deterministic; no effect may change score, moves, objectives, spawns, or action logging.
+
+## Approved Piece Set
+
+- Candidate B, the bold die-cast hardware family, was approved on 2026-07-16.
+- The approved set supplies five tiles, five power-ups, and five tray variants as 512px PNGs with alpha under `public/assets/images/web-overrides/`.
+- Rocket variants use the same approved guided-missile object, rotated for vertical board and tray use. The tray variants use the selected clean-frame source objects.
+- The generated manifest must resolve these fifteen entries to `web-overrides`; the synced iOS images remain fallbacks only.

@@ -1,3 +1,5 @@
+import { existsSync, statSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
@@ -72,5 +74,36 @@ describe("web audio asset overrides", () => {
     expect(paths.every((path) => path.startsWith("assets/audio/web-overrides/"))).toBe(true);
     expect(new Set(paths).size).toBe(paths.length);
     expect(presentationAudioUrl("tilePopA")).toContain("assets/audio/web-overrides/tile_pop_a.mp3");
+  });
+});
+
+const approvedPieceOverridePaths = [
+  "tiles/tile_packet.png",
+  "tiles/tile_firewall.png",
+  "tiles/tile_key.png",
+  "tiles/tile_threat.png",
+  "tiles/tile_zeroday.png",
+  "powerups/powerup_rocket_h.png",
+  "powerups/powerup_rocket_v.png",
+  "powerups/powerup_propeller.png",
+  "powerups/powerup_tnt.png",
+  "powerups/powerup_lightball.png",
+  "boosters/booster_rocket_h.png",
+  "boosters/booster_rocket_v.png",
+  "boosters/booster_propeller.png",
+  "boosters/booster_tnt.png",
+  "boosters/booster_lightball.png"
+] as const;
+
+describe("approved GridWatch piece overrides", () => {
+  it("contains every tile, power-up, and booster override within the file-size budget", () => {
+    const overrideRoot = path.resolve(process.cwd(), "public/assets/images/web-overrides");
+
+    for (const relativePath of approvedPieceOverridePaths) {
+      const assetPath = path.join(overrideRoot, relativePath);
+      expect(existsSync(assetPath), `missing approved override ${relativePath}`).toBe(true);
+      expect(statSync(assetPath).size, `${relativePath} must not be empty`).toBeGreaterThan(0);
+      expect(statSync(assetPath).size, `${relativePath} exceeds 700 KB`).toBeLessThanOrEqual(700 * 1024);
+    }
   });
 });
