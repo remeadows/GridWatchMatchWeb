@@ -2,6 +2,20 @@ import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
 import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "../data/gameplayTiming";
 import {
+  CASCADE_FALL_MAX_MS,
+  CASCADE_LANDING_SETTLE_MS,
+  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_START_AFTER_IMPACT_MS,
+  DRAG_LIFT_MS,
+  MATCH_IMPACT_MS,
+  MATCH_POP_COMPRESSION_MS,
+  MATCH_RECOGNITION_HOLD_MS,
+  MATCH_WAVE_MAX_MS,
+  MATCH_WAVE_PER_GRID_MS,
+  SWAP_SETTLE_MS,
+  SWAP_TRAVEL_MS
+} from "../data/presentationTiming";
+import {
   cloneCell,
   detectMatches,
   powerUpKey,
@@ -17,7 +31,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { pieceDisplayProfile } from "./presentation";
+import { cascadeFallDurationMs, pieceDisplayProfile, type PresentationTraceEntry } from "./presentation";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
@@ -123,9 +137,6 @@ const powerUpImageKeys = {
   lightBall: "powerup-lightBall"
 } as const;
 
-// Mirrors iOS BoardNode.swift animateMoves fall/settle split and overshoot.
-const CASCADE_MIN_FALL_MS = 40;
-const CASCADE_MIN_SETTLE_MS = 20;
 const CASCADE_BOUNCE_MAX_PX = 14;
 const CASCADE_BOUNCE_FACTOR = 0.08;
 const CASCADE_SQUASH_SCALE_X = 0.96;
@@ -145,26 +156,13 @@ const WIN_ROW_SHAKE_DURATION_MS = 130;
 const WIN_FINAL_BURST_PARTICLE_COUNT = 30;
 const WIN_TILE_BURST_PARTICLE_COUNT = 9;
 
-// Largest per-tile centroid-stagger delay applied to match pops.
-const MATCH_POP_STAGGER_MAX_MS = 110;
-// Per-grid-unit delay, in milliseconds, for match pop waves moving away from the clear centroid.
-const MATCH_POP_STAGGER_UNIT_MS = 28;
-
 // Mirrors iOS BoardNode.swift springyReturnAction stretch phase.
 const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
 // iOS source: BoardNode.swift springyReturnAction squash scale.
 const INVALID_SWAP_SQUASH_SCALE = 0.94;
 
-// iOS source: BoardNode.swift animateMatches pop/destroy duration.
-const MATCH_POP_MS = 190;
-// iOS source: BoardNode.swift animateMatches anticipation beat.
-const MATCH_POP_ANTICIPATION_MS = 70;
-// iOS source: BoardNode.swift animateMatches pre-pop lock delay.
-const MATCH_LOCK_MS = 140;
 // Animation durations and easing must match ../GridWatchMatch/ iOS source
 // unless explicitly marked Web-only tuning below.
-// Web-only tuning: Phaser spawn fall pacing around iOS BoardNode.swift animateMoves.
-const SPAWN_MOVE_MS = 390;
 // Web-only tuning: Phaser TNT fuse anticipation.
 const TNT_FUSE_MS = 120;
 // Web-only tuning: Phaser TNT radial pop wave.
@@ -272,27 +270,16 @@ const MATCH_SHAKE_DURATION_MS = 130;
 const motionTiming = {
   blockedJiggle: 72,
   blockedFlash: 230,
-  // Mirrors iOS BoardNode.swift animateMoves fall/settle duration split.
-  cascadeFall: 0.78,
-  cascadeSettle: 0.22,
-  cascadeMove: 340,
   clearFlash: 300,
   // Mirrors iOS TileNode.swift update(animated:) quick 0.08s feedback cadence.
-  dragLift: 80,
+  dragLift: DRAG_LIFT_MS,
   // Mirrors iOS BoardNode.swift springyReturnAction stretch/settle durations.
   invalidStretch: 70,
   invalidSettle: 60,
   invalidSwap: 170,
-  // Brief beat to register the match, then the tiles blow up. Kept short so the
-  // board does not feel like it stalls before clearing.
-  matchLock: MATCH_LOCK_MS,
-  matchPop: MATCH_POP_MS,
-  matchPopAnticipation: MATCH_POP_ANTICIPATION_MS,
   powerUpEffect: POWERUP_EFFECT_MS,
   snapBack: 150,
-  spawnFlash: 230,
-  spawnMove: SPAWN_MOVE_MS,
-  swap: 210
+  spawnFlash: 110
 } as const;
 
 // Mirrors the iOS BoardNode.swift animatePowerUpEvents/animateSinglePowerUpEvent
@@ -300,10 +287,11 @@ const motionTiming = {
 export const POWERUP_FX_BUDGET_MS = POWERUP_EFFECT_MS;
 
 const CLEAR_AND_CASCADE_BUDGET_MS =
-  MATCH_POP_STAGGER_MAX_MS +
-  MATCH_POP_ANTICIPATION_MS +
-  MATCH_POP_MS +
-  SPAWN_MOVE_MS;
+  MATCH_POP_COMPRESSION_MS +
+  Math.max(
+    MATCH_WAVE_MAX_MS + MATCH_IMPACT_MS,
+    CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS
+  );
 const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
   TNT_FUSE_MS + TNT_RADIAL_STAGGER_MAX_MS,
   PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + PROPELLER_SECONDARY_STAGGER_MAX_MS,
@@ -311,9 +299,11 @@ const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
 );
 const POWERUP_RESOLVE_BUDGET_MS =
   POWERUP_POP_STAGGER_BUDGET_MS +
-  MATCH_POP_ANTICIPATION_MS +
-  MATCH_POP_MS +
-  SPAWN_MOVE_MS;
+  MATCH_POP_COMPRESSION_MS +
+  MATCH_IMPACT_MS +
+  CASCADE_FALL_MAX_MS +
+  CASCADE_LANDING_SQUASH_MS +
+  CASCADE_LANDING_SETTLE_MS;
 
 // Worst-case wall-clock for one resolved swap's animation chain: swap settle →
 // match lock → the slowest clear/cascade, power-up FX, or power-up staggered pop
@@ -322,8 +312,9 @@ const POWERUP_RESOLVE_BUDGET_MS =
 // render over in-flight pops/cascades/FX). Derived from named timing constants so
 // it stays correct when those timings change.
 export const RESOLVE_ANIMATION_BUDGET_MS =
-  motionTiming.swap +
-  MATCH_LOCK_MS +
+  SWAP_TRAVEL_MS +
+  SWAP_SETTLE_MS +
+  MATCH_RECOGNITION_HOLD_MS +
   Math.max(CLEAR_AND_CASCADE_BUDGET_MS, POWERUP_FX_BUDGET_MS, POWERUP_RESOLVE_BUDGET_MS) +
   120; // safety margin for scheduling / render jitter
 
@@ -340,10 +331,6 @@ export const RESOLVE_ANIMATION_BUDGET_MS =
 // window.setTimeout) so a backgrounded tab, where tweens legitimately pause
 // and resume later, never trips it.
 const DRAG_COMMIT_WATCHDOG_MS = RESOLVE_ANIMATION_BUDGET_MS + 500;
-
-// Subtle spring overshoot on the swap settle. Lower than Phaser default 1.70158
-// so a one-cell move reads as a crisp snap, not a bounce.
-const swapEaseParams = [1.1];
 
 // Fraction of a tile a drag must travel past the cell midpoint to commit a swap
 // (rather than snap back). Raised to match the iOS commit weight.
@@ -374,6 +361,10 @@ export class BoardScene extends Phaser.Scene {
   private lastAnimationId = 0;
   private reducedMotion = false;
   private pendingBooster: BoosterType | null = null;
+  private presentationSequenceId = 0;
+  private activePresentationSequenceId = 0;
+  private presentationPlannedAtMs = 0;
+  private hasPlannedMatchImpact = false;
 
   constructor() {
     super("BoardScene");
@@ -400,6 +391,7 @@ export class BoardScene extends Phaser.Scene {
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
     ensureVfxTextures(this);
+    this.resetPresentationTrace();
     this.installDomPointerHandlers();
     this.scale.on("resize", () => {
       // A resize can land while a committed swap's resolve handoff is parked
@@ -429,6 +421,7 @@ export class BoardScene extends Phaser.Scene {
     if (animation && animation.id > this.lastAnimationId) {
       this.lastAnimationId = animation.id;
       this.activeAnimationId = animation.id;
+      this.beginPresentationSequence(animation.action);
       if (animation.kind === "invalid") {
         this.playInvalidAnimation(animation.action);
         return;
@@ -443,7 +436,47 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private finishAnimation(): void {
+    this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
     this.activeAnimationId = null;
+  }
+
+  private isPresentationTestMode(): boolean {
+    return typeof window !== "undefined" && new URLSearchParams(window.location.search).get("gwTestMode") === "1";
+  }
+
+  private resetPresentationTrace(): void {
+    if (!this.isPresentationTestMode()) return;
+    const target = window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] };
+    target.__gwPresentationTrace = [];
+  }
+
+  private clearPresentationTrace(): void {
+    if (!this.isPresentationTestMode()) return;
+    const target = window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] };
+    delete target.__gwPresentationTrace;
+  }
+
+  private beginPresentationSequence(action: BoardAction): void {
+    this.presentationSequenceId += 1;
+    this.activePresentationSequenceId = this.presentationSequenceId;
+    this.presentationPlannedAtMs = this.time.now;
+    this.hasPlannedMatchImpact = false;
+    this.recordPresentation("action-received", action.kind);
+  }
+
+  private recordPresentation(kind: string, detail?: string, plannedElapsedMs = 0): void {
+    if (!this.isPresentationTestMode()) return;
+    this.presentationPlannedAtMs += plannedElapsedMs;
+    const target = window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] };
+    const trace = target.__gwPresentationTrace ?? [];
+    trace.push({
+      sequenceId: this.activePresentationSequenceId,
+      atMs: this.time.now,
+      plannedAtMs: this.presentationPlannedAtMs,
+      kind,
+      ...(detail ? { detail } : {})
+    });
+    target.__gwPresentationTrace = trace;
   }
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
@@ -620,17 +653,12 @@ export class BoardScene extends Phaser.Scene {
       if (ghosts.length > 0) {
         let remaining = ghosts.length;
         for (const ghost of ghosts) {
-          this.tweens.add({
-            targets: ghost.object,
-            x: ghost.to.x,
-            y: ghost.to.y,
-            duration: motionTiming.swap,
-            ease: "Back.easeOut",
-            easeParams: swapEaseParams,
-            onComplete: () => {
-              ghost.object.destroy();
-              remaining -= 1;
-              if (remaining === 0) this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
+          this.tweenCommittedSwap(ghost.object, ghost.to, () => {
+            ghost.object.destroy();
+            remaining -= 1;
+            if (remaining === 0) {
+              this.recordPresentation("swap-settled", undefined, SWAP_TRAVEL_MS + SWAP_SETTLE_MS);
+              this.playPostSwapMatchResolution(postSwapSnapshot, nextSnapshot, animation.delta);
             }
           });
         }
@@ -675,7 +703,17 @@ export class BoardScene extends Phaser.Scene {
         this.finishAnimation();
       });
     };
-    if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, runCascade, flashColors, popStagger, startPowerUpEffectsAfterPopRender);
+    if (clearedKeys.size > 0) {
+      this.playTilePops(
+        baseline,
+        clearedKeys,
+        () => undefined,
+        flashColors,
+        popStagger,
+        startPowerUpEffectsAfterPopRender,
+        runCascade
+      );
+    }
     else {
       if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
       runCascade();
@@ -695,17 +733,20 @@ export class BoardScene extends Phaser.Scene {
     const popKeys = resolvedPopKeys(initialMatchKeys(postSwapSnapshot), delta);
     const flashColors = clearFlashColors(delta);
     const popStagger = powerUpPopStagger(delta, postSwapSnapshot, popKeys);
-    this.time.delayedCall(motionTiming.matchLock, () => {
+    this.time.delayedCall(MATCH_RECOGNITION_HOLD_MS, () => {
       this.playTilePops(postSwapSnapshot, popKeys, () => {
+        // Tile debris is allowed to finish independently after the empty cells
+        // open. Cascade owns the board-state handoff from this point forward.
+      }, flashColors, popStagger, () => {
+        if (delta.powerUpEvents.length === 0) return;
+        this.playPowerUpEffects(delta);
+        this.recordPowerUpFxAfterPopRender();
+      }, () => {
         const postClear = buildPostClearSnapshot(postSwapSnapshot, popKeys);
         this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
           this.playDeltaEffects(delta, popKeys);
           this.finishAnimation();
         });
-      }, flashColors, popStagger, () => {
-        if (delta.powerUpEvents.length === 0) return;
-        this.playPowerUpEffects(delta);
-        this.recordPowerUpFxAfterPopRender();
       });
     });
   }
@@ -855,6 +896,33 @@ export class BoardScene extends Phaser.Scene {
     return ghosts;
   }
 
+  private tweenCommittedSwap(
+    sprite: Phaser.GameObjects.Container,
+    destination: { x: number; y: number },
+    onComplete: () => void
+  ): void {
+    const horizontal = Math.abs(destination.x - sprite.x) >= Math.abs(destination.y - sprite.y);
+    this.tweens.add({
+      targets: sprite,
+      x: destination.x,
+      y: destination.y,
+      scaleX: horizontal ? 1.055 : 0.955,
+      scaleY: horizontal ? 0.955 : 1.055,
+      duration: SWAP_TRAVEL_MS,
+      ease: "Sine.easeInOut",
+      onComplete: () => {
+        this.tweens.add({
+          targets: sprite,
+          scaleX: 1,
+          scaleY: 1,
+          duration: SWAP_SETTLE_MS,
+          ease: "Sine.easeOut",
+          onComplete
+        });
+      }
+    });
+  }
+
   private playDeltaEffects(delta: BoardDelta, skipClearKeys = new Set<string>()): void {
     if (this.reducedMotion) return;
     for (const clear of delta.clears) {
@@ -873,9 +941,11 @@ export class BoardScene extends Phaser.Scene {
     onComplete: () => void,
     flashColors = new Map<string, number>(),
     delayOverrides = new Map<string, number>(),
-    afterRender?: () => void
+    afterRender?: () => void,
+    onCascadeStart?: () => void
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
+      onCascadeStart?.();
       onComplete();
       return;
     }
@@ -890,8 +960,8 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const stagger = computeCentroidStagger(positions, {
-      perUnitMs: MATCH_POP_STAGGER_UNIT_MS,
-      maxMs: MATCH_POP_STAGGER_MAX_MS
+      perUnitMs: MATCH_WAVE_PER_GRID_MS,
+      maxMs: MATCH_WAVE_MAX_MS
     });
     const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition; tint: number }[] = [];
     for (const position of positions) {
@@ -901,15 +971,17 @@ export class BoardScene extends Phaser.Scene {
       const key = positionKey(position);
       const delay = delayOverrides.get(key) ?? stagger.get(key) ?? 0;
       popObjects.push({ object, delay, position, tint: cell.baseTile ? tileVfxTints[cell.baseTile] : 0x9bfff2 });
-      this.flashCell(position, flashColors.get(key) ?? 0xf7d154, MATCH_POP_MS + MATCH_POP_ANTICIPATION_MS, delay);
+      this.flashCell(position, flashColors.get(key) ?? 0xf7d154, MATCH_POP_COMPRESSION_MS + MATCH_IMPACT_MS, delay);
     }
 
     if (popObjects.length === 0) {
+      onCascadeStart?.();
       onComplete();
       return;
     }
 
     let remaining = popObjects.length;
+    let cascadeScheduled = false;
     const seed = this.snapshot?.rngSeed ?? "0";
     if (popObjects.length >= MATCH_SHAKE_WEAK_THRESHOLD_TILES) {
       shake(
@@ -924,26 +996,31 @@ export class BoardScene extends Phaser.Scene {
     for (const entry of popObjects) {
       const angle = entry.object.angle + seededAngleJitter(entry.position, seed, 10);
       const startPop = () => {
-        this.playMatchBurst(entry.object, entry.tint);
-        // Quick anticipation squash, then the tile blows up: scales OUTWARD past
-        // the cell while fading, instead of shrinking away.
         this.tweens.add({
           targets: entry.object,
-          scaleX: 0.86,
-          scaleY: 0.86,
-          duration: MATCH_POP_ANTICIPATION_MS,
+          scaleX: 1.05,
+          scaleY: 0.91,
+          duration: MATCH_POP_COMPRESSION_MS,
           ease: "Sine.easeOut",
           onComplete: () => {
+            const plannedElapsedMs = this.hasPlannedMatchImpact ? 0 : MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS;
+            this.hasPlannedMatchImpact = true;
+            this.recordPresentation("match-impact", undefined, plannedElapsedMs);
+            this.playMatchBurst(entry.object, entry.tint);
             this.tweens.add({
               targets: entry.object,
               alpha: 0,
               scaleX: MATCH_BURST_SCALE,
               scaleY: MATCH_BURST_SCALE,
               angle,
-              duration: MATCH_POP_MS,
+              duration: MATCH_IMPACT_MS,
               ease: "Quad.easeOut",
               onComplete: () => {
                 entry.object.destroy();
+                if (!cascadeScheduled && onCascadeStart) {
+                  cascadeScheduled = true;
+                  onCascadeStart();
+                }
                 remaining -= 1;
                 if (remaining === 0) onComplete();
               }
@@ -977,7 +1054,7 @@ export class BoardScene extends Phaser.Scene {
       alpha: 0,
       scaleX: 1.35,
       scaleY: 1.35,
-      duration: MATCH_POP_ANTICIPATION_MS + 90,
+      duration: MATCH_POP_COMPRESSION_MS + 90,
       ease: "Sine.easeOut",
       onComplete: () => glow.destroy()
     });
@@ -1048,6 +1125,8 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
+    this.recordPresentation("cascade-start", "occupants-unique", MATCH_IMPACT_MS);
+
     this.snapshot = postClearSnapshot;
     // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty
     // - the real (for moves) or freshly-created (for spawns) sprites settle into
@@ -1057,7 +1136,7 @@ export class BoardScene extends Phaser.Scene {
     const destinationKeys = cascadeHiddenDestinations(delta.moves, delta.spawns);
     this.renderSnapshot(destinationKeys, false);
 
-    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
+    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
     // Remap occupant sprites in place: read the source key, then reattach under
     // the destination key. In a collapsing column one move's source cell is
     // another move's destination cell, so this read-then-write must run
@@ -1067,13 +1146,18 @@ export class BoardScene extends Phaser.Scene {
       const sprite = this.occupantNodes.get(positionKey(move.from));
       if (!sprite) continue;
       this.layer?.bringToTop(sprite);
-      moveTweens.push({ sprite, to: this.cellCenter(move.to) });
+      moveTweens.push({
+        sprite,
+        to: this.cellCenter(move.to),
+        distanceCells: Math.abs(move.to.row - move.from.row),
+        spawnPremiumMs: 0
+      });
       // Reattach under the destination key so subsequent renders find it.
       this.occupantNodes.delete(positionKey(move.from));
       this.occupantNodes.set(positionKey(move.to), sprite);
     }
 
-    const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number } }[] = [];
+    const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
     for (const spawn of delta.spawns) {
       if (!this.layer) continue;
       const targetCell = nextSnapshot.grid.get(spawn.position);
@@ -1081,15 +1165,18 @@ export class BoardScene extends Phaser.Scene {
       const startY = this.boardBounds.y - this.tileSize * 0.5;
       const sprite = this.addOccupantAt(startX, startY, targetCell, this.layer, 0);
       if (!sprite) continue;
-      this.tweens.add({ targets: sprite, alpha: 1, duration: Math.min(110, motionTiming.spawnMove * 0.3) });
-      spawnTweens.push({ sprite, to: this.cellCenter(spawn.position) });
+      this.tweens.add({ targets: sprite, alpha: 1, duration: motionTiming.spawnFlash });
+      const destination = this.cellCenter(spawn.position);
+      spawnTweens.push({
+        sprite,
+        to: destination,
+        distanceCells: Math.abs(destination.y - startY) / Math.max(1, this.tileSize),
+        spawnPremiumMs: 40
+      });
       this.occupantNodes.set(positionKey(spawn.position), sprite);
     }
 
-    const allTweens = [
-      ...moveTweens.map((t) => ({ ...t, total: motionTiming.cascadeMove })),
-      ...spawnTweens.map((t) => ({ ...t, total: motionTiming.spawnMove }))
-    ];
+    const allTweens = [...moveTweens, ...spawnTweens];
 
     if (allTweens.length === 0) {
       this.snapshot = nextSnapshot;
@@ -1099,19 +1186,24 @@ export class BoardScene extends Phaser.Scene {
     }
 
     let remaining = allTweens.length;
+    let firstLandingRecorded = false;
+    const firstLandingPlanMs = Math.min(...allTweens.map((entry) => (
+      Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs)
+    )));
     const done = () => {
       remaining -= 1;
       if (remaining === 0) {
-        this.snapshot = nextSnapshot;
-        this.renderSnapshot();
-        onComplete();
+        this.time.delayedCall(0, () => {
+          this.snapshot = nextSnapshot;
+          this.renderSnapshot();
+          onComplete();
+        });
       }
     };
 
     for (const entry of allTweens) {
       const start = { x: entry.sprite.x, y: entry.sprite.y };
-      const fallDuration = Math.max(CASCADE_MIN_FALL_MS, Math.round(entry.total * motionTiming.cascadeFall));
-      const settleDuration = Math.max(CASCADE_MIN_SETTLE_MS, Math.round(entry.total * motionTiming.cascadeSettle));
+      const fallDuration = Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
       const bounceFromY = entry.to.y + Math.min(CASCADE_BOUNCE_MAX_PX, Math.abs(entry.to.y - start.y) * CASCADE_BOUNCE_FACTOR);
       this.tweens.add({
         targets: entry.sprite,
@@ -1122,15 +1214,28 @@ export class BoardScene extends Phaser.Scene {
         duration: fallDuration,
         ease: "Sine.easeIn",
         onComplete: () => {
+          if (!firstLandingRecorded) {
+            firstLandingRecorded = true;
+            this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
+          }
           this.tweens.add({
             targets: entry.sprite,
-            x: entry.to.x,
-            y: entry.to.y,
             scaleX: 1,
             scaleY: 1,
-            duration: settleDuration,
+            duration: CASCADE_LANDING_SQUASH_MS,
             ease: "Sine.easeOut",
-            onComplete: done
+            onComplete: () => {
+              this.tweens.add({
+                targets: entry.sprite,
+                x: entry.to.x,
+                y: entry.to.y,
+                scaleX: 1,
+                scaleY: 1,
+                duration: CASCADE_LANDING_SETTLE_MS,
+                ease: "Sine.easeOut",
+                onComplete: done
+              });
+            }
           });
         }
       });
@@ -1605,6 +1710,7 @@ export class BoardScene extends Phaser.Scene {
       this.removeDomPointerHandlers();
       this.setBoardReadyFlag(false);
       this.clearDragWatchdog();
+      this.clearPresentationTrace();
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);
@@ -1864,6 +1970,7 @@ export class BoardScene extends Phaser.Scene {
     const onSettle = () => {
       this.commitSettled = true;
       drag.sprite.setScale(1);
+      this.recordPresentation("swap-settled", undefined, SWAP_TRAVEL_MS + SWAP_SETTLE_MS);
       const cb = this.pendingCommitCb;
       this.pendingCommitCb = null;
       if (cb) cb();
@@ -1882,27 +1989,9 @@ export class BoardScene extends Phaser.Scene {
       remaining -= 1;
       if (remaining === 0) onSettle();
     };
-    this.tweens.add({
-      targets: drag.sprite,
-      x: spriteTo.x,
-      y: spriteTo.y,
-      scaleX: 1,
-      scaleY: 1,
-      duration: motionTiming.swap,
-      ease: "Back.easeOut",
-      easeParams: swapEaseParams,
-      onComplete: done
-    });
+    this.tweenCommittedSwap(drag.sprite, spriteTo, done);
     if (neighbor) {
-      this.tweens.add({
-        targets: neighbor.sprite,
-        x: neighborTo.x,
-        y: neighborTo.y,
-        duration: motionTiming.swap,
-        ease: "Back.easeOut",
-        easeParams: swapEaseParams,
-        onComplete: done
-      });
+      this.tweenCommittedSwap(neighbor.sprite, neighborTo, done);
     }
   }
 

@@ -4,6 +4,7 @@ import {
   CASCADE_FALL_MAX_MS,
   CASCADE_FALL_MIN_MS,
   CASCADE_FALL_PER_CELL_MS,
+  CASCADE_LANDING_SQUASH_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_START_AFTER_IMPACT_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
@@ -52,6 +53,14 @@ export interface TilePopVariation {
   playbackRate: number;
 }
 
+export interface PresentationTraceEntry {
+  sequenceId: number;
+  atMs: number;
+  plannedAtMs: number;
+  kind: string;
+  detail?: string;
+}
+
 export interface PieceDisplayProfile {
   pieceSizePx: number;
   powerUpSizePx: number;
@@ -93,7 +102,7 @@ export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUp
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {
   const stagger = clampFinite(maxStaggerMs, 0, 64);
-  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SETTLE_MS;
+  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS;
   const impactCompletionMs = MATCH_IMPACT_MS + stagger;
 
   return {
