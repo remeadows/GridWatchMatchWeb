@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveImageAssetPath, webOverridePath } from "../data/assetOverrides";
+import { presentationAudioUrl } from "../data/assets";
+import { resolveImageAssetPath, webAudioOverridePath, webOverridePath } from "../data/assetOverrides";
+import { presentationAudioManifest } from "../data/presentationAssets";
 
 describe("web image asset overrides", () => {
   it("prefers a matching web override path when it exists", () => {
@@ -46,5 +48,29 @@ describe("web image asset overrides", () => {
     expect(resolveImageAssetPath("", () => true)).toBe("");
     expect(webOverridePath("assets/images/")).toBeNull();
     expect(resolveImageAssetPath("assets/images/", () => true)).toBe("assets/images/");
+  });
+});
+
+describe("web audio asset overrides", () => {
+  it("maps a board sound filename into the web-owned audio override root", () => {
+    expect(webAudioOverridePath("tile_pop_a.mp3")).toBe("assets/audio/web-overrides/tile_pop_a.mp3");
+  });
+
+  it("normalizes whitespace and leading slashes without rewrapping overrides", () => {
+    expect(webAudioOverridePath(" ///tile_pop_a.mp3 ")).toBe("assets/audio/web-overrides/tile_pop_a.mp3");
+    expect(webAudioOverridePath("assets/audio/web-overrides/tile_pop_a.mp3")).toBeNull();
+  });
+
+  it("keeps empty paths empty", () => {
+    expect(webAudioOverridePath("")).toBeNull();
+    expect(webAudioOverridePath("   ")).toBeNull();
+  });
+
+  it("keeps every presentation sound under the audio override root with no duplicate files", () => {
+    const paths = Object.values(presentationAudioManifest);
+
+    expect(paths.every((path) => path.startsWith("assets/audio/web-overrides/"))).toBe(true);
+    expect(new Set(paths).size).toBe(paths.length);
+    expect(presentationAudioUrl("tilePopA")).toContain("assets/audio/web-overrides/tile_pop_a.mp3");
   });
 });

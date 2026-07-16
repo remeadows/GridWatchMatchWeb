@@ -1,4 +1,5 @@
 import { assetManifest, audioManifest, lottieManifest } from "./assetManifest.generated";
+import { presentationAudioManifest, type PresentationAudioKey } from "./presentationAssets";
 
 export { assetManifest, audioManifest, lottieManifest };
 export { resolveImageAssetPath, webOverridePath } from "./assetOverrides";
@@ -16,4 +17,8 @@ export function levelUrl(levelId: number): string {
 
 export function audioUrl(fileName: string): string {
   return assetUrl(`assets/audio/${fileName}`);
+}
+
+export function presentationAudioUrl(key: PresentationAudioKey): string {
+  return assetUrl(presentationAudioManifest[key]);
 }
