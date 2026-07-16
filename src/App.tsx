@@ -651,6 +651,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {boosterTypes.map((booster) => {
           const available = save.boosters[booster] ?? 0;
           const selected = selectedBooster === booster;
+          const boosterImage = booster === "rocket"
+            ? assetManifest.images.boosters.rocketH
+            : booster === "rocketVertical"
+              ? assetManifest.images.boosters.rocketV
+              : assetManifest.images.boosters[booster];
           return (
             <button
               key={booster}
@@ -664,8 +669,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
               onPointerUp={handleBoosterPointerUp}
               onPointerCancel={handleBoosterPointerCancel}
             >
-              <span>{boosterLabel(booster)}</span>
-              <strong>{available}</strong>
+              <img src={assetUrl(boosterImage)} alt="" />
+              <span className="booster-label">{boosterLabel(booster)}</span>
+              <strong aria-label={`${available} available`}>{available}</strong>
             </button>
           );
         })}

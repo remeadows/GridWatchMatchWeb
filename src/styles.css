@@ -348,7 +348,7 @@ button:disabled {
 }
 
 .game-board-panel {
-  width: min(100%, clamp(300px, calc(100dvh - 330px), 760px));
+  width: min(100%, clamp(450px, calc(100dvh - 230px), 640px));
   aspect-ratio: 1;
   justify-self: center;
   border: 1px solid color-mix(in srgb, var(--accent), transparent 50%);
@@ -379,9 +379,28 @@ button:disabled {
 
 .booster-tray button {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
   min-width: 104px;
+  padding: 5px 10px;
   touch-action: none;
+}
+
+.booster-tray button img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+}
+
+.booster-label {
+  min-width: 0;
+  text-align: left;
+}
+
+.booster-tray button strong {
+  min-width: 1.2rem;
+  text-align: center;
 }
 
 .booster-tray button.selected {

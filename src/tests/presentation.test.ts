@@ -7,6 +7,7 @@ import {
   eventIntensity,
   groupPowerUpEvents,
   matchTimeline,
+  pieceDisplayProfile,
   tilePopVariation
 } from "../game/presentation";
 
@@ -130,5 +131,21 @@ describe("chainPlaybackRate", () => {
     expect(chainPlaybackRate(2)).toBeGreaterThan(chainPlaybackRate(1));
     expect(chainPlaybackRate(5)).toBeGreaterThan(chainPlaybackRate(2));
     expect(chainPlaybackRate(99)).toBe(chainPlaybackRate(5));
+  });
+});
+
+describe("pieceDisplayProfile", () => {
+  it("keeps pieces, shadows, and power-ups proportioned at every supported cell size", () => {
+    for (const tileSize of [32, 48, 72]) {
+      const profile = pieceDisplayProfile(tileSize);
+
+      expect(profile.pieceSizePx).toBeGreaterThanOrEqual(tileSize * 0.82);
+      expect(profile.pieceSizePx).toBeLessThanOrEqual(tileSize * 0.88);
+      expect(profile.shadowWidthPx).toBeLessThan(profile.pieceSizePx);
+      expect(profile.shadowHeightPx).toBeLessThan(profile.pieceSizePx);
+      expect(profile.powerUpSizePx).toBeGreaterThanOrEqual(profile.pieceSizePx * 1.06);
+      expect(profile.powerUpSizePx).toBeLessThanOrEqual(profile.pieceSizePx * 1.1);
+      expect(Object.values(profile).every(Number.isFinite)).toBe(true);
+    }
   });
 });

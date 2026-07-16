@@ -52,6 +52,13 @@ export interface TilePopVariation {
   playbackRate: number;
 }
 
+export interface PieceDisplayProfile {
+  pieceSizePx: number;
+  powerUpSizePx: number;
+  shadowWidthPx: number;
+  shadowHeightPx: number;
+}
+
 export function canonicalComboKey(left: PowerUpType, right: PowerUpType): CanonicalComboKey {
   return [left.kind, right.kind].sort().join("+") as CanonicalComboKey;
 }
@@ -122,6 +129,17 @@ export function tilePopVariation(position: GridPosition, seed: string): TilePopV
 export function chainPlaybackRate(depth: number): number {
   const normalizedDepth = Math.min(CHAIN_PLAYBACK_RATE_MAX_DEPTH, Math.max(1, Math.floor(Number.isFinite(depth) ? depth : 1)));
   return 1 + (normalizedDepth - 1) * CHAIN_PLAYBACK_RATE_STEP;
+}
+
+export function pieceDisplayProfile(tileSize: number): PieceDisplayProfile {
+  const size = Math.max(32, Number.isFinite(tileSize) ? tileSize : 32);
+  const pieceSizePx = size * 0.85;
+  return {
+    pieceSizePx,
+    powerUpSizePx: pieceSizePx * 1.08,
+    shadowWidthPx: pieceSizePx * 0.72,
+    shadowHeightPx: pieceSizePx * 0.16
+  };
 }
 
 function clampFinite(value: number, min: number, max: number): number {

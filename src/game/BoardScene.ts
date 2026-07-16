@@ -17,6 +17,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
+import { pieceDisplayProfile } from "./presentation";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
@@ -103,32 +104,16 @@ const boardChrome = {
   stroke: 0x28d6ff,
   strokeAlpha: 0.32,
   movableCell: 0x173a52,
-  movableCellAlpha: 0.92,
+  movableCellAlpha: 0.78,
   blockedCell: 0x172331,
   blockedCellAlpha: 0.92,
   generatorCell: 0x4a2643,
   generatorCellAlpha: 0.9,
   movableStroke: 0x5aa3c8,
-  movableStrokeAlpha: 0.74,
+  movableStrokeAlpha: 0.4,
   blockedStroke: 0x556877,
   blockedStrokeAlpha: 0.65
 } as const;
-
-interface TileIdentityStyle {
-  backplate: number;
-  backplateAlpha: number;
-  rim: number;
-  rimAlpha: number;
-}
-
-const tileIdentityStyles: Record<TileType, TileIdentityStyle> = {
-  packet: { backplate: 0x0d4f63, backplateAlpha: 0.38, rim: 0x37d9ff, rimAlpha: 0.92 },
-  firewall: { backplate: 0x68420d, backplateAlpha: 0.36, rim: 0xffb23c, rimAlpha: 0.9 },
-  key: { backplate: 0x315d21, backplateAlpha: 0.36, rim: 0xb5ff72, rimAlpha: 0.92 },
-  threat: { backplate: 0x5b1329, backplateAlpha: 0.38, rim: 0xff3f6e, rimAlpha: 0.92 },
-  zeroDay: { backplate: 0x34275f, backplateAlpha: 0.36, rim: 0xded2ff, rimAlpha: 0.94 }
-};
-const BACKPLATE_RIM_ALPHA_FACTOR = 0.56;
 
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
@@ -505,16 +490,6 @@ export class BoardScene extends Phaser.Scene {
     if (cell.underlay) {
       graphics.fillStyle(0xb4164a, 0.38);
       graphics.fillRoundedRect(topLeft.x + 5, topLeft.y + 5, this.tileSize - 10, this.tileSize - 10, radius);
-    }
-    if (cell.baseTile && !hiddenPositions.has(positionId)) {
-      const tileStyle = tileIdentityStyles[cell.baseTile];
-      const backplateInset = Math.max(6, this.tileSize * 0.12);
-      const backplateSize = this.tileSize - backplateInset * 2;
-      const rimWidth = Math.max(1, Math.min(2, Math.round(this.tileSize * 0.022)));
-      graphics.fillStyle(tileStyle.backplate, tileStyle.backplateAlpha);
-      graphics.fillRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
-      graphics.lineStyle(rimWidth, tileStyle.rim, tileStyle.rimAlpha * BACKPLATE_RIM_ALPHA_FACTOR);
-      graphics.strokeRoundedRect(topLeft.x + backplateInset, topLeft.y + backplateInset, backplateSize, backplateSize, Math.max(5, radius * 0.8));
     }
     if (this.selected?.row === position.row && this.selected.col === position.col) {
       graphics.lineStyle(3, 0xf7d154, 0.95);
@@ -1707,28 +1682,28 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private addOccupantAt(x: number, y: number, cell: CellState, targetLayer: Phaser.GameObjects.Container, alpha: number): Phaser.GameObjects.Container | null {
-    const inset = Math.max(4, this.tileSize * 0.07);
     const container = this.add.container(x, y);
     container.setAlpha(alpha);
+    const profile = pieceDisplayProfile(this.tileSize);
+
+    const shadow = this.add.graphics();
+    shadow.fillStyle(0x000000, 0.32);
+    shadow.fillEllipse(0, this.tileSize * 0.24, profile.shadowWidthPx, profile.shadowHeightPx);
+    shadow.setName("shadow");
+    container.add(shadow);
 
     if (cell.baseTile) {
-      const tileStyle = tileIdentityStyles[cell.baseTile];
-      const rim = this.add.graphics();
-      const rimSize = this.tileSize - inset * 1.15;
-      const rimWidth = Math.max(1, Math.min(2, Math.round(this.tileSize * 0.025)));
-      rim.lineStyle(rimWidth, tileStyle.rim, tileStyle.rimAlpha);
-      rim.strokeRoundedRect(-rimSize / 2, -rimSize / 2, rimSize, rimSize, Math.max(5, this.tileSize * 0.1));
-      rim.setBlendMode(Phaser.BlendModes.ADD);
-      container.add(rim);
-
-      const object = this.makeSpriteOrLabel(tileImageKeys[cell.baseTile], this.tileSize - inset * 2, tileLabel(cell.baseTile));
+      const object = this.makeSpriteOrLabel(tileImageKeys[cell.baseTile], profile.pieceSizePx, tileLabel(cell.baseTile));
+      object.setName("piece");
       container.add(object);
     } else if (cell.powerUp) {
       const key = imageKeyForPowerUp(cell.powerUp);
-      const object = this.makeSpriteOrLabel(key, this.tileSize - inset * 1.5, powerUpLabel(cell.powerUp));
+      const object = this.makeSpriteOrLabel(key, profile.powerUpSizePx, powerUpLabel(cell.powerUp));
+      object.setName("piece");
       container.add(object);
     } else if (cell.generator) {
       const label = this.makeLabel("H", "#ff8bd6", Math.floor(this.tileSize * 0.5));
+      label.setName("piece");
       container.add(label);
     } else {
       container.destroy();
