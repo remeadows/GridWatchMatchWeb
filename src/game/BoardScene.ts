@@ -2109,7 +2109,10 @@ export class BoardScene extends Phaser.Scene {
   // there is no pull-based query into the engine -- so fall back to the
   // ordinary snap-back, which is at least consistent with the this.snapshot
   // the scene is currently holding; the next sync() call (carrying a fresh,
-  // higher-id animation) will bring it fully current.
+  // higher-id animation) will bring it fully current. Defensively release
+  // activeAnimationId here too: this branch means sync() never ran for this
+  // swap so nothing should be pinned, but clearing it costs nothing and
+  // removes any dependence on that invariant holding.
   private recoverFromWedgedDrag(drag: ActiveDrag): void {
     if (this.pendingResolvedSnapshot) {
       const resolvedSnapshot = this.pendingResolvedSnapshot;
@@ -2119,6 +2122,7 @@ export class BoardScene extends Phaser.Scene {
       this.renderSnapshot();
       return;
     }
+    this.finishAnimation();
     this.snapBackDrag(drag);
   }
 

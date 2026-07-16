@@ -1,6 +1,54 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-14
+Last updated: 2026-07-15
+
+## 2026-07-15: input-freeze bug reported live, root-caused, fixed, deployed
+
+A live-site report ("tiles don't move, no matches can be made") triggered a full
+root-cause investigation. **Could not reproduce the freeze on the live site or in a
+real browser** — headless Chromium and WebKit e2e runs against production both passed
+cleanly, and the full local suite (170 unit + 36 Playwright e2e) was green throughout.
+The most likely explanation for what was actually seen: an embedded/backgrounded
+browser pane reporting `document.hidden=true` pauses Phaser's tween/animation loop,
+which — combined with a real, separate latent bug found during the investigation —
+would look exactly like a permanent freeze.
+
+**The latent bug (now fixed):** `BoardScene.ts`'s `handlePointerDown` refuses all new
+input while a drag is in flight (`this.drag` non-null), and a **committed** swap only
+ever cleared that gate via the engine's own resolve-animation event completing — there
+was no fallback. A wedged settle-tween (or a genuinely hidden/paused tab) would leave
+`this.drag` set forever, permanently freezing the board with no recovery except a page
+reload.
+
+**Fix (3 commits, `45428a3` → `91d6566` → `6f95154` on `main`, one direct follow-up
+commit after review):**
+- An input-freeze watchdog armed in `commitSwap` via `this.time.delayedCall` (Phaser's
+  own clock, **not** `window.setTimeout` — deliberately, so the clock pausing with the
+  game loop means a legitimately hidden/backgrounded tab never false-triggers it; only a
+  truly wedged handoff with the loop still running does). Constant
+  `DRAG_COMMIT_WATCHDOG_MS` lives next to the other timing constants it's derived from.
+- Recovery resyncs the scene to the **true, already-advanced engine snapshot**
+  (`recoverFromWedgedDrag`) rather than naively snapping back to the stale pre-swap
+  board — the engine applies swaps+cascades synchronously in `App.tsx` well before the
+  scene's own settle-tween would normally finish, so a naive snap-back would have left
+  the visible board lying about the true model for one turn. Falls back to the old
+  snap-back only in the (unreachable-under-current-wiring, but harmless) case where the
+  resolved animation never reached the scene at all; that fallback branch now also calls
+  `finishAnimation()` defensively.
+- Fixed a companion e2e race: the "navigates Home to Operations to Level 1" test fired
+  the `qa-swap` click before the board finished booting (visible only against a real
+  network, not localhost) — now waits for board-ready like its sibling tests.
+- Full review loop: implementer → task reviewer found a Critical (the stale-snapshot
+  desync above) → fix round → re-review Approved. Two Minor items accepted as
+  non-blocking: the fallback branch's now-closed `finishAnimation()` gap, and a
+  pre-existing flaky mobile Playwright test (`match pops burst with particles`,
+  unrelated code path) — spun off as its own follow-up task.
+- All three commits: `npm run build` clean, `npx vitest run` 170/170, `npx playwright
+  test` 36/36, verified multiple times across the review loop.
+- **Pushed to `origin/main` and deployed to production** (`npm run build && npx wrangler
+  deploy`) 2026-07-15 — this also closes the pre-existing live-vs-repo skew (live had
+  been running the pre-Dependabot Phaser 4.1.0 bundle; deploys are manual, so bumps
+  merged to `main` hadn't gone live yet).
 
 ## ⚠ Phase 3 shipped (2026-07-14): Supabase auth + server-mediated leaderboards
 
