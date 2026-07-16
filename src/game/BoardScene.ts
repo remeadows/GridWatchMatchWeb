@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
+import type { PresentationAudioKey } from "../data/presentationAssets";
 import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "../data/gameplayTiming";
 import {
   CASCADE_FALL_MAX_MS,
@@ -31,7 +32,8 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, pieceDisplayProfile, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, groupPowerUpEvents, pieceDisplayProfile, tilePopVariation, type PresentationTraceEntry } from "./presentation";
+import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
@@ -479,6 +481,11 @@ export class BoardScene extends Phaser.Scene {
     target.__gwPresentationTrace = trace;
   }
 
+  private cueBoardAudio(key: PresentationAudioKey, playback?: Partial<BoardAudioPlayback>): void {
+    audioService.playBoardCue(key, playback);
+    this.recordPresentation("audio-cue", key);
+  }
+
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
     if (!this.layer || !this.snapshot) return;
     this.layer.removeAll(true);
@@ -551,6 +558,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
+    audioService.unlockBoardSounds();
     const pointer = this.pointerFromClientPoint(clientX, clientY);
     return this.activateBoosterAtPointer(booster, pointer);
   }
@@ -931,8 +939,31 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPowerUpEffects(delta: BoardDelta): void {
-    if (this.reducedMotion) return;
-    for (const event of delta.powerUpEvents) this.playPowerUpEffect(event);
+    if (this.reducedMotion) {
+      const event = delta.powerUpEvents[0];
+      if (event) this.cueBoardAudio(reducedMotionPowerUpCue(event), { gain: 0.28 });
+      return;
+    }
+
+    for (const group of groupPowerUpEvents(delta.powerUpEvents)) {
+      if (group.kind !== "combo") {
+        for (const event of group.events) this.playPowerUpEffect(event);
+        continue;
+      }
+
+      this.recordPresentation("combo-charge", group.key ?? undefined);
+      this.cueBoardAudio("comboCharge");
+      let hasImpactCue = false;
+      for (const event of group.events) {
+        this.playPowerUpEffect(event, () => {
+          if (hasImpactCue) return;
+          hasImpactCue = true;
+          this.recordPresentation("combo-impact", group.key ?? undefined);
+          this.cueBoardAudio("comboImpact");
+          audioService.vibrate([18, 35, 28]);
+        });
+      }
+    }
   }
 
   private playTilePops(
@@ -982,6 +1013,7 @@ export class BoardScene extends Phaser.Scene {
 
     let remaining = popObjects.length;
     let cascadeScheduled = false;
+    let playedClusterBody = false;
     const seed = this.snapshot?.rngSeed ?? "0";
     if (popObjects.length >= MATCH_SHAKE_WEAK_THRESHOLD_TILES) {
       shake(
@@ -1006,6 +1038,15 @@ export class BoardScene extends Phaser.Scene {
             const plannedElapsedMs = this.hasPlannedMatchImpact ? 0 : MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS;
             this.hasPlannedMatchImpact = true;
             this.recordPresentation("match-impact", undefined, plannedElapsedMs);
+            if (!playedClusterBody) {
+              playedClusterBody = true;
+              this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
+            }
+            const variation = tilePopVariation(entry.position, seed);
+            this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
+              gain: 0.42,
+              playbackRate: variation.playbackRate
+            });
             this.playMatchBurst(entry.object, entry.tint);
             this.tweens.add({
               targets: entry.object,
@@ -1217,6 +1258,7 @@ export class BoardScene extends Phaser.Scene {
           if (!firstLandingRecorded) {
             firstLandingRecorded = true;
             this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
+            this.cueBoardAudio("cascadeLand", { gain: 0.34 });
           }
           this.tweens.add({
             targets: entry.sprite,
@@ -1242,24 +1284,24 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  private playPowerUpEffect(event: PowerUpEvent): void {
+  private playPowerUpEffect(event: PowerUpEvent, onImpact?: () => void): void {
     if (!this.fxLayer) return;
     this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
     if (event.powerUpType.kind === "tnt") {
-      this.playTntPowerUpEffect(event, origin);
+      this.playTntPowerUpEffect(event, origin, onImpact);
       return;
     }
     if (event.powerUpType.kind === "rocket") {
-      this.playRocketPowerUpEffect(event, origin);
+      this.playRocketPowerUpEffect(event, origin, onImpact);
       return;
     }
     if (event.powerUpType.kind === "propeller") {
-      this.playPropellerPowerUpEffect(event, origin);
+      this.playPropellerPowerUpEffect(event, origin, onImpact);
       return;
     }
     if (event.powerUpType.kind === "lightBall") {
-      this.playLightBallPowerUpEffect(event, origin);
+      this.playLightBallPowerUpEffect(event, origin, onImpact);
       return;
     }
 
@@ -1279,8 +1321,10 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playTntPowerUpEffect(_event: PowerUpEvent, origin: { x: number; y: number }): void {
+  private playTntPowerUpEffect(_event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
     if (!this.fxLayer) return;
+    this.recordPresentation("powerup-charge", "tnt");
+    this.cueBoardAudio("tntArm");
     const fxLayer = this.fxLayer;
     const fuse = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpImageKeys.tnt);
@@ -1312,6 +1356,10 @@ export class BoardScene extends Phaser.Scene {
       if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active || !fxLayer.active) return;
       const activeFxLayer = this.fxLayer;
       if (fuse.active) fuse.destroy();
+      this.recordPresentation("powerup-impact", "tnt");
+      this.cueBoardAudio("tntBlast");
+      audioService.vibrate([18, 35, 28]);
+      onImpact?.();
       this.recordTntDetonation();
       shockwave(this, activeFxLayer, origin.x, origin.y, {
         radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
@@ -1342,13 +1390,15 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+  private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
     if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
     const layer = this.fxLayer;
     const texture = event.powerUpType.orientation === "horizontal"
       ? powerUpImageKeys.rocket_horizontal
       : powerUpImageKeys.rocket_vertical;
     const heads = this.rocketHeadPlans(event);
+    this.recordPresentation("powerup-charge", "rocket");
+    this.cueBoardAudio("rocketLaunch");
     this.recordRocketLaunch(heads.length);
     if (this.reducedMotion) return;
 
@@ -1380,6 +1430,9 @@ export class BoardScene extends Phaser.Scene {
         duration: head.durationMs,
         ease: "Quad.easeOut",
         onComplete: () => {
+          this.recordPresentation("powerup-impact", "rocket");
+          this.cueBoardAudio("rocketImpact");
+          onImpact?.();
           trail.stop();
           burst(this, layer, head.end.x, head.end.y, {
             texture: vfxTextureKeys.spark,
@@ -1422,7 +1475,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+  private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
     if (!this.fxLayer || !this.snapshot) return;
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
@@ -1434,6 +1487,8 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const primaryCenter = this.cellCenter(primary);
+    this.recordPresentation("powerup-charge", "propeller");
+    this.cueBoardAudio("propellerLift");
     const drone = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpImageKeys.propeller);
     icon.setDisplaySize(this.tileSize * PROPELLER_DRONE_SCALE, this.tileSize * PROPELLER_DRONE_SCALE);
@@ -1457,6 +1512,7 @@ export class BoardScene extends Phaser.Scene {
       duration: PROPELLER_LIFT_MS,
       ease: "Sine.easeOut",
       onComplete: () => {
+        this.cueBoardAudio("propellerFly");
         const path = quadraticFlightPath(
           { x: drone.x, y: drone.y },
           primaryCenter,
@@ -1473,6 +1529,10 @@ export class BoardScene extends Phaser.Scene {
             drone.setPosition(point.x, point.y);
           },
           onComplete: () => {
+            this.recordPresentation("powerup-impact", "propeller");
+            this.cueBoardAudio("propellerImpact");
+            audioService.vibrate(18);
+            onImpact?.();
             spin.stop();
             drone.destroy();
             this.recordPropellerStrike(targets.length);
@@ -1501,7 +1561,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }): void {
+  private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
     if (!this.fxLayer || !this.snapshot) return;
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
@@ -1512,6 +1572,8 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const charge = this.add.graphics();
+    this.recordPresentation("powerup-charge", "lightBall");
+    this.cueBoardAudio("lightBallCharge");
     charge.lineStyle(3, 0xf15bd7, 0.95);
     charge.strokeCircle(origin.x, origin.y, this.tileSize * 0.48);
     charge.setBlendMode(Phaser.BlendModes.ADD);
@@ -1536,6 +1598,7 @@ export class BoardScene extends Phaser.Scene {
       this.time.delayedCall(delay, () => {
         if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
         const center = this.cellCenter(target);
+        this.cueBoardAudio(index % 2 === 0 ? "lightBallZapA" : "lightBallZapB");
         this.drawLightBallZap(origin, center, target, seed, index);
         this.recordLightBallZap(1);
         burst(this, this.fxLayer, center.x, center.y, {
@@ -1552,6 +1615,10 @@ export class BoardScene extends Phaser.Scene {
     const finalDelay = LIGHTBALL_CHARGE_MS + latestTargetDelay + LIGHTBALL_ZAP_LIFESPAN_MS;
     this.time.delayedCall(finalDelay, () => {
       if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
+      this.recordPresentation("powerup-impact", "lightBall");
+      this.cueBoardAudio("lightBallRelease");
+      audioService.vibrate(18);
+      onImpact?.();
       shockwave(this, this.fxLayer, origin.x, origin.y, {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
@@ -1850,6 +1917,7 @@ export class BoardScene extends Phaser.Scene {
   // --- Drag lifecycle (single source of truth) ------------------------------
 
   private handlePointerDown(pointer: BoardPointer): boolean {
+    audioService.unlockBoardSounds();
     if (!this.snapshot || !this.layer) return false;
     // Ignore new gestures while a committed swap is still settling/resolving.
     if (this.drag) return false;
@@ -2396,6 +2464,13 @@ function canPreviewTarget(cell: CellState): boolean {
 
 function canTargetBooster(cell: CellState): boolean {
   return cell.isMovable && !cell.generator && Boolean(cell.baseTile || cell.powerUp);
+}
+
+function reducedMotionPowerUpCue(event: PowerUpEvent): PresentationAudioKey {
+  if (event.powerUpType.kind === "tnt") return "tntBlast";
+  if (event.powerUpType.kind === "rocket") return "rocketImpact";
+  if (event.powerUpType.kind === "propeller") return "propellerImpact";
+  return "lightBallRelease";
 }
 
 function positionKey(position: GridPosition): string {

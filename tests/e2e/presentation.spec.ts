@@ -91,6 +91,32 @@ test.describe("normal presentation timeline", () => {
   });
 });
 
+test.describe("audio cue ordering", () => {
+  test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await page.getByTestId("qa-swap").click();
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const impactTimes = new Set(trace.filter((entry) => entry.kind === "match-impact").map((entry) => entry.atMs));
+    const landing = traceEntry(trace, "cascade-land");
+    const tileImpactCues = trace.filter((entry) => entry.kind === "audio-cue" && (
+      entry.detail === "tileClusterBody" || entry.detail === "tilePopA" || entry.detail === "tilePopB"
+    ));
+    const landingCue = trace.find((entry) => entry.kind === "audio-cue" && entry.detail === "cascadeLand");
+
+    expect(tileImpactCues.length).toBeGreaterThan(1);
+    expect(tileImpactCues.every((entry) => impactTimes.has(entry.atMs))).toBe(true);
+    expect(landingCue?.atMs).toBe(landing.atMs);
+  });
+});
+
 async function waitForBoardReady(page: Page): Promise<void> {
   await page.waitForFunction(() => {
     const testWindow = window as Window & {

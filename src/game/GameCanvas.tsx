@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import Phaser from "phaser";
 import { BoardScene, type BoardAnimationEvent } from "./BoardScene";
 import type { BoardAction, BoardSnapshot, BoosterType } from "../engine";
+import { audioService } from "../services/audio";
 
 interface GameCanvasProps {
   snapshot: BoardSnapshot | null;
@@ -41,6 +42,9 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return;
+    void audioService.preloadBoardSounds();
+    const unlockBoardSounds = () => audioService.unlockBoardSounds();
+    containerRef.current.addEventListener("pointerdown", unlockBoardSounds, { passive: true });
     // Headless WebKit under CPU contention can starve requestAnimationFrame for
     // seconds at a time while the task queue stays responsive. Phaser's delta
     // smoothing then replaces each huge frame gap with a ~16ms "sane" delta, so
@@ -80,6 +84,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     game.scene.start("BoardScene", { onAction: (action: BoardAction) => onActionRef.current(action) });
     gameRef.current = game;
     return () => {
+      containerRef.current?.removeEventListener("pointerdown", unlockBoardSounds);
       game.destroy(true);
       gameRef.current = null;
     };

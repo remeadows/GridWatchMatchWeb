@@ -437,9 +437,6 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       runStatsRef.current.powerUpEvents += delta.powerUpEvents.length;
       runStatsRef.current.chainSum += Math.max(0, delta.chainDepth);
       setMessage(delta.shuffleAttempts > 0 ? `Grid reshuffled after ${delta.shuffleAttempts} attempt(s).` : "");
-      if (delta.clears.length > 0) audioService.playSfx("sfx_tile_clear.mp3");
-      if (delta.powerUpEvents.length > 0) audioService.playSfx("sfx_power_up.mp3");
-      if (delta.chainDepth > 1) audioService.playSfx("sfx_chain_cascade.mp3");
       if (delta.isWin) {
         finishWin(nextScore, engine, level);
       } else if (delta.isFail) {
