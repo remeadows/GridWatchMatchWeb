@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { PowerUpEvent, PowerUpType } from "../engine";
+import type { PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
 import {
   canonicalComboKey,
   cascadeFallDurationMs,
   chainPlaybackRate,
+  createdPowerUpSpawns,
   eventIntensity,
   groupPowerUpEvents,
   matchTimeline,
@@ -72,6 +73,17 @@ describe("groupPowerUpEvents", () => {
     expect(groups[2].events).toEqual([swap]);
     expect(groups[3].key).toBe("rocket+tnt");
     expect(groups[3].events).toEqual([comboC]);
+  });
+});
+
+describe("createdPowerUpSpawns", () => {
+  it("returns only spawns that create a power-up", () => {
+    const ordinary: SpawnEvent = { position: { row: 0, col: 0 }, tileType: "packet", asPowerUp: null };
+    const creation: SpawnEvent = { position: { row: 2, col: 3 }, tileType: "packet", asPowerUp: propeller };
+
+    expect(createdPowerUpSpawns([ordinary, creation])).toEqual([
+      { position: creation.position, powerUp: propeller }
+    ]);
   });
 });
 

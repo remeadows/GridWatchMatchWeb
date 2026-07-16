@@ -1,4 +1,4 @@
-import type { GridPosition, PowerUpEvent, PowerUpType } from "../engine";
+import type { GridPosition, PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
 import {
   CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
@@ -35,6 +35,11 @@ export interface PowerUpPresentationGroup {
   key: CanonicalComboKey | null;
   events: readonly PowerUpEvent[];
   affectedPositions: readonly GridPosition[];
+}
+
+export interface CreatedPowerUpSpawn {
+  position: GridPosition;
+  powerUp: PowerUpType;
 }
 
 export interface MatchTimeline {
@@ -98,6 +103,12 @@ export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUp
   }
 
   return groups;
+}
+
+export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): CreatedPowerUpSpawn[] {
+  return spawns.flatMap((spawn) => (
+    spawn.asPowerUp ? [{ position: spawn.position, powerUp: spawn.asPowerUp }] : []
+  ));
 }
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {

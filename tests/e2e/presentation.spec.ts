@@ -124,6 +124,30 @@ test.describe("standard match impact", () => {
   });
 });
 
+test.describe("power-up creation", () => {
+  test("stages a created propeller before it becomes stable", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await dragBoardCells(page, { row: 1, col: 0 }, { row: 1, col: 1 });
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const charge = traceEntry(trace, "powerup-create-charge");
+    const impact = traceEntry(trace, "powerup-create-impact");
+    const stable = traceEntry(trace, "powerup-create-stable");
+
+    expect(charge.atMs).toBeLessThan(impact.atMs);
+    expect(impact.atMs).toBeLessThan(stable.atMs);
+    expect(trace.filter((entry) => entry.kind === "action-received")).toHaveLength(1);
+    await expect(page.getByText("24/25")).toBeVisible();
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -158,6 +182,45 @@ async function waitForBoardReady(page: Page): Promise<void> {
     };
     return testWindow.__gwBoardReady === true && typeof testWindow.__gwBoardCellClientPoint === "function";
   });
+}
+
+async function dragBoardCells(page: Page, from: { row: number; col: number }, to: { row: number; col: number }): Promise<void> {
+  await page.locator('[data-testid="board-canvas"] canvas').waitFor({ state: "visible" });
+  await page.evaluate(({ from, to }) => {
+    const testWindow = window as Window & {
+      __gwBoardCellClientPoint?: (row: number, col: number) => { x: number; y: number } | null;
+    };
+    const start = testWindow.__gwBoardCellClientPoint?.(from.row, from.col);
+    const end = testWindow.__gwBoardCellClientPoint?.(to.row, to.col);
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-testid="board-canvas"] canvas');
+    if (!start || !end || !canvas) throw new Error("Board cell client points unavailable");
+
+    const dispatch = (type: "pointerdown" | "pointermove" | "pointerup", point: { x: number; y: number }, buttons: number) => {
+      canvas.dispatchEvent(new PointerEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons,
+        cancelable: true,
+        clientX: point.x,
+        clientY: point.y,
+        composed: true,
+        isPrimary: true,
+        pointerId: 1,
+        pointerType: "mouse",
+        view: window
+      }));
+    };
+
+    dispatch("pointerdown", start, 1);
+    for (let step = 1; step <= 12; step += 1) {
+      const progress = step / 12;
+      dispatch("pointermove", {
+        x: start.x + (end.x - start.x) * progress,
+        y: start.y + (end.y - start.y) * progress
+      }, 1);
+    }
+    dispatch("pointerup", end, 0);
+  }, { from, to });
 }
 
 async function presentationTrace(page: Page): Promise<PresentationTraceEntry[]> {

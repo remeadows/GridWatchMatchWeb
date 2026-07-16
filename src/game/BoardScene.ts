@@ -42,9 +42,9 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, groupPowerUpEvents, pieceDisplayProfile, tilePopVariation, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, tilePopVariation, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
-import { burst, ensureVfxTextures, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
+import { burst, ensureVfxTextures, laneBlast, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
 export interface BoardSceneData {
@@ -153,6 +153,11 @@ const CASCADE_BOUNCE_MAX_PX = 14;
 const CASCADE_BOUNCE_FACTOR = 0.08;
 const CASCADE_SQUASH_SCALE_X = 0.96;
 const CASCADE_SQUASH_SCALE_Y = 1.05;
+const POWERUP_CREATION_CHARGE_MS = 70;
+const POWERUP_CREATION_OVERSHOOT_MS = 130;
+const POWERUP_CREATION_SETTLE_MS = 110;
+const POWERUP_CREATION_INITIAL_SCALE = 0.55;
+const POWERUP_CREATION_OVERSHOOT_SCALE = 1.12;
 
 // Matched tiles burst OUTWARD (explode) rather than shrinking away. The destroy
 // tween scales up past the cell while fading to alpha 0.
@@ -1244,6 +1249,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     this.recordPresentation("cascade-start", "occupants-unique", MATCH_IMPACT_MS);
+    const creations = createdPowerUpSpawns(delta.spawns);
 
     this.snapshot = postClearSnapshot;
     // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty
@@ -1277,6 +1283,7 @@ export class BoardScene extends Phaser.Scene {
 
     const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
     for (const spawn of delta.spawns) {
+      if (spawn.asPowerUp) continue;
       if (!this.layer) continue;
       const targetCell = nextSnapshot.grid.get(spawn.position);
       const startX = this.cellCenter(spawn.position).x;
@@ -1296,10 +1303,22 @@ export class BoardScene extends Phaser.Scene {
 
     const allTweens = [...moveTweens, ...spawnTweens];
 
-    if (allTweens.length === 0) {
+    const settleCascade = () => {
       this.snapshot = nextSnapshot;
-      this.renderSnapshot();
-      onComplete();
+      if (creations.length === 0) {
+        this.renderSnapshot();
+        onComplete();
+        return;
+      }
+      this.renderSnapshot(new Set(creations.map((creation) => positionKey(creation.position))), false);
+      this.revealCreatedPowerUps(nextSnapshot, creations, () => {
+        this.renderSnapshot();
+        onComplete();
+      });
+    };
+
+    if (allTweens.length === 0) {
+      settleCascade();
       return;
     }
 
@@ -1312,9 +1331,7 @@ export class BoardScene extends Phaser.Scene {
       remaining -= 1;
       if (remaining === 0) {
         this.time.delayedCall(0, () => {
-          this.snapshot = nextSnapshot;
-          this.renderSnapshot();
-          onComplete();
+          settleCascade();
         });
       }
     };
@@ -1357,6 +1374,88 @@ export class BoardScene extends Phaser.Scene {
             }
           });
         }
+      });
+    }
+  }
+
+  private revealCreatedPowerUps(
+    nextSnapshot: BoardSnapshot,
+    creations: ReadonlyArray<CreatedPowerUpSpawn>,
+    onComplete: () => void
+  ): void {
+    if (!this.layer || !this.fxLayer || creations.length === 0) {
+      onComplete();
+      return;
+    }
+
+    let remaining = creations.length;
+    const done = () => {
+      remaining -= 1;
+      if (remaining === 0) onComplete();
+    };
+
+    for (const creation of creations) {
+      const destination = this.cellCenter(creation.position);
+      const cell = nextSnapshot.grid.get(creation.position);
+      const reveal = this.addOccupantAt(destination.x, destination.y, cell, this.layer, 0);
+      if (!reveal) {
+        done();
+        continue;
+      }
+      this.occupantNodes.set(positionKey(creation.position), reveal);
+      const tint = powerUpCreationTint(creation.powerUp);
+      reveal.setScale(POWERUP_CREATION_INITIAL_SCALE);
+      reveal.setAngle(-6);
+      this.recordPresentation("powerup-create-charge", creation.powerUp.kind);
+
+      for (const offset of [
+        { x: -this.tileSize * 0.9, y: this.tileSize * 0.25 },
+        { x: this.tileSize * 0.75, y: -this.tileSize * 0.5 },
+        { x: this.tileSize * 0.15, y: this.tileSize * 0.9 }
+      ]) {
+        laneBlast(this, this.fxLayer, {
+          x: destination.x + offset.x,
+          y: destination.y + offset.y
+        }, destination, {
+          durationMs: POWERUP_CREATION_CHARGE_MS,
+          scale: Math.max(0.55, this.tileSize / 72),
+          tint
+        }, this.vfxCleanup);
+      }
+
+      this.time.delayedCall(POWERUP_CREATION_CHARGE_MS, () => {
+        if (!this.sys.isActive()) return;
+        this.recordPresentation("powerup-create-impact", creation.powerUp.kind);
+        this.cueBoardAudio("powerUpCreate", { gain: 0.58 });
+        shockwave(this, this.fxLayer!, destination.x, destination.y, {
+          durationMs: POWERUP_CREATION_OVERSHOOT_MS + POWERUP_CREATION_SETTLE_MS,
+          radiusPx: this.tileSize * 0.58,
+          tint
+        }, this.vfxCleanup);
+        if (creation.powerUp.kind === "lightBall") shake(this, 0.003, 90, this.reducedMotion);
+        this.tweens.add({
+          targets: reveal,
+          alpha: 1,
+          scaleX: POWERUP_CREATION_OVERSHOOT_SCALE,
+          scaleY: POWERUP_CREATION_OVERSHOOT_SCALE,
+          angle: 6,
+          duration: POWERUP_CREATION_OVERSHOOT_MS,
+          ease: "Back.easeOut",
+          onComplete: () => {
+            this.tweens.add({
+              targets: reveal,
+              scaleX: 1,
+              scaleY: 1,
+              angle: 0,
+              duration: POWERUP_CREATION_SETTLE_MS,
+              ease: "Sine.easeOut",
+              onComplete: () => {
+                this.recordPresentation("powerup-create-stable", creation.powerUp.kind);
+                done();
+              }
+            });
+          }
+        });
       });
     }
   }
@@ -2580,4 +2679,11 @@ function powerUpLabel(powerUp: PowerUpType): string {
   if (powerUp.kind === "propeller") return "*";
   if (powerUp.kind === "tnt") return "TNT";
   return "LB";
+}
+
+function powerUpCreationTint(powerUp: PowerUpType): number {
+  if (powerUp.kind === "rocket") return 0x47ddff;
+  if (powerUp.kind === "propeller") return 0x70f2ea;
+  if (powerUp.kind === "tnt") return 0xff8c42;
+  return 0xded2ff;
 }
