@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -104,6 +104,29 @@ describe("approved GridWatch piece overrides", () => {
       expect(existsSync(assetPath), `missing approved override ${relativePath}`).toBe(true);
       expect(statSync(assetPath).size, `${relativePath} must not be empty`).toBeGreaterThan(0);
       expect(statSync(assetPath).size, `${relativePath} exceeds 700 KB`).toBeLessThanOrEqual(700 * 1024);
+    }
+  });
+});
+
+const approvedBoardSoundFiles = Object.values(presentationAudioManifest).map((assetPath) => assetPath.replace("assets/audio/web-overrides/", ""));
+
+describe("approved GridWatch board sound overrides", () => {
+  it("contains only the approved non-empty board sounds within the file-size budget", () => {
+    const overrideRoot = path.resolve(process.cwd(), "public/assets/audio/web-overrides");
+    const actualFiles = existsSync(overrideRoot)
+      ? readdirSync(overrideRoot, { withFileTypes: true })
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".mp3"))
+          .map((entry) => entry.name)
+          .sort()
+      : [];
+
+    expect(actualFiles).toEqual([...approvedBoardSoundFiles].sort());
+
+    for (const fileName of approvedBoardSoundFiles) {
+      const assetPath = path.join(overrideRoot, fileName);
+      expect(existsSync(assetPath), `missing approved board sound ${fileName}`).toBe(true);
+      expect(statSync(assetPath).size, `${fileName} must not be empty`).toBeGreaterThan(0);
+      expect(statSync(assetPath).size, `${fileName} exceeds 350 KB`).toBeLessThanOrEqual(350 * 1024);
     }
   });
 });
