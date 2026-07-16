@@ -8,7 +8,16 @@ vi.mock("phaser", () => ({
   }
 }));
 
-import { burst, shockwave, vfxTextureKeys } from "../game/vfx";
+import {
+  burst,
+  reducedMotionVfxPlan,
+  screenFlash,
+  shockwave,
+  vfxCleanupDelayMs,
+  vfxIntensity,
+  vfxTextureKeys
+} from "../game/vfx";
+import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG } from "../game/vfxTiming";
 
 const burstOptions = {
   texture: vfxTextureKeys.spark,
@@ -71,6 +80,10 @@ describe("vfx guards", () => {
       .toThrow("Invalid VFX burst x");
     expect(() => burst(fakeScene(), fakeLayer(), 0, Number.POSITIVE_INFINITY, burstOptions))
       .toThrow("Invalid VFX burst y");
+    expect(() => burst(fakeScene(), fakeLayer(), 0, 0, { ...burstOptions, count: 0 }))
+      .toThrow("Invalid VFX burst count");
+    expect(() => burst(fakeScene(), fakeLayer(), 0, 0, { ...burstOptions, scale: Number.NaN }))
+      .toThrow("Invalid VFX burst scale");
   });
 
   it("fails fast when shockwave receives invalid required inputs", () => {
@@ -80,5 +93,48 @@ describe("vfx guards", () => {
       .toThrow("Invalid VFX shockwave x");
     expect(() => shockwave(fakeScene(), fakeLayer(), 0, Number.NaN, shockwaveOptions))
       .toThrow("Invalid VFX shockwave y");
+  });
+
+  it("fails fast when screen flash exceeds its accessibility bounds", () => {
+    expect(() => screenFlash(fakeScene(), fakeLayer(), { alpha: VFX_SCREEN_FLASH.alpha + 0.01 }))
+      .toThrow("Invalid VFX screenFlash alpha");
+    expect(() => screenFlash(fakeScene(), fakeLayer(), { durationMs: 0 }))
+      .toThrow("Invalid VFX screenFlash durationMs");
+  });
+});
+
+describe("VFX presentation contract", () => {
+  it("defines the complete generated texture vocabulary", () => {
+    expect(Object.keys(VFX_TEXTURE_CONFIG).sort()).toEqual([
+      "glow",
+      "hotCore",
+      "ring",
+      "shard",
+      "shardWide",
+      "smoke",
+      "spark",
+      "streak"
+    ]);
+    expect(Object.values(VFX_TEXTURE_CONFIG).every((config) => config.textureWidth > 0 && config.textureHeight > 0)).toBe(true);
+  });
+
+  it("keeps VFX budgets finite, positive, and cleanup beyond the longest particle lifetime", () => {
+    expect(Object.values(VFX_BUDGETS).every((value) => Number.isFinite(value) && value > 0)).toBe(true);
+    expect(vfxCleanupDelayMs(VFX_BUDGETS.longestParticleLifetimeMs)).toBeGreaterThan(VFX_BUDGETS.longestParticleLifetimeMs);
+  });
+
+  it("caps desktop and mobile effect intensity and respects flash accessibility limits", () => {
+    expect(vfxIntensity(999, false, "desktop")).toBeLessThanOrEqual(VFX_BUDGETS.desktopIntensityCap);
+    expect(vfxIntensity(999, true, "mobile")).toBeLessThanOrEqual(VFX_BUDGETS.mobileIntensityCap);
+    expect(vfxIntensity(2, false, "desktop")).toBeLessThanOrEqual(vfxIntensity(9, true, "desktop"));
+    expect(VFX_SCREEN_FLASH.alpha).toBeLessThanOrEqual(0.38);
+    expect(VFX_SCREEN_FLASH.durationMs).toBeLessThanOrEqual(80);
+  });
+
+  it("rejects invalid visual parameters and makes reduced motion a no-op", () => {
+    expect(() => vfxIntensity(Number.NaN, false, "desktop")).toThrow("affectedCount");
+    expect(() => vfxCleanupDelayMs(Number.POSITIVE_INFINITY)).toThrow("lifespanMs");
+    expect(reducedMotionVfxPlan(true)).toEqual({ flash: false, particles: false, shake: false, travel: false });
+    expect(reducedMotionVfxPlan(false)).toEqual({ flash: true, particles: true, shake: true, travel: true });
   });
 });

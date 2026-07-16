@@ -34,7 +34,7 @@ import {
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
 import { cascadeFallDurationMs, groupPowerUpEvents, pieceDisplayProfile, tilePopVariation, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
-import { burst, ensureVfxTextures, shake, shockwave, vfxTextureKeys } from "./vfx";
+import { burst, ensureVfxTextures, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
 export interface BoardSceneData {
@@ -342,7 +342,10 @@ export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
   private onAction: ((action: BoardAction) => void) | null = null;
   private layer: Phaser.GameObjects.Container | null = null;
+  private fxUnderlay: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
+  private fxScreen: Phaser.GameObjects.Container | null = null;
+  private vfxCleanup = new VfxCleanupRegistry();
   private occupantNodes = new Map<string, Phaser.GameObjects.Container>();
   private boardBounds = new Phaser.Geom.Rectangle(0, 0, 0, 0);
   private tileSize = 72;
@@ -390,8 +393,12 @@ export class BoardScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.fxUnderlay = this.add.container(0, 0);
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
+    this.fxScreen = this.add.container(0, 0);
+    this.vfxCleanup = new VfxCleanupRegistry();
+    this.events.once("shutdown", this.disposeVfx, this);
     ensureVfxTextures(this);
     this.resetPresentationTrace();
     this.installDomPointerHandlers();
@@ -412,6 +419,13 @@ export class BoardScene extends Phaser.Scene {
       this.renderSnapshot();
     });
     this.renderSnapshot();
+  }
+
+  private disposeVfx(): void {
+    this.vfxCleanup.dispose();
+    this.fxUnderlay = null;
+    this.fxLayer = null;
+    this.fxScreen = null;
   }
 
   sync(snapshot: BoardSnapshot, animation?: BoardAnimationEvent | null, reducedMotion = false, pendingBooster: BoosterType | null = null): void {
