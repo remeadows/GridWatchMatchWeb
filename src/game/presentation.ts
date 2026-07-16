@@ -12,6 +12,8 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  ROCKET_IGNITION_MS,
+  ROCKET_LANE_FLIGHT_MS,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
   TNT_ARM_AT_MS,
@@ -72,6 +74,24 @@ export interface TntDetonationPlan {
   impactAtMs: number[];
   cascadeStartAtMs: number;
   sequenceBudgetMs: number;
+}
+
+export interface RocketPassPlan {
+  position: GridPosition;
+  atMs: number;
+}
+
+export interface RocketLaneHeadPlan {
+  destination: GridPosition;
+  direction: -1 | 1;
+  flightMs: number;
+  impactAtMs: number;
+  passTimes: RocketPassPlan[];
+}
+
+export interface RocketLanePlan {
+  ignitionMs: number;
+  heads: RocketLaneHeadPlan[];
 }
 
 export interface PresentationTraceEntry {
@@ -141,6 +161,44 @@ export function tntDetonationPlan(origin: GridPosition, affectedPositions: Reado
     impactAtMs,
     cascadeStartAtMs: TNT_DETONATION_AT_MS + TNT_CASCADE_AFTER_DETONATION_MS,
     sequenceBudgetMs: TNT_SEQUENCE_BUDGET_MS
+  };
+}
+
+export function rocketLanePlan(
+  origin: GridPosition,
+  orientation: "horizontal" | "vertical",
+  rows: number,
+  cols: number
+): RocketLanePlan {
+  const laneLength = orientation === "horizontal" ? Math.max(1, Math.floor(cols)) : Math.max(1, Math.floor(rows));
+  const originIndex = orientation === "horizontal" ? origin.col : origin.row;
+  const clampedOriginIndex = Math.min(laneLength - 1, Math.max(0, originIndex));
+
+  return {
+    ignitionMs: ROCKET_IGNITION_MS,
+    heads: ([-1, 1] as const).map((direction) => {
+      const destinationIndex = direction === -1 ? 0 : laneLength - 1;
+      const distance = Math.abs(destinationIndex - clampedOriginIndex);
+      const passTimes = Array.from({ length: distance + 1 }, (_, step) => {
+        const index = clampedOriginIndex + direction * step;
+        const position = orientation === "horizontal"
+          ? { row: origin.row, col: index }
+          : { row: index, col: origin.col };
+        return {
+          position,
+          atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * step / Math.max(1, distance))
+        };
+      });
+      const destination = passTimes.at(-1)!.position;
+
+      return {
+        destination,
+        direction,
+        flightMs: ROCKET_LANE_FLIGHT_MS,
+        impactAtMs: passTimes.at(-1)!.atMs,
+        passTimes
+      };
+    })
   };
 }
 

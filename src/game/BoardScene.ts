@@ -23,6 +23,11 @@ import {
   MATCH_SMOKE_PUFF_COUNT,
   MATCH_WAVE_MAX_MS,
   MATCH_WAVE_PER_GRID_MS,
+  ROCKET_EDGE_BURST_LIFESPAN_MS,
+  ROCKET_IGNITION_MS,
+  ROCKET_LANE_FLIGHT_MS,
+  ROCKET_TRAIL_CLEANUP_MS,
+  ROCKET_TRAIL_LIFESPAN_MS,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
   TNT_CASCADE_AFTER_DETONATION_MS
@@ -43,7 +48,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -205,29 +210,13 @@ const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
 const TNT_SHAKE_INTENSITY = 0.008;
 // Web-only tuning: Phaser camera shake duration.
 const TNT_SHAKE_DURATION_MS = 220;
-// Web-only tuning: Phaser rocket pass timing.
-const ROCKET_SWEEP_MS_PER_CELL = 58;
-// Web-only tuning: maximum expected board edge distance for rocket travel.
-const ROCKET_MAX_FLIGHT_CELLS = 7;
-// Web-only tuning: Phaser minimum projectile travel.
-const ROCKET_MIN_FLIGHT_MS = 120;
 // Web-only tuning: Phaser rocket sprite scale.
-const ROCKET_HEAD_SCALE = 0.58;
-// Web-only tuning: Phaser rocket trail particle lifespan.
-const ROCKET_TRAIL_LIFESPAN_MS = 240;
-// Web-only tuning: Phaser rocket trail cleanup buffer.
-const ROCKET_TRAIL_CLEANUP_MS = 90;
-// Web-only tuning: Phaser rocket edge burst lifespan.
-const ROCKET_EDGE_BURST_LIFESPAN_MS = 220;
+const ROCKET_HEAD_SCALE = 0.72;
 // Web-only tuning: Phaser rocket choreography budget, including edge burst cleanup tails.
 const ROCKET_FX_BUDGET_MS =
-  ROCKET_MAX_FLIGHT_CELLS * ROCKET_SWEEP_MS_PER_CELL +
+  ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS +
   ROCKET_EDGE_BURST_LIFESPAN_MS +
   VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS;
-// Web-only tuning: Phaser camera shake intensity.
-const ROCKET_SHAKE_INTENSITY = 0.0045;
-// Web-only tuning: Phaser camera shake duration.
-const ROCKET_SHAKE_DURATION_MS = 120;
 // Web-only tuning: Phaser drone lift anticipation.
 const PROPELLER_LIFT_MS = 120;
 // Web-only tuning: Phaser drone arc flight.
@@ -737,7 +726,7 @@ export class BoardScene extends Phaser.Scene {
         flashColors,
         popStagger,
         startPowerUpEffectsAfterPopRender,
-        hasSingleTnt(delta) ? undefined : runCascade,
+        hasSingleSequencedPowerUp(delta) ? undefined : runCascade,
         delta.powerUpEvents.length === 0
       );
     }
@@ -775,7 +764,7 @@ export class BoardScene extends Phaser.Scene {
         if (delta.powerUpEvents.length === 0) return;
         this.playPowerUpEffects(delta, runCascade);
         this.recordPowerUpFxAfterPopRender();
-      }, hasSingleTnt(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0);
+      }, hasSingleSequencedPowerUp(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0);
     });
   }
 
@@ -958,7 +947,7 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  private playPowerUpEffects(delta: BoardDelta, onSingleTntCascade?: () => void): void {
+  private playPowerUpEffects(delta: BoardDelta, onSingleSequencedPowerUpCascade?: () => void): void {
     if (this.reducedMotion) {
       const event = delta.powerUpEvents[0];
       if (event) this.cueBoardAudio(reducedMotionPowerUpCue(event), { gain: 0.28 });
@@ -966,15 +955,17 @@ export class BoardScene extends Phaser.Scene {
     }
 
     for (const group of groupPowerUpEvents(delta.powerUpEvents)) {
-      // TNT+TNT has dedicated combo choreography in Task 15. The booster
-      // resolver also emits its single TNT event, which owns this task's
-      // presentation path and all affected positions.
-      if (group.kind === "combo" && group.key === "tnt+tnt") continue;
+      // Dedicated combo choreography owns every rocket combo in Task 15. The
+      // booster resolver also emits a normal rocket event, which owns this
+      // task's two-head lane presentation.
+      if (group.kind === "combo" && (group.key === "tnt+tnt" || group.events.some((event) => event.powerUpType.kind === "rocket"))) continue;
       if (group.kind !== "combo") {
         for (const event of group.events) {
           this.playPowerUpEffect(
             event,
-            event.powerUpType.kind === "tnt" && event.trigger.kind !== "combo" ? onSingleTntCascade : undefined
+            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket") && event.trigger.kind !== "combo"
+              ? onSingleSequencedPowerUpCascade
+              : undefined
           );
         }
         continue;
@@ -1622,82 +1613,146 @@ export class BoardScene extends Phaser.Scene {
     const texture = event.powerUpType.orientation === "horizontal"
       ? powerUpImageKeys.rocket_horizontal
       : powerUpImageKeys.rocket_vertical;
-    const heads = this.rocketHeadPlans(event);
+    const orientation = event.powerUpType.orientation;
+    const plan = rocketLanePlan(
+      event.origin,
+      event.powerUpType.orientation,
+      this.snapshot.grid.rows,
+      this.snapshot.grid.cols
+    );
     this.recordPresentation("powerup-charge", "rocket");
     this.cueBoardAudio("rocketLaunch");
-    this.recordRocketLaunch(heads.length);
+    this.recordRocketLaunch(plan.heads.length);
     if (this.reducedMotion) return;
 
-    shake(this, ROCKET_SHAKE_INTENSITY, ROCKET_SHAKE_DURATION_MS, this.reducedMotion);
-    for (const head of heads) {
-      const sprite = this.add.image(origin.x, origin.y, texture);
-      sprite.setDisplaySize(this.tileSize * ROCKET_HEAD_SCALE, this.tileSize * ROCKET_HEAD_SCALE);
-      sprite.setAngle(head.angleDeg);
-      sprite.setBlendMode(Phaser.BlendModes.ADD);
-      layer.add(sprite);
+    const ignition = this.add.image(origin.x, origin.y, vfxTextureKeys.hotCore);
+    ignition.setTint(0xd8fbff);
+    ignition.setBlendMode(Phaser.BlendModes.ADD);
+    ignition.setScale(Math.max(0.5, this.tileSize / 70));
+    layer.add(ignition);
+    this.vfxCleanup.trackObject(ignition);
+    const ignitionTween = this.tweens.add({
+      targets: ignition,
+      alpha: 0,
+      scaleX: ignition.scaleX * 1.8,
+      scaleY: ignition.scaleY * 1.8,
+      duration: plan.ignitionMs,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        this.vfxCleanup.release(ignition);
+        this.vfxCleanup.release(ignitionTween);
+        ignition.destroy();
+      }
+    });
+    this.vfxCleanup.trackTween(ignitionTween);
 
-      const trail = this.add.particles(origin.x, origin.y, vfxTextureKeys.spark, {
-        alpha: { start: 0.82, end: 0 },
-        blendMode: Phaser.BlendModes.ADD,
-        emitting: true,
-        frequency: 18,
-        lifespan: ROCKET_TRAIL_LIFESPAN_MS,
-        scale: { start: Math.max(0.2, this.tileSize / 170), end: 0 },
-        speed: { min: this.tileSize * 0.18, max: this.tileSize * 0.72 },
-        tint: 0x9bfff2
-      });
-      trail.startFollow(sprite, 0, 0, true);
-      layer.add(trail);
+    let completedHeads = 0;
+    let cascadeTriggered = false;
+    this.vfxCleanup.schedule(this, plan.ignitionMs, () => {
+      if (!this.sys.isActive() || !this.fxLayer?.active) return;
+      this.cueBoardAudio("rocketFlyby", { playbackRate: 1.04, gain: 0.5 });
+      for (const head of plan.heads) {
+        const end = this.cellCenter(head.destination);
+        const angleDeg = orientation === "horizontal"
+          ? (head.direction === -1 ? 180 : 0)
+          : (head.direction === -1 ? 0 : 180);
+        const sprite = this.add.image(origin.x, origin.y, texture);
+        sprite.setDisplaySize(this.tileSize * ROCKET_HEAD_SCALE, this.tileSize * ROCKET_HEAD_SCALE);
+        sprite.setAngle(angleDeg);
+        sprite.setBlendMode(Phaser.BlendModes.ADD);
+        layer.add(sprite);
+        this.vfxCleanup.trackObject(sprite);
+        this.recordPresentation("rocket-head-launch", String(head.direction));
 
-      this.tweens.add({
-        targets: sprite,
-        x: head.end.x,
-        y: head.end.y,
-        duration: head.durationMs,
-        ease: "Quad.easeOut",
-        onComplete: () => {
-          this.recordPresentation("powerup-impact", "rocket");
-          this.cueBoardAudio("rocketImpact");
-          onImpact?.();
-          trail.stop();
-          burst(this, layer, head.end.x, head.end.y, {
-            texture: vfxTextureKeys.spark,
-            count: 8,
-            speed: this.tileSize * 1.8,
-            lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
-            tint: 0x9bfff2,
-            scale: Math.max(0.24, this.tileSize / 180)
-          });
-          sprite.destroy();
-          this.time.delayedCall(ROCKET_TRAIL_LIFESPAN_MS + ROCKET_TRAIL_CLEANUP_MS, () => {
-            if (trail.active) trail.destroy();
-          });
-        }
-      });
-    }
-  }
+        laneBlast(this, layer, origin, end, {
+          durationMs: head.flightMs,
+          scale: Math.max(0.48, this.tileSize / 98),
+          tint: 0x58e6ff
+        }, this.vfxCleanup);
+        laneBlast(this, layer, origin, end, {
+          durationMs: head.flightMs,
+          scale: Math.max(0.26, this.tileSize / 160),
+          tint: 0xf0ffff
+        }, this.vfxCleanup);
 
-  private rocketHeadPlans(event: PowerUpEvent): Array<{ end: { x: number; y: number }; angleDeg: number; durationMs: number }> {
-    if (!this.snapshot || event.powerUpType.kind !== "rocket") return [];
-    const { row, col } = event.origin;
-    const endpoints = event.powerUpType.orientation === "horizontal"
-      ? [
-          { position: { row, col: 0 }, angleDeg: 180 },
-          { position: { row, col: this.snapshot.grid.cols - 1 }, angleDeg: 0 }
-        ]
-      : [
-          { position: { row: 0, col }, angleDeg: 0 },
-          { position: { row: this.snapshot.grid.rows - 1, col }, angleDeg: 180 }
-        ];
-    return endpoints.map(({ position, angleDeg }) => {
-      const distanceCells = event.powerUpType.kind === "rocket" && event.powerUpType.orientation === "horizontal"
-        ? Math.abs(position.col - col)
-        : Math.abs(position.row - row);
-      return {
-        end: this.cellCenter(position),
-        angleDeg,
-        durationMs: Math.max(ROCKET_MIN_FLIGHT_MS, distanceCells * ROCKET_SWEEP_MS_PER_CELL)
-      };
+        const trail = this.add.particles(origin.x, origin.y, vfxTextureKeys.spark, {
+          alpha: { start: 0.78, end: 0 },
+          blendMode: Phaser.BlendModes.ADD,
+          emitting: true,
+          frequency: 24,
+          lifespan: ROCKET_TRAIL_LIFESPAN_MS,
+          scale: { start: Math.max(0.18, this.tileSize / 190), end: 0 },
+          speed: { min: this.tileSize * 0.1, max: this.tileSize * 0.46 },
+          tint: 0xbaf6ff
+        });
+        trail.startFollow(sprite, 0, 0, true);
+        layer.add(trail);
+        this.vfxCleanup.trackObject(trail);
+
+        let nextPassIndex = 0;
+        const playPass = () => {
+          const pass = head.passTimes[nextPassIndex];
+          if (!pass || !this.sys.isActive() || !this.fxLayer?.active) return;
+          nextPassIndex += 1;
+          const target = this.cellCenter(pass.position);
+          this.recordPresentation("rocket-pass", positionKey(pass.position));
+          this.recordPresentation("rocket-tile-impact", positionKey(pass.position));
+          impactBurst(this, this.fxLayer, target.x, target.y, {
+            intensity: 0.38,
+            lifespanMs: 150,
+            tint: 0x8af1ff
+          }, this.vfxCleanup);
+        };
+        playPass();
+
+        const flightTween = this.tweens.add({
+          targets: sprite,
+          x: end.x,
+          y: end.y,
+          duration: head.flightMs,
+          ease: "Linear",
+          onUpdate: () => {
+            const axisDistance = orientation === "horizontal"
+              ? Math.abs(end.x - origin.x)
+              : Math.abs(end.y - origin.y);
+            const travelled = orientation === "horizontal"
+              ? Math.abs(sprite.x - origin.x)
+              : Math.abs(sprite.y - origin.y);
+            const progress = axisDistance === 0 ? 1 : travelled / axisDistance;
+            while (
+              nextPassIndex < head.passTimes.length &&
+              progress >= (head.passTimes[nextPassIndex].atMs - plan.ignitionMs) / head.flightMs
+            ) {
+              playPass();
+            }
+          },
+          onComplete: () => {
+            while (nextPassIndex < head.passTimes.length) playPass();
+            this.recordPresentation("rocket-edge-impact", positionKey(head.destination));
+            this.recordPresentation("powerup-impact", "rocket");
+            this.cueBoardAudio("rocketImpact", { gain: 0.38 });
+            trail.stop();
+            impactBurst(this, layer, end.x, end.y, {
+              intensity: 0.58,
+              lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
+              tint: 0x8af1ff
+            }, this.vfxCleanup);
+            this.vfxCleanup.release(sprite);
+            this.vfxCleanup.release(flightTween);
+            sprite.destroy();
+            this.vfxCleanup.schedule(this, ROCKET_TRAIL_CLEANUP_MS, () => {
+              this.vfxCleanup.release(trail);
+              if (trail.active) trail.destroy();
+            });
+            completedHeads += 1;
+            if (completedHeads === plan.heads.length && !cascadeTriggered) {
+              cascadeTriggered = true;
+              this.vfxCleanup.schedule(this, 1, () => onImpact?.());
+            }
+          }
+        });
+        this.vfxCleanup.trackTween(flightTween);
+      }
     });
   }
 
@@ -2634,8 +2689,13 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
       const radial = radialStagger(event.origin, positions, TNT_RADIAL_STAGGER_MS, TNT_RADIAL_STAGGER_MAX_MS);
       for (const [key, delay] of radial) setEarliestDelay(delays, key, TNT_FUSE_MS + delay);
     } else if (event.powerUpType.kind === "rocket") {
-      const sweep = sweepStagger(event.origin, positions, event.powerUpType.orientation, ROCKET_SWEEP_MS_PER_CELL);
-      for (const [key, delay] of sweep) setEarliestDelay(delays, key, delay);
+      const plan = rocketLanePlan(event.origin, event.powerUpType.orientation, snapshot.grid.rows, snapshot.grid.cols);
+      for (const head of plan.heads) {
+        for (const pass of head.passTimes) {
+          const key = positionKey(pass.position);
+          if (popKeys.has(key)) setEarliestDelay(delays, key, Math.max(0, pass.atMs - MATCH_POP_COMPRESSION_MS));
+        }
+      }
     } else if (event.powerUpType.kind === "propeller") {
       const primary = event.affectedPositions[0] ?? event.origin;
       const radial = radialStagger(primary, positions, PROPELLER_SECONDARY_STAGGER_MS, PROPELLER_SECONDARY_STAGGER_MAX_MS);
@@ -2660,8 +2720,10 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
   return delays;
 }
 
-function hasSingleTnt(delta: BoardDelta): boolean {
-  return delta.powerUpEvents.some((event) => event.powerUpType.kind === "tnt" && event.trigger.kind !== "combo");
+function hasSingleSequencedPowerUp(delta: BoardDelta): boolean {
+  return delta.powerUpEvents.some((event) => (
+    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket") && event.trigger.kind !== "combo"
+  ));
 }
 
 function interpolatePath(path: ReadonlyArray<{ x: number; y: number }>, t: number): { x: number; y: number } {

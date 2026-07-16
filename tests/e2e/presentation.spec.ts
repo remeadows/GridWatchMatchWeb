@@ -182,6 +182,37 @@ test.describe("single TNT", () => {
   });
 });
 
+test.describe("single rocket", () => {
+  test("launches two heads and clears each lane tile at its projectile pass", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await page.getByTestId("booster-rocket").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => {
+      const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
+      return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
+    });
+
+    const trace = await presentationTrace(page);
+    const launches = trace.filter((entry) => entry.kind === "rocket-head-launch");
+    const passes = trace.filter((entry) => entry.kind === "rocket-pass");
+    const impacts = trace.filter((entry) => entry.kind === "rocket-tile-impact");
+    const passByPosition = new Map(passes.map((entry) => [entry.detail, entry]));
+
+    expect(launches).toHaveLength(2);
+    expect(passes.length).toBeGreaterThanOrEqual(7);
+    expect(impacts).toHaveLength(passes.length);
+    for (const impact of impacts) {
+      const pass = passByPosition.get(impact.detail);
+      expect(pass).toBeDefined();
+      expect(impact.atMs).toBeGreaterThanOrEqual(pass!.atMs);
+      expect(impact.atMs - pass!.atMs).toBeLessThanOrEqual(17);
+    }
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");

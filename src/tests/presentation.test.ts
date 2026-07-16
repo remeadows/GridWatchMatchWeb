@@ -9,6 +9,7 @@ import {
   groupPowerUpEvents,
   matchTimeline,
   pieceDisplayProfile,
+  rocketLanePlan,
   tntDetonationPlan,
   tilePopVariation
 } from "../game/presentation";
@@ -105,6 +106,42 @@ describe("tntDetonationPlan", () => {
     expect(plan.cascadeStartAtMs - plan.detonationAtMs).toBeGreaterThanOrEqual(140);
     expect(plan.cascadeStartAtMs - plan.detonationAtMs).toBeLessThanOrEqual(220);
     expect(plan.sequenceBudgetMs).toBeLessThanOrEqual(850);
+  });
+});
+
+describe("rocketLanePlan", () => {
+  it("launches two opposing heads through every lane cell before one edge impact each", () => {
+    const plan = rocketLanePlan({ row: 3, col: 3 }, "horizontal", 7, 7);
+
+    expect(plan.ignitionMs).toBeGreaterThanOrEqual(60);
+    expect(plan.ignitionMs).toBeLessThanOrEqual(90);
+    expect(plan.heads).toHaveLength(2);
+    expect(plan.heads.map((head) => head.destination)).toEqual([
+      { row: 3, col: 0 },
+      { row: 3, col: 6 }
+    ]);
+    expect(plan.heads.map((head) => head.passTimes.map((pass) => pass.position))).toEqual([
+      [{ row: 3, col: 3 }, { row: 3, col: 2 }, { row: 3, col: 1 }, { row: 3, col: 0 }],
+      [{ row: 3, col: 3 }, { row: 3, col: 4 }, { row: 3, col: 5 }, { row: 3, col: 6 }]
+    ]);
+    expect(plan.heads.every((head) => head.impactAtMs === head.passTimes.at(-1)?.atMs)).toBe(true);
+    expect(plan.heads.every((head) => head.flightMs >= 320 && head.flightMs <= 430)).toBe(true);
+    expect(plan.heads.every((head) => head.passTimes.every((pass, index, passes) => (
+      index === 0 || pass.atMs >= passes[index - 1].atMs
+    )))).toBe(true);
+  });
+
+  it("mirrors the same two-head route vertically", () => {
+    const plan = rocketLanePlan({ row: 3, col: 3 }, "vertical", 7, 7);
+
+    expect(plan.heads.map((head) => head.destination)).toEqual([
+      { row: 0, col: 3 },
+      { row: 6, col: 3 }
+    ]);
+    expect(plan.heads.map((head) => head.passTimes.map((pass) => pass.position))).toEqual([
+      [{ row: 3, col: 3 }, { row: 2, col: 3 }, { row: 1, col: 3 }, { row: 0, col: 3 }],
+      [{ row: 3, col: 3 }, { row: 4, col: 3 }, { row: 5, col: 3 }, { row: 6, col: 3 }]
+    ]);
   });
 });
 
