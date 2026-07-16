@@ -41,10 +41,23 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return;
+    // Headless WebKit under CPU contention can starve requestAnimationFrame for
+    // seconds at a time while the task queue stays responsive. Phaser's delta
+    // smoothing then replaces each huge frame gap with a ~16ms "sane" delta, so
+    // tweens and clock timers crawl while the engine model and DOM race ahead
+    // -- e2e polls on animation side-effects (match bursts, booster FX) time
+    // out even though the game logic is fine. In test mode only, drive the
+    // loop from setTimeout: ticks come from the (responsive) task queue, so
+    // the game clock keeps pace regardless of compositor scheduling. Delta
+    // smoothing stays on -- with dense ticks it is benign, and it keeps the
+    // game clock from ever running AHEAD of wall time, which the win-sequence
+    // timing test relies on. Production keeps the default rAF loop.
+    const gwTestMode = new URLSearchParams(window.location.search).get("gwTestMode") === "1";
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: containerRef.current,
       backgroundColor: "#050b12",
+      ...(gwTestMode ? { fps: { forceSetTimeOut: true } } : {}),
       width: containerRef.current.clientWidth || 720,
       height: containerRef.current.clientHeight || 720,
       scale: {

@@ -417,7 +417,19 @@ export class BoardScene extends Phaser.Scene {
     ensureVfxTextures(this);
     this.installDomPointerHandlers();
     this.scale.on("resize", () => {
+      // A resize can land while a committed swap's resolve handoff is parked
+      // on the settle tween (pendingCommitCb). hardClearDrag alone would kill
+      // that tween and drop the handoff, wedging the active animation forever
+      // (no pops, activeAnimationId never cleared). Run the handoff instead:
+      // its resolution chain re-renders from scratch, picking up the new
+      // geometry on the way.
+      const pendingHandoff = this.pendingCommitCb;
+      this.pendingCommitCb = null;
       this.hardClearDrag();
+      if (pendingHandoff) {
+        pendingHandoff();
+        return;
+      }
       this.renderSnapshot();
     });
     this.renderSnapshot();
