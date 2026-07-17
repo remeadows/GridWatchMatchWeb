@@ -7,6 +7,7 @@ import {
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_LANDING_SQUASH_MS,
   CASCADE_START_AFTER_IMPACT_MS,
+  COMBO_CHOREOGRAPHY_MAX_MS,
   DRAG_LIFT_MS,
   MATCH_AFTERIMAGE_MS,
   MATCH_COLORED_DEBRIS_COUNT,
@@ -55,7 +56,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, comboChoreographyPlan, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -259,6 +260,10 @@ const LIGHTBALL_FX_BUDGET_MS = LIGHTBALL_CHARGE_MS + LIGHTBALL_TARGET_STAGGER_MA
   LIGHTBALL_FULL_SHOCKWAVE_MS,
   LIGHTBALL_ZAP_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
+const COMBO_DIM_IN_MS = 120;
+const COMBO_DIM_OUT_MS = 120;
+const COMBO_LOCAL_CORE_MS = 190;
+const COMBO_BATCH_BURST_CAP = 4;
 const POWERUP_EFFECT_MS = Math.max(TNT_FX_BUDGET_MS, ROCKET_FX_BUDGET_MS, PROPELLER_FX_BUDGET_MS, LIGHTBALL_FX_BUDGET_MS);
 const motionTiming = {
   blockedJiggle: 72,
@@ -291,7 +296,7 @@ const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
   LIGHTBALL_CHARGE_MS + LIGHTBALL_TARGET_STAGGER_MAX_MS
 );
 const POWERUP_RESOLVE_BUDGET_MS =
-  POWERUP_POP_STAGGER_BUDGET_MS +
+  Math.max(POWERUP_POP_STAGGER_BUDGET_MS, COMBO_CHOREOGRAPHY_MAX_MS) +
   MATCH_POP_COMPRESSION_MS +
   MATCH_IMPACT_MS +
   CASCADE_FALL_MAX_MS +
@@ -724,7 +729,7 @@ export class BoardScene extends Phaser.Scene {
         flashColors,
         popStagger,
         startPowerUpEffectsAfterPopRender,
-        hasSingleSequencedPowerUp(delta) ? undefined : runCascade,
+        hasSequencedPowerUp(delta) ? undefined : runCascade,
         delta.powerUpEvents.length === 0
       );
     }
@@ -762,7 +767,7 @@ export class BoardScene extends Phaser.Scene {
         if (delta.powerUpEvents.length === 0) return;
         this.playPowerUpEffects(delta, runCascade);
         this.recordPowerUpFxAfterPopRender();
-      }, hasSingleSequencedPowerUp(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0);
+      }, hasSequencedPowerUp(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0);
     });
   }
 
@@ -946,43 +951,374 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPowerUpEffects(delta: BoardDelta, onSingleSequencedPowerUpCascade?: () => void): void {
+    const groups = groupPowerUpEvents(delta.powerUpEvents);
     if (this.reducedMotion) {
+      const combo = groups.find((group) => group.kind === "combo");
       const event = delta.powerUpEvents[0];
-      if (event) this.cueBoardAudio(reducedMotionPowerUpCue(event), { gain: 0.28 });
+      if (combo) this.cueBoardAudio("comboImpact", { gain: 0.28 });
+      else if (event) this.cueBoardAudio(reducedMotionPowerUpCue(event), { gain: 0.28 });
       return;
     }
 
-    for (const group of groupPowerUpEvents(delta.powerUpEvents)) {
-      // Task 15 owns combo choreography. Booster resolution also emits a
-      // normal event, which owns the single-power-up presentation here.
-      if (group.kind === "combo" && (group.key === "tnt+tnt" || group.events.some((event) => (
-        event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall"
-      )))) continue;
+    const hasSingleGroup = groups.some((group) => group.kind === "single");
+    const comboGroups = groups.filter((group) => group.kind === "combo" && !hasSingleGroup);
+    let remainingCombos = comboGroups.length;
+    const finishCombo = () => {
+      remainingCombos -= 1;
+      if (remainingCombos === 0) onSingleSequencedPowerUpCascade?.();
+    };
+    for (const group of groups) {
+      if (group.kind === "combo" && hasSingleGroup) continue;
       if (group.kind !== "combo") {
         for (const event of group.events) {
           this.playPowerUpEffect(
             event,
-            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") && event.trigger.kind !== "combo"
+            comboGroups.length === 0 &&
+            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") &&
+            event.trigger.kind !== "combo"
               ? onSingleSequencedPowerUpCascade
               : undefined
           );
         }
         continue;
       }
+      this.playComboPowerUpEffect(group, finishCombo);
+    }
+  }
 
-      this.recordPresentation("combo-charge", group.key ?? undefined);
-      this.cueBoardAudio("comboCharge");
-      let hasImpactCue = false;
-      for (const event of group.events) {
-        this.playPowerUpEffect(event, () => {
-          if (hasImpactCue) return;
-          hasImpactCue = true;
-          this.recordPresentation("combo-impact", group.key ?? undefined);
-          this.cueBoardAudio("comboImpact");
-          audioService.vibrate([18, 35, 28]);
-        });
+  private playComboPowerUpEffect(group: PowerUpPresentationGroup, onComplete?: () => void): void {
+    if (!this.snapshot || !this.fxLayer || !this.fxScreen || group.kind !== "combo" || !group.key) {
+      onComplete?.();
+      return;
+    }
+    const plan = comboChoreographyPlan(group, this.snapshot.rngSeed, this.reducedMotion);
+    if (this.reducedMotion) {
+      this.cueBoardAudio("comboImpact", { gain: 0.28 });
+      onComplete?.();
+      return;
+    }
+
+    const center = this.cellCenter(plan.center);
+    const dimmer = this.createComboDimmer(plan.key);
+    this.recordPresentation("combo-charge", plan.key);
+    this.cueBoardAudio("comboCharge");
+    this.playComboChargeVisual(plan, group, center);
+
+    this.time.delayedCall(plan.chargeAtMs, () => {
+      if (!this.sys.isActive() || !this.fxLayer?.active) return;
+      this.recordPresentation("combo-armed", plan.key);
+      this.cueComboTypeLayer(plan.key);
+      this.playComboLaunchVisual(plan, center);
+    });
+
+    this.time.delayedCall(plan.impactAtMs, () => {
+      if (!this.sys.isActive() || !this.fxLayer?.active) return;
+      this.recordPresentation("combo-impact", plan.key);
+      this.cueBoardAudio("comboImpact");
+      audioService.vibrate(comboVibration(plan.key));
+      this.playComboPrimaryImpact(plan, center);
+    });
+
+    plan.batches.forEach((batch, index) => {
+      this.time.delayedCall(batch.atMs, () => {
+        if (!this.sys.isActive() || !this.fxLayer?.active) return;
+        this.recordPresentation("combo-visual-batch", `${plan.key}:${index}:${batch.affectedPositions.length}`);
+        this.playComboBatchVisual(plan, batch, index, center);
+      });
+    });
+
+    const restoreAtMs = Math.max(plan.impactAtMs, plan.cascadeAtMs - COMBO_DIM_OUT_MS);
+    this.time.delayedCall(restoreAtMs, () => {
+      if (!dimmer?.active) return;
+      this.tweens.add({
+        targets: dimmer,
+        alpha: 0,
+        duration: COMBO_DIM_OUT_MS,
+        ease: "Sine.easeOut",
+        onComplete: () => dimmer.destroy()
+      });
+    });
+    this.time.delayedCall(plan.cascadeAtMs, () => {
+      if (!this.sys.isActive()) return;
+      if (dimmer?.active) dimmer.destroy();
+      onComplete?.();
+    });
+  }
+
+  private createComboDimmer(key: CanonicalComboKey): Phaser.GameObjects.Graphics | null {
+    if (!this.fxScreen || !key.includes("lightBall")) return null;
+    const dimmer = this.add.graphics();
+    const alpha = key === "lightBall+lightBall" ? 0.52 : 0.38;
+    dimmer.fillStyle(0x020712, alpha);
+    dimmer.fillRect(-this.fxScreen.x, -this.fxScreen.y, this.scale.width, this.scale.height);
+    dimmer.setAlpha(0);
+    this.fxScreen.add(dimmer);
+    this.tweens.add({ targets: dimmer, alpha: 1, duration: COMBO_DIM_IN_MS, ease: "Sine.easeInOut" });
+    return dimmer;
+  }
+
+  private playComboChargeVisual(
+    plan: ComboChoreographyPlan,
+    group: PowerUpPresentationGroup,
+    center: { x: number; y: number }
+  ): void {
+    if (!this.fxLayer) return;
+    const pair = comboPowerUpPair(plan.key);
+    const rig = this.add.container(center.x, center.y);
+    const halo = this.add.graphics();
+    const tint = comboTint(plan.key);
+    halo.lineStyle(5, tint, 0.8);
+    halo.strokeCircle(0, 0, this.tileSize * 0.68);
+    halo.lineStyle(2, 0xffffff, 0.9);
+    halo.strokeCircle(0, 0, this.tileSize * 0.5);
+    const icons = pair.map((powerUp, index) => {
+      const icon = this.add.image((index === 0 ? -1 : 1) * this.tileSize * 0.34, 0, imageKeyForPowerUp(powerUp));
+      icon.setDisplaySize(this.tileSize * 0.7, this.tileSize * 0.7);
+      return icon;
+    });
+    rig.add([halo, ...icons]);
+    rig.setBlendMode(Phaser.BlendModes.ADD);
+    this.fxLayer.add(rig);
+    if (plan.key === "lightBall+lightBall") rig.setAngle(-90);
+    icons.forEach((icon, index) => {
+      this.tweens.add({
+        targets: icon,
+        x: (index === 0 ? -1 : 1) * this.tileSize * 0.14,
+        scaleX: icon.scaleX * 1.16,
+        scaleY: icon.scaleY * 1.16,
+        duration: plan.chargeAtMs,
+        ease: "Sine.easeInOut"
+      });
+    });
+    this.tweens.add({
+      targets: rig,
+      angle: plan.key === "lightBall+lightBall" ? 270 : 18,
+      scaleX: 1.12,
+      scaleY: 1.12,
+      duration: plan.impactAtMs,
+      ease: "Sine.easeInOut",
+      onComplete: () => rig.destroy()
+    });
+
+    const originCenters = group.events.slice(0, 4).map((event) => this.cellCenter(event.origin));
+    for (const origin of originCenters) {
+      laneBlast(this, this.fxLayer, origin, center, {
+        durationMs: plan.chargeAtMs,
+        scale: Math.max(0.36, this.tileSize / 120),
+        tint
+      }, this.vfxCleanup);
+    }
+    if (plan.key.includes("lightBall")) this.drawComboOverlays(plan);
+  }
+
+  private drawComboOverlays(plan: ComboChoreographyPlan): void {
+    if (!this.fxLayer) return;
+    const overlays = this.add.graphics();
+    overlays.setBlendMode(Phaser.BlendModes.ADD);
+    const tint = comboTint(plan.key);
+    for (const position of plan.finalStatePositions) {
+      const center = this.cellCenter(position);
+      overlays.lineStyle(2, tint, 0.55);
+      if (plan.key === "lightBall+rocket") {
+        overlays.strokeRoundedRect(center.x - this.tileSize * 0.28, center.y - this.tileSize * 0.12, this.tileSize * 0.56, this.tileSize * 0.24, 3);
+      } else if (plan.key === "lightBall+propeller") {
+        overlays.strokeCircle(center.x, center.y, this.tileSize * 0.22);
+        overlays.lineBetween(center.x - this.tileSize * 0.2, center.y, center.x + this.tileSize * 0.2, center.y);
+      } else {
+        overlays.strokeCircle(center.x, center.y, this.tileSize * 0.25);
       }
     }
+    overlays.setAlpha(0);
+    this.fxLayer.add(overlays);
+    this.tweens.add({
+      targets: overlays,
+      alpha: 0.78,
+      duration: plan.chargeAtMs,
+      yoyo: true,
+      hold: Math.max(0, plan.cascadeAtMs - plan.chargeAtMs * 2),
+      ease: "Sine.easeInOut",
+      onComplete: () => overlays.destroy()
+    });
+  }
+
+  private cueComboTypeLayer(key: CanonicalComboKey): void {
+    if (key.includes("rocket")) this.cueBoardAudio("rocketLaunch", { gain: 0.24 });
+    else if (key.includes("propeller")) this.cueBoardAudio("propellerLift", { gain: 0.22 });
+    else if (key.includes("tnt")) this.cueBoardAudio("tntArm", { gain: 0.22 });
+    else this.cueBoardAudio("lightBallCharge", { gain: 0.24 });
+  }
+
+  private playComboLaunchVisual(plan: ComboChoreographyPlan, center: { x: number; y: number }): void {
+    if (!this.fxLayer) return;
+    if (plan.key === "rocket+rocket") {
+      const destinations = [
+        { x: this.boardBounds.left, y: center.y, powerUp: { kind: "rocket", orientation: "horizontal" } as PowerUpType },
+        { x: this.boardBounds.right, y: center.y, powerUp: { kind: "rocket", orientation: "horizontal" } as PowerUpType },
+        { x: center.x, y: this.boardBounds.top, powerUp: { kind: "rocket", orientation: "vertical" } as PowerUpType },
+        { x: center.x, y: this.boardBounds.bottom, powerUp: { kind: "rocket", orientation: "vertical" } as PowerUpType }
+      ];
+      destinations.forEach((entry) => this.launchComboPayload(entry.powerUp, center, entry, plan.impactAtMs - plan.chargeAtMs));
+      return;
+    }
+
+    const targetCount = Math.min(plan.projectileCount, 6);
+    if (targetCount === 0) return;
+    const targets = plan.batches.flatMap((batch) => batch.affectedPositions).slice(0, targetCount);
+    const powerUp: PowerUpType = plan.key.includes("propeller") ? { kind: "propeller" } : { kind: "rocket", orientation: "horizontal" };
+    const payload: PowerUpType | undefined = plan.key === "propeller+tnt" || plan.key === "rocket+tnt"
+      ? { kind: "tnt" }
+      : plan.key === "propeller+rocket"
+        ? { kind: "rocket", orientation: "horizontal" }
+        : undefined;
+    targets.forEach((target, index) => {
+      const destination = this.cellCenter(target);
+      this.time.delayedCall(index * 28, () => {
+        if (this.sys.isActive()) this.launchComboPayload(powerUp, center, destination, Math.max(180, plan.impactAtMs - plan.chargeAtMs), payload);
+      });
+    });
+  }
+
+  private launchComboPayload(
+    powerUp: PowerUpType,
+    from: { x: number; y: number },
+    to: { x: number; y: number },
+    durationMs: number,
+    payload?: PowerUpType
+  ): void {
+    if (!this.fxLayer) return;
+    const craft = this.add.container(from.x, from.y);
+    const body = this.add.image(0, 0, imageKeyForPowerUp(powerUp));
+    body.setDisplaySize(this.tileSize * 0.58, this.tileSize * 0.58);
+    craft.add(body);
+    if (payload) {
+      const payloadIcon = this.add.image(0, this.tileSize * 0.25, imageKeyForPowerUp(payload));
+      payloadIcon.setDisplaySize(this.tileSize * 0.28, this.tileSize * 0.28);
+      craft.add(payloadIcon);
+    }
+    craft.setBlendMode(Phaser.BlendModes.ADD);
+    craft.setAngle(Phaser.Math.RadToDeg(Math.atan2(to.y - from.y, to.x - from.x)));
+    this.fxLayer.add(craft);
+    this.tweens.add({
+      targets: craft,
+      x: to.x,
+      y: to.y,
+      duration: durationMs,
+      ease: powerUp.kind === "propeller" ? "Sine.easeInOut" : "Linear",
+      onComplete: () => craft.destroy()
+    });
+  }
+
+  private playComboPrimaryImpact(plan: ComboChoreographyPlan, center: { x: number; y: number }): void {
+    if (!this.fxLayer || !this.fxScreen) return;
+    this.recordPresentation("screen-flash", `combo:${plan.key}`);
+    screenFlash(this, this.fxScreen, {
+      alpha: plan.key === "lightBall+lightBall" ? 0.34 : 0.28,
+      durationMs: 80,
+      tint: comboTint(plan.key)
+    }, this.vfxCleanup);
+    shockwave(this, this.fxLayer, center.x, center.y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * (plan.key === "lightBall+lightBall" ? 0.78 : 0.58),
+      durationMs: 320,
+      tint: comboTint(plan.key)
+    }, this.vfxCleanup);
+    if (plan.key === "tnt+tnt") {
+      shockwave(this, this.fxLayer, center.x, center.y, {
+        radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
+        durationMs: 430,
+        tint: 0xffd37a
+      }, this.vfxCleanup);
+    }
+    if (plan.key === "rocket+rocket" || plan.key === "lightBall+lightBall") {
+      laneBlast(this, this.fxLayer, { x: this.boardBounds.left, y: center.y }, { x: this.boardBounds.right, y: center.y }, {
+        durationMs: 240,
+        scale: Math.max(0.65, this.tileSize / 70),
+        tint: comboTint(plan.key)
+      }, this.vfxCleanup);
+      laneBlast(this, this.fxLayer, { x: center.x, y: this.boardBounds.top }, { x: center.x, y: this.boardBounds.bottom }, {
+        durationMs: 240,
+        scale: Math.max(0.65, this.tileSize / 70),
+        tint: comboTint(plan.key)
+      }, this.vfxCleanup);
+    }
+    shake(this, plan.key === "lightBall+lightBall" || plan.key === "tnt+tnt" ? 0.009 : 0.007, 180, this.reducedMotion);
+  }
+
+  private playComboBatchVisual(
+    plan: ComboChoreographyPlan,
+    batch: ComboVisualBatch,
+    batchIndex: number,
+    center: { x: number; y: number }
+  ): void {
+    if (!this.fxLayer) return;
+    const tint = comboTint(plan.key);
+    const particlePerBurst = Math.max(2, Math.floor(plan.particleCount / Math.max(1, plan.batches.length * COMBO_BATCH_BURST_CAP)));
+    batch.affectedPositions.forEach((position, index) => {
+      const target = this.cellCenter(position);
+      const core = this.add.image(target.x, target.y, vfxTextureKeys.hotCore);
+      core.setTint(tint);
+      core.setBlendMode(Phaser.BlendModes.ADD);
+      core.setScale(Math.max(0.34, this.tileSize / 110));
+      this.fxLayer!.add(core);
+      this.tweens.add({
+        targets: core,
+        alpha: 0,
+        scaleX: core.scaleX * 1.8,
+        scaleY: core.scaleY * 1.8,
+        duration: COMBO_LOCAL_CORE_MS,
+        ease: "Quad.easeOut",
+        onComplete: () => core.destroy()
+      });
+      if (index < COMBO_BATCH_BURST_CAP) {
+        burst(this, this.fxLayer!, target.x, target.y, {
+          texture: batch.kind === "blast" ? vfxTextureKeys.shard : vfxTextureKeys.spark,
+          count: particlePerBurst,
+          speed: this.tileSize * 1.8,
+          lifespanMs: 220,
+          tint,
+          scale: Math.max(0.22, this.tileSize / 180)
+        }, this.vfxCleanup);
+      }
+    });
+
+    const representative = batch.affectedPositions.slice(0, batch.kind === "drone-strike" ? 2 : 3);
+    if (batch.kind === "lane-pass" || batch.kind === "conversion") {
+      representative.forEach((position) => laneBlast(this, this.fxLayer!, center, this.cellCenter(position), {
+        durationMs: 170,
+        scale: Math.max(0.34, this.tileSize / 130),
+        tint
+      }, this.vfxCleanup));
+    } else if (batch.kind === "blast") {
+      representative.slice(0, 2).forEach((position) => {
+        const target = this.cellCenter(position);
+        shockwave(this, this.fxLayer!, target.x, target.y, {
+          radiusPx: this.tileSize * (plan.key === "tnt+tnt" ? 0.82 : 0.62),
+          durationMs: 210,
+          tint
+        }, this.vfxCleanup);
+      });
+    } else if (batch.kind === "drone-strike") {
+      representative.forEach((position, index) => {
+        const target = this.cellCenter(position);
+        laneBlast(this, this.fxLayer!, {
+          x: target.x + (index === 0 ? -1 : 1) * this.tileSize * 0.6,
+          y: target.y - this.tileSize * 0.8
+        }, target, { durationMs: 150, scale: 0.38, tint }, this.vfxCleanup);
+      });
+    }
+    if (plan.key === "lightBall+lightBall" && batchIndex === plan.batches.length - 1) {
+      this.cueBoardAudio("lightBallRelease", { gain: 0.3 });
+    }
+  }
+
+  private previewPowerUpCombo(key: CanonicalComboKey): void {
+    if (!this.isPresentationTestMode() || !this.snapshot || !isCanonicalComboKey(key)) return;
+    this.resetPresentationTrace();
+    this.presentationSequenceId += 1;
+    this.activePresentationSequenceId = this.presentationSequenceId;
+    this.presentationPlannedAtMs = this.time.now;
+    this.recordPresentation("combo-preview-start", key);
+    const group = comboPreviewGroup(key, this.snapshot);
+    this.playComboPowerUpEffect(group, () => this.recordPresentation("combo-preview-complete", key));
   }
 
   private playTilePops(
@@ -1428,6 +1764,7 @@ export class BoardScene extends Phaser.Scene {
 
       this.time.delayedCall(POWERUP_CREATION_CHARGE_MS, () => {
         if (!this.sys.isActive()) return;
+        const impactAtMs = this.time.now;
         this.recordPresentation("powerup-create-impact", creation.powerUp.kind);
         this.cueBoardAudio("powerUpCreate", { gain: 0.58 });
         shockwave(this, this.fxLayer!, destination.x, destination.y, {
@@ -1453,8 +1790,15 @@ export class BoardScene extends Phaser.Scene {
               duration: POWERUP_CREATION_SETTLE_MS,
               ease: "Sine.easeOut",
               onComplete: () => {
-                this.recordPresentation("powerup-create-stable", creation.powerUp.kind);
-                done();
+                const markStable = () => {
+                  if (this.time.now <= impactAtMs) {
+                    this.time.delayedCall(1, markStable);
+                    return;
+                  }
+                  this.recordPresentation("powerup-create-stable", creation.powerUp.kind);
+                  done();
+                };
+                markStable();
               }
             });
           }
@@ -2158,9 +2502,11 @@ export class BoardScene extends Phaser.Scene {
     const target = window as Window & {
       __gwBoardReady?: boolean;
       __gwBoardCellClientPoint?: ((row: number, col: number) => { x: number; y: number } | null) | null;
+      __gwPreviewPowerUpCombo?: ((combo: CanonicalComboKey) => void) | null;
     };
     target.__gwBoardReady = ready;
     target.__gwBoardCellClientPoint = ready ? (row, col) => this.cellClientPoint(row, col) : null;
+    target.__gwPreviewPowerUpCombo = ready ? (combo) => this.previewPowerUpCombo(combo) : null;
   }
 
   private cellClientPoint(row: number, col: number): { x: number; y: number } | null {
@@ -2719,6 +3065,107 @@ export class BoardScene extends Phaser.Scene {
   }
 }
 
+const canonicalComboKeys: readonly CanonicalComboKey[] = [
+  "rocket+rocket",
+  "propeller+rocket",
+  "rocket+tnt",
+  "lightBall+rocket",
+  "propeller+propeller",
+  "propeller+tnt",
+  "lightBall+propeller",
+  "tnt+tnt",
+  "lightBall+tnt",
+  "lightBall+lightBall"
+];
+
+function isCanonicalComboKey(value: string): value is CanonicalComboKey {
+  return canonicalComboKeys.includes(value as CanonicalComboKey);
+}
+
+function comboPowerUpPair(key: CanonicalComboKey): [PowerUpType, PowerUpType] {
+  const rocketHorizontal: PowerUpType = { kind: "rocket", orientation: "horizontal" };
+  const rocketVertical: PowerUpType = { kind: "rocket", orientation: "vertical" };
+  const propeller: PowerUpType = { kind: "propeller" };
+  const tnt: PowerUpType = { kind: "tnt" };
+  const lightBall: PowerUpType = { kind: "lightBall" };
+  const pairs: Record<CanonicalComboKey, [PowerUpType, PowerUpType]> = {
+    "rocket+rocket": [rocketHorizontal, rocketVertical],
+    "propeller+rocket": [propeller, rocketHorizontal],
+    "rocket+tnt": [rocketHorizontal, tnt],
+    "lightBall+rocket": [lightBall, rocketHorizontal],
+    "propeller+propeller": [propeller, propeller],
+    "propeller+tnt": [propeller, tnt],
+    "lightBall+propeller": [lightBall, propeller],
+    "tnt+tnt": [tnt, tnt],
+    "lightBall+tnt": [lightBall, tnt],
+    "lightBall+lightBall": [lightBall, lightBall]
+  };
+  return pairs[key];
+}
+
+function comboPreviewEventTypes(key: CanonicalComboKey): PowerUpType[] {
+  const [left, right] = comboPowerUpPair(key);
+  if (key === "rocket+rocket") return [left, right];
+  if (key === "propeller+rocket") return [left, right, right, right];
+  if (key === "lightBall+rocket") return [right, right, right, right];
+  if (key === "lightBall+propeller") return [right, right, right, right, right, right];
+  if (key === "lightBall+tnt") return [right, right, right, right, right];
+  return [right];
+}
+
+function comboPreviewGroup(key: CanonicalComboKey, snapshot: BoardSnapshot): PowerUpPresentationGroup {
+  const occupied = snapshot.grid.allPositions.filter((position) => {
+    const cell = snapshot.grid.get(position);
+    return cell.generator === null && Boolean(cell.baseTile || cell.powerUp || cell.overlay || cell.underlay);
+  });
+  const targets = occupied.length > 0 ? occupied : snapshot.grid.allPositions;
+  const eventTypes = comboPreviewEventTypes(key);
+  const pair = comboPowerUpPair(key);
+  const center = targets[Math.floor(targets.length / 2)] ?? { row: 0, col: 0 };
+  const originOffsets = [
+    { row: 0, col: 0 }, { row: 0, col: 1 }, { row: -1, col: 0 },
+    { row: 1, col: 0 }, { row: 0, col: -1 }, { row: -1, col: 1 }
+  ];
+  const previewOrigins = originOffsets.map((offset) => ({
+    row: Math.min(snapshot.grid.rows - 1, Math.max(0, center.row + offset.row)),
+    col: Math.min(snapshot.grid.cols - 1, Math.max(0, center.col + offset.col))
+  }));
+  const events = eventTypes.map((powerUpType, eventIndex): PowerUpEvent => {
+    const origin = previewOrigins[eventIndex % previewOrigins.length];
+    let affectedPositions = targets.filter((_, targetIndex) => targetIndex % eventTypes.length === eventIndex);
+    if (key === "rocket+rocket") {
+      affectedPositions = targets.filter((position) => eventIndex === 0 ? position.row === center.row : position.col === center.col);
+    }
+    if (affectedPositions.length === 0) affectedPositions = [origin];
+    const withPowerUp = powerUpType.kind === pair[0].kind && pair[0].kind !== pair[1].kind ? pair[1] : pair[0];
+    return {
+      powerUpType,
+      origin,
+      affectedPositions,
+      trigger: { kind: "combo", with: withPowerUp }
+    };
+  });
+  return {
+    kind: "combo",
+    key,
+    events,
+    affectedPositions: events.flatMap((event) => event.affectedPositions)
+  };
+}
+
+function comboTint(key: CanonicalComboKey): number {
+  if (key.includes("lightBall")) return key === "lightBall+lightBall" ? 0xf4ecff : 0xc88cff;
+  if (key.includes("tnt")) return key === "tnt+tnt" ? 0xffd37a : 0xff9a43;
+  if (key.includes("propeller")) return 0x70f2ea;
+  return 0x58e6ff;
+}
+
+function comboVibration(key: CanonicalComboKey): number[] {
+  if (key === "tnt+tnt" || key === "lightBall+lightBall") return [24, 35, 34];
+  if (key.includes("tnt")) return [20, 30, 28];
+  return [16, 28, 22];
+}
+
 function hiddenPositionsFor(action: BoardAction): Set<string> {
   if (action.kind !== "swap") return new Set();
   return new Set([positionKey(action.from), positionKey(action.to)]);
@@ -2760,7 +3207,25 @@ function clearFlashColors(delta: BoardDelta): Map<string, number> {
 
 function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: ReadonlySet<string>): Map<string, number> {
   const delays = new Map<string, number>();
+  const comboEvents = new Set<PowerUpEvent>();
+  const groups = groupPowerUpEvents(delta.powerUpEvents);
+  const hasSingleGroup = groups.some((group) => group.kind === "single");
+  for (const group of groups) {
+    if (hasSingleGroup) continue;
+    if (group.kind !== "combo") continue;
+    group.events.forEach((event) => comboEvents.add(event));
+    const plan = comboChoreographyPlan(group, snapshot.rngSeed, false);
+    for (const batch of plan.batches) {
+      for (const position of batch.affectedPositions) {
+        const key = positionKey(position);
+        if (popKeys.has(key) && snapshot.grid.isValid(position)) {
+          setEarliestDelay(delays, key, Math.max(0, batch.atMs - MATCH_POP_COMPRESSION_MS));
+        }
+      }
+    }
+  }
   for (const event of delta.powerUpEvents) {
+    if (comboEvents.has(event)) continue;
     const positions = [event.origin, ...event.affectedPositions].filter((position) => {
       const key = positionKey(position);
       return popKeys.has(key) && snapshot.grid.isValid(position);
@@ -2800,9 +3265,9 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
   return delays;
 }
 
-function hasSingleSequencedPowerUp(delta: BoardDelta): boolean {
+function hasSequencedPowerUp(delta: BoardDelta): boolean {
   return delta.powerUpEvents.some((event) => (
-    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") && event.trigger.kind !== "combo"
+    event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall"
   ));
 }
 

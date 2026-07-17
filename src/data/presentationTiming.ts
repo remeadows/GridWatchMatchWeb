@@ -37,6 +37,22 @@ export const LIGHTBALL_DIM_MS = 120;
 export const LIGHTBALL_CHARGE_MS = 120;
 export const LIGHTBALL_WAVE_STAGGER_MS = 100;
 export const LIGHTBALL_RELEASE_DELAY_MS = 120;
+export const COMBO_CHOREOGRAPHY_TIMING = {
+  "rocket+rocket": { chargeMs: 220, impactMs: 500, cascadeMs: 900, batchCount: 4 },
+  "propeller+rocket": { chargeMs: 240, impactMs: 650, cascadeMs: 1_050, batchCount: 3 },
+  "rocket+tnt": { chargeMs: 260, impactMs: 650, cascadeMs: 1_050, batchCount: 2 },
+  "lightBall+rocket": { chargeMs: 280, impactMs: 820, cascadeMs: 1_080, batchCount: 4 },
+  "propeller+propeller": { chargeMs: 220, impactMs: 620, cascadeMs: 980, batchCount: 2 },
+  "propeller+tnt": { chargeMs: 250, impactMs: 720, cascadeMs: 1_120, batchCount: 3 },
+  "lightBall+propeller": { chargeMs: 280, impactMs: 840, cascadeMs: 1_120, batchCount: 4 },
+  "tnt+tnt": { chargeMs: 260, impactMs: 600, cascadeMs: 1_050, batchCount: 4 },
+  "lightBall+tnt": { chargeMs: 280, impactMs: 800, cascadeMs: 1_120, batchCount: 5 },
+  "lightBall+lightBall": { chargeMs: 300, impactMs: 850, cascadeMs: 1_150, batchCount: 5 }
+} as const;
+export const COMBO_BATCH_PARTICLE_CAP = 120;
+export const COMBO_ARC_CAP = 16;
+export const COMBO_PROJECTILE_CAP = 12;
+export const COMBO_CHOREOGRAPHY_MAX_MS = 1_150;
 export const MATCH_WAVE_PER_GRID_MS = 18;
 export const MATCH_WAVE_MAX_MS = 64;
 export const CASCADE_START_AFTER_IMPACT_MS = 100;

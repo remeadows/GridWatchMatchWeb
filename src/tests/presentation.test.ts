@@ -4,6 +4,7 @@ import {
   canonicalComboKey,
   cascadeFallDurationMs,
   chainPlaybackRate,
+  comboChoreographyPlan,
   createdPowerUpSpawns,
   eventIntensity,
   groupPowerUpEvents,
@@ -13,7 +14,8 @@ import {
   propellerFlightPlan,
   rocketLanePlan,
   tntDetonationPlan,
-  tilePopVariation
+  tilePopVariation,
+  type CanonicalComboKey
 } from "../game/presentation";
 
 const rocketHorizontal: PowerUpType = { kind: "rocket", orientation: "horizontal" };
@@ -77,6 +79,80 @@ describe("groupPowerUpEvents", () => {
     expect(groups[2].events).toEqual([swap]);
     expect(groups[3].key).toBe("rocket+tnt");
     expect(groups[3].events).toEqual([comboC]);
+  });
+
+  it("recognizes the engine's distant endpoint TNT footprint as rocket plus TNT", () => {
+    const endpointBlast: PowerUpEvent = {
+      powerUpType: tnt,
+      origin: { row: 3, col: 3 },
+      affectedPositions: [
+        { row: 2, col: 0 }, { row: 3, col: 0 }, { row: 4, col: 0 },
+        { row: 2, col: 6 }, { row: 3, col: 6 }, { row: 4, col: 6 }
+      ],
+      trigger: { kind: "combo", with: tnt }
+    };
+
+    expect(groupPowerUpEvents([endpointBlast])[0].key).toBe("rocket+tnt");
+  });
+});
+
+describe("comboChoreographyPlan", () => {
+  const combos: Array<{ key: CanonicalComboKey; left: PowerUpType; right: PowerUpType }> = [
+    { key: "rocket+rocket", left: rocketHorizontal, right: rocketVertical },
+    { key: "propeller+rocket", left: propeller, right: rocketHorizontal },
+    { key: "rocket+tnt", left: rocketHorizontal, right: tnt },
+    { key: "lightBall+rocket", left: lightBall, right: rocketHorizontal },
+    { key: "propeller+propeller", left: propeller, right: propeller },
+    { key: "propeller+tnt", left: propeller, right: tnt },
+    { key: "lightBall+propeller", left: lightBall, right: propeller },
+    { key: "tnt+tnt", left: tnt, right: tnt },
+    { key: "lightBall+tnt", left: lightBall, right: tnt },
+    { key: "lightBall+lightBall", left: lightBall, right: lightBall }
+  ];
+
+  it.each(combos)("authors one bounded $key event hierarchy", ({ key, left, right }) => {
+    const events = [
+      powerUpEvent(left, { kind: "combo", with: right }, 2, 2),
+      powerUpEvent(right, { kind: "combo", with: left }, 4, 3)
+    ];
+    const [group] = groupPowerUpEvents(events);
+    const plan = comboChoreographyPlan(group, "combo-seed", false);
+
+    expect(groupPowerUpEvents(events)).toHaveLength(1);
+    expect(group.key).toBe(key);
+    expect(plan.key).toBe(key);
+    expect(plan.cues.filter((cue) => cue.kind === "combo-charge")).toHaveLength(1);
+    expect(plan.cues.filter((cue) => cue.kind === "combo-impact")).toHaveLength(1);
+    expect(plan.cues.map((cue) => cue.kind as string)).not.toContain("powerup-charge");
+    expect(plan.events.map((event) => event.eventIndex)).toEqual([0, 1]);
+    expect(plan.events.flatMap((event) => event.affectedPositions)).toEqual(expect.arrayContaining(
+      events.flatMap((event) => event.affectedPositions)
+    ));
+    expect(plan.projectileCount).toBeLessThanOrEqual(12);
+    expect(plan.arcCount).toBeLessThanOrEqual(16);
+    expect(plan.particleCount).toBeLessThanOrEqual(120);
+    expect(plan.screenFlashCount).toBeLessThanOrEqual(1);
+    expect(plan.chargeAtMs).toBeGreaterThanOrEqual(180);
+    expect(plan.chargeAtMs).toBeLessThanOrEqual(300);
+    expect(plan.cascadeAtMs).toBeGreaterThanOrEqual(850);
+    expect(plan.cascadeAtMs).toBeLessThanOrEqual(1_450);
+    expect(plan.batches.every((batch, index) => index === 0 || batch.atMs >= plan.batches[index - 1].atMs)).toBe(true);
+  });
+
+  it.each(combos)("reduces $key to one low-gain impact and final state", ({ left, right }) => {
+    const [group] = groupPowerUpEvents([
+      powerUpEvent(left, { kind: "combo", with: right }, 2, 2),
+      powerUpEvent(right, { kind: "combo", with: left }, 4, 3)
+    ]);
+    const plan = comboChoreographyPlan(group, "combo-seed", true);
+
+    expect(plan.cues).toEqual([{ kind: "combo-impact", atMs: 0, gain: 0.28 }]);
+    expect(plan.batches).toEqual([]);
+    expect(plan.projectileCount).toBe(0);
+    expect(plan.arcCount).toBe(0);
+    expect(plan.particleCount).toBe(0);
+    expect(plan.finalStatePositions).toEqual(expect.arrayContaining([...group.affectedPositions]));
+    expect(plan.cascadeAtMs).toBe(0);
   });
 });
 

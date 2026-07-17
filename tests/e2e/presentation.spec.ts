@@ -1,5 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
-import type { PresentationTraceEntry } from "../../src/game/presentation";
+import type { CanonicalComboKey, PresentationTraceEntry } from "../../src/game/presentation";
+
+const powerUpCombos: CanonicalComboKey[] = [
+  "rocket+rocket",
+  "propeller+rocket",
+  "rocket+tnt",
+  "lightBall+rocket",
+  "propeller+propeller",
+  "propeller+tnt",
+  "lightBall+propeller",
+  "tnt+tnt",
+  "lightBall+tnt",
+  "lightBall+lightBall"
+];
 
 test.describe("piece rendering and board scale", () => {
   test("keeps the desktop board large while all rows and booster artwork remain reachable", async ({ page }) => {
@@ -276,6 +289,45 @@ test.describe("single light ball", () => {
   });
 });
 
+test.describe("power-up combo choreography", () => {
+  for (const combo of powerUpCombos) {
+    test(`${combo} previews one authored charge and impact`, async ({ page }) => {
+      await page.goto("/?gwTestMode=1&level=1");
+      await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+      await waitForBoardReady(page);
+      const stateBefore = await comboPreviewState(page);
+
+      await page.evaluate((key) => {
+        const preview = (window as Window & {
+          __gwPreviewPowerUpCombo?: (combo: CanonicalComboKey) => void;
+        }).__gwPreviewPowerUpCombo;
+        if (!preview) throw new Error("Combo presentation preview hook unavailable");
+        preview(key);
+      }, combo);
+      await page.waitForFunction(() => (
+        (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+          ?.some((entry) => entry.kind === "combo-preview-complete") ?? false
+      ));
+
+      const trace = await presentationTrace(page);
+      const charge = trace.filter((entry) => entry.kind === "combo-charge");
+      const impact = trace.filter((entry) => entry.kind === "combo-impact");
+      const complete = traceEntry(trace, "combo-preview-complete");
+      expect(charge).toHaveLength(1);
+      expect(impact).toHaveLength(1);
+      expect(charge[0].detail).toBe(combo);
+      expect(impact[0].detail).toBe(combo);
+      expect(charge[0].atMs).toBeLessThan(impact[0].atMs);
+      expect(impact[0].atMs).toBeLessThanOrEqual(complete.atMs);
+      expect(complete.plannedAtMs - charge[0].plannedAtMs).toBeLessThanOrEqual(1_600);
+      expect(trace.some((entry) => entry.kind === "powerup-charge")).toBe(false);
+      expect(trace.some((entry) => entry.kind === "combo-visual-batch")).toBe(true);
+      expect(trace.filter((entry) => entry.kind === "screen-flash").length).toBeLessThanOrEqual(1);
+      expect(await comboPreviewState(page)).toEqual(stateBefore);
+    });
+  }
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -393,4 +445,29 @@ function traceEntry(trace: PresentationTraceEntry[], kind: string): Presentation
   const entry = trace.find((candidate) => candidate.kind === kind);
   if (!entry) throw new Error(`Missing presentation trace entry: ${kind}`);
   return entry;
+}
+
+async function comboPreviewState(page: Page): Promise<{
+  moves: string;
+  objective: string;
+  score: string;
+  boosters: string[];
+  storage: Record<string, string>;
+}> {
+  return page.evaluate(() => {
+    const storage = Object.fromEntries(Array.from({ length: localStorage.length }, (_, index) => {
+      const key = localStorage.key(index)!;
+      return [key, localStorage.getItem(key) ?? ""];
+    }).sort(([left], [right]) => left.localeCompare(right)));
+    const text = document.body.innerText;
+    const boosters = Array.from(document.querySelectorAll<HTMLButtonElement>(".booster-tray button"))
+      .map((button) => button.innerText);
+    return {
+      moves: text.match(/MOVES\s+(\d+\/\d+)/)?.[1] ?? "",
+      objective: text.match(/Collect 20 Packets: \d+\/20/)?.[0] ?? "",
+      score: text.match(/SCORE\s+(\d+)/)?.[1] ?? "",
+      boosters,
+      storage
+    };
+  });
 }

@@ -9,6 +9,10 @@ import {
   CASCADE_START_AFTER_IMPACT_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
   CHAIN_PLAYBACK_RATE_STEP,
+  COMBO_ARC_CAP,
+  COMBO_BATCH_PARTICLE_CAP,
+  COMBO_CHOREOGRAPHY_TIMING,
+  COMBO_PROJECTILE_CAP,
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
@@ -54,6 +58,42 @@ export interface PowerUpPresentationGroup {
   key: CanonicalComboKey | null;
   events: readonly PowerUpEvent[];
   affectedPositions: readonly GridPosition[];
+}
+
+export type ComboVisualKind = "lane-pass" | "drone-strike" | "blast" | "conversion" | "dissolve";
+
+export interface ComboVisualBatch {
+  atMs: number;
+  kind: ComboVisualKind;
+  affectedPositions: GridPosition[];
+}
+
+export interface ComboEventPlan {
+  eventIndex: number;
+  origin: GridPosition;
+  affectedPositions: GridPosition[];
+}
+
+export interface ComboCuePlan {
+  kind: "combo-charge" | "combo-impact";
+  atMs: number;
+  gain: number;
+}
+
+export interface ComboChoreographyPlan {
+  key: CanonicalComboKey;
+  center: GridPosition;
+  chargeAtMs: number;
+  impactAtMs: number;
+  cascadeAtMs: number;
+  batches: ComboVisualBatch[];
+  cues: ComboCuePlan[];
+  events: ComboEventPlan[];
+  finalStatePositions: GridPosition[];
+  projectileCount: number;
+  arcCount: number;
+  particleCount: number;
+  screenFlashCount: number;
 }
 
 export interface CreatedPowerUpSpawn {
@@ -152,7 +192,7 @@ export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUp
 
   for (const event of events) {
     const key = event.trigger.kind === "combo"
-      ? canonicalComboKey(event.powerUpType, event.trigger.with)
+      ? comboKeyForEvent(event)
       : null;
     const previous = groups.at(-1);
     if (key && previous?.kind === "combo" && previous.key === key) {
@@ -173,6 +213,81 @@ export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUp
   }
 
   return groups;
+}
+
+function comboKeyForEvent(event: PowerUpEvent): CanonicalComboKey {
+  const key = event.trigger.kind === "combo"
+    ? canonicalComboKey(event.powerUpType, event.trigger.with)
+    : null;
+  if (key !== "tnt+tnt") return key!;
+  const hasDistantEndpoint = event.affectedPositions.some((position) => (
+    Math.max(Math.abs(position.row - event.origin.row), Math.abs(position.col - event.origin.col)) > 2
+  ));
+  return hasDistantEndpoint ? "rocket+tnt" : "tnt+tnt";
+}
+
+export function comboChoreographyPlan(
+  group: PowerUpPresentationGroup,
+  seed: string,
+  reducedMotion: boolean
+): ComboChoreographyPlan {
+  if (group.kind !== "combo" || !group.key) throw new Error("Combo choreography requires one canonical combo group");
+  const key = group.key;
+  const timing = COMBO_CHOREOGRAPHY_TIMING[key];
+  const events = group.events.map((event, eventIndex) => ({
+    eventIndex,
+    origin: { ...event.origin },
+    affectedPositions: event.affectedPositions.map((position) => ({ ...position }))
+  }));
+  const finalStatePositions = uniquePositions(group.affectedPositions);
+  const center = centroidPosition(group.events.map((event) => event.origin));
+
+  if (reducedMotion) {
+    return {
+      key,
+      center,
+      chargeAtMs: 0,
+      impactAtMs: 0,
+      cascadeAtMs: 0,
+      batches: [],
+      cues: [{ kind: "combo-impact", atMs: 0, gain: 0.28 }],
+      events,
+      finalStatePositions,
+      projectileCount: 0,
+      arcCount: 0,
+      particleCount: 0,
+      screenFlashCount: 0
+    };
+  }
+
+  const batches = spatialComboBatches(
+    finalStatePositions,
+    center,
+    timing.batchCount,
+    timing.impactMs,
+    timing.cascadeMs,
+    comboVisualKind(key),
+    seed
+  );
+  const counts = comboPrimitiveCounts(key, group.events.length, batches.length);
+  return {
+    key,
+    center,
+    chargeAtMs: timing.chargeMs,
+    impactAtMs: timing.impactMs,
+    cascadeAtMs: timing.cascadeMs,
+    batches,
+    cues: [
+      { kind: "combo-charge", atMs: 0, gain: 0.62 },
+      { kind: "combo-impact", atMs: timing.impactMs, gain: 0.76 }
+    ],
+    events,
+    finalStatePositions,
+    projectileCount: Math.min(COMBO_PROJECTILE_CAP, counts.projectiles),
+    arcCount: Math.min(COMBO_ARC_CAP, counts.arcs),
+    particleCount: Math.min(COMBO_BATCH_PARTICLE_CAP, counts.particles),
+    screenFlashCount: 1
+  };
 }
 
 export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): CreatedPowerUpSpawn[] {
@@ -349,6 +464,95 @@ export function pieceDisplayProfile(tileSize: number): PieceDisplayProfile {
 function clampFinite(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+function comboVisualKind(key: CanonicalComboKey): ComboVisualKind {
+  if (key === "rocket+rocket") return "lane-pass";
+  if (key === "propeller+rocket" || key === "propeller+propeller" || key === "lightBall+propeller") return "drone-strike";
+  if (key === "lightBall+rocket") return "conversion";
+  if (key === "lightBall+lightBall") return "dissolve";
+  return "blast";
+}
+
+function comboPrimitiveCounts(
+  key: CanonicalComboKey,
+  eventCount: number,
+  batchCount: number
+): { projectiles: number; arcs: number; particles: number } {
+  const projectiles: Record<CanonicalComboKey, number> = {
+    "rocket+rocket": 4,
+    "propeller+rocket": 3,
+    "rocket+tnt": 2,
+    "lightBall+rocket": Math.max(4, eventCount * 2),
+    "propeller+propeller": 2,
+    "propeller+tnt": 3,
+    "lightBall+propeller": Math.max(4, eventCount),
+    "tnt+tnt": 0,
+    "lightBall+tnt": 0,
+    "lightBall+lightBall": 0
+  };
+  const arcs: Record<CanonicalComboKey, number> = {
+    "rocket+rocket": 4,
+    "propeller+rocket": 6,
+    "rocket+tnt": 2,
+    "lightBall+rocket": 8,
+    "propeller+propeller": 4,
+    "propeller+tnt": 6,
+    "lightBall+propeller": 12,
+    "tnt+tnt": 2,
+    "lightBall+tnt": 10,
+    "lightBall+lightBall": 12
+  };
+  return {
+    projectiles: projectiles[key],
+    arcs: arcs[key],
+    particles: 24 + batchCount * 14
+  };
+}
+
+function spatialComboBatches(
+  positions: ReadonlyArray<GridPosition>,
+  center: GridPosition,
+  desiredCount: number,
+  impactAtMs: number,
+  cascadeAtMs: number,
+  kind: ComboVisualKind,
+  seed: string
+): ComboVisualBatch[] {
+  if (positions.length === 0) return [];
+  const count = Math.min(desiredCount, positions.length);
+  const sorted = [...positions].sort((left, right) => {
+    const distance = euclideanDistanceSquared(center, left) - euclideanDistanceSquared(center, right);
+    if (distance !== 0) return distance;
+    return stableHash(`${seed}|${left.row},${left.col}`) - stableHash(`${seed}|${right.row},${right.col}`);
+  });
+  const batches = Array.from({ length: count }, (_, index) => ({
+    atMs: impactAtMs + Math.round((cascadeAtMs - impactAtMs - 150) * index / Math.max(1, count - 1)),
+    kind,
+    affectedPositions: [] as GridPosition[]
+  }));
+  sorted.forEach((position, index) => batches[index % count].affectedPositions.push(position));
+  return batches;
+}
+
+function centroidPosition(positions: ReadonlyArray<GridPosition>): GridPosition {
+  if (positions.length === 0) return { row: 0, col: 0 };
+  return {
+    row: Math.round(positions.reduce((sum, position) => sum + position.row, 0) / positions.length),
+    col: Math.round(positions.reduce((sum, position) => sum + position.col, 0) / positions.length)
+  };
+}
+
+function uniquePositions(positions: ReadonlyArray<GridPosition>): GridPosition[] {
+  const unique = new Map<string, GridPosition>();
+  for (const position of positions) unique.set(`${position.row},${position.col}`, { ...position });
+  return [...unique.values()];
+}
+
+function euclideanDistanceSquared(left: GridPosition, right: GridPosition): number {
+  const row = left.row - right.row;
+  const col = left.col - right.col;
+  return row * row + col * col;
 }
 
 function stableHash(input: string): number {
