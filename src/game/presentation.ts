@@ -362,6 +362,14 @@ export function comboChoreographyPlan(
   };
 }
 
+export function comboOverlayPositions(plan: ComboChoreographyPlan): GridPosition[] {
+  const count = Math.min(plan.arcCount, plan.finalStatePositions.length);
+  if (count === 0) return [];
+  return Array.from({ length: count }, (_, index) => (
+    plan.finalStatePositions[Math.floor(index * plan.finalStatePositions.length / count)]
+  ));
+}
+
 export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): CreatedPowerUpSpawn[] {
   return spawns.flatMap((spawn) => (
     spawn.asPowerUp ? [{ position: spawn.position, powerUp: spawn.asPowerUp }] : []

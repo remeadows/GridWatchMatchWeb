@@ -5,6 +5,7 @@ import {
   cascadeFallDurationMs,
   chainPlaybackRate,
   comboChoreographyPlan,
+  comboOverlayPositions,
   createdPowerUpSpawns,
   eventIntensity,
   groupPowerUpEvents,
@@ -172,6 +173,39 @@ describe("comboChoreographyPlan", () => {
     expect(plan.particleCount).toBe(0);
     expect(plan.finalStatePositions).toEqual(expect.arrayContaining([...group.affectedPositions]));
     expect(plan.cascadeAtMs).toBe(0);
+  });
+
+  it("caps dense light ball overlays at the authored arc budget", () => {
+    const affectedPositions = Array.from({ length: 7 }, (_, row) => (
+      Array.from({ length: 7 }, (_unused, col) => ({ row, col }))
+    )).flat();
+    const events: PowerUpEvent[] = [
+      {
+        powerUpType: lightBall,
+        origin: { row: 3, col: 2 },
+        affectedPositions,
+        trigger: { kind: "combo", with: lightBall }
+      },
+      {
+        powerUpType: lightBall,
+        origin: { row: 3, col: 4 },
+        affectedPositions,
+        trigger: { kind: "combo", with: lightBall }
+      }
+    ];
+    const [group] = groupPowerUpEvents(events);
+    const plan = comboChoreographyPlan(group, "dense-overlay-seed", false);
+    const overlays = comboOverlayPositions(plan);
+
+    expect(plan.finalStatePositions).toHaveLength(49);
+    expect(overlays).toHaveLength(plan.arcCount);
+    expect(overlays).toHaveLength(12);
+    expect(new Set(overlays.map(({ row, col }) => `${row},${col}`)).size).toBe(overlays.length);
+    expect(overlays.every((position) => plan.finalStatePositions.some(
+      (candidate) => candidate.row === position.row && candidate.col === position.col
+    ))).toBe(true);
+    expect(overlays.map((position) => position.row)).toEqual(expect.arrayContaining([0, 6]));
+    expect(overlays.map((position) => position.col)).toEqual(expect.arrayContaining([0, 6]));
   });
 });
 

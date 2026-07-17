@@ -56,7 +56,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -1169,7 +1169,7 @@ export class BoardScene extends Phaser.Scene {
     const overlays = this.add.graphics();
     overlays.setBlendMode(Phaser.BlendModes.ADD);
     const tint = comboTint(plan.key);
-    for (const position of plan.finalStatePositions) {
+    for (const position of comboOverlayPositions(plan)) {
       const center = this.cellCenter(position);
       overlays.lineStyle(2, tint, 0.55);
       if (plan.key === "lightBall+rocket") {
