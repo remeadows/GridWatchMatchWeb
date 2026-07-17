@@ -240,6 +240,42 @@ test.describe("single propeller", () => {
   });
 });
 
+test.describe("single light ball", () => {
+  test("dims, batches target arcs, releases once, and restores before cascade", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+    await page.getByTestId("booster-lightBall").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace?.some((entry) => entry.kind === "resolution-complete") ?? false);
+
+    const trace = await presentationTrace(page);
+    const dim = traceEntry(trace, "lightBall-dim");
+    const charge = traceEntry(trace, "lightBall-charge");
+    const waves = trace.filter((entry) => entry.kind === "lightBall-arc-wave");
+    const targetImpacts = trace.filter((entry) => entry.kind === "lightBall-target-impact");
+    const release = traceEntry(trace, "lightBall-release");
+    const undim = traceEntry(trace, "lightBall-undim");
+    const cascade = traceEntry(trace, "cascade-start");
+    const flashes = trace.filter((entry) => entry.kind === "screen-flash");
+    expect(dim.atMs).toBeLessThan(charge.atMs);
+    expect(waves.length).toBeGreaterThanOrEqual(3);
+    expect(waves.length).toBeLessThanOrEqual(5);
+    expect(charge.atMs).toBeLessThan(waves[0].atMs);
+    expect(waves.at(-1)!.atMs).toBeLessThan(release.atMs);
+    expect(targetImpacts.length).toBeGreaterThan(0);
+    expect(waves.every((wave) => targetImpacts.filter((impact) => impact.atMs === wave.atMs).length <= 3)).toBe(true);
+    expect(targetImpacts.every((impact) => waves.some((wave) => wave.atMs === impact.atMs))).toBe(true);
+    expect(charge.atMs).toBeLessThan(release.atMs);
+    expect(release.atMs).toBeLessThan(undim.atMs);
+    expect(undim.atMs).toBeLessThan(cascade.atMs);
+    expect(cascade.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_050);
+    expect(trace.some((entry) => entry.kind === "combo-charge")).toBe(false);
+    expect(flashes).toHaveLength(1);
+    expect(flashes[0].detail).toBe("alpha=0.22;durationMs=80");
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");

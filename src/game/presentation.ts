@@ -12,6 +12,11 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  LIGHTBALL_CHARGE_MS,
+  LIGHTBALL_RELEASE_DELAY_MS,
+  LIGHTBALL_WAVE_CONCURRENCY_CAP,
+  LIGHTBALL_WAVE_COUNT,
+  LIGHTBALL_WAVE_STAGGER_MS,
   PROPELLER_FLIGHT_MS,
   PROPELLER_LIFT_MS,
   PROPELLER_RETICLE_DELAY_MS,
@@ -115,6 +120,12 @@ export interface PropellerFlightPlan {
   secondaryImpactAtMs: number[];
   sequenceBudgetMs: number;
   target: GridPosition;
+}
+
+export interface LightBallWavePlan {
+  concurrencyCap: number;
+  releaseAtMs: number;
+  waves: Array<{ atMs: number; targets: GridPosition[] }>;
 }
 
 export interface PresentationTraceEntry {
@@ -259,6 +270,28 @@ export function propellerFlightPlan(
       impactAtMs + (index + 1) * PROPELLER_SECONDARY_STAGGER_MS
     )),
     sequenceBudgetMs: PROPELLER_SEQUENCE_BUDGET_MS
+  };
+}
+
+export function lightBallWavePlan(
+  origin: GridPosition,
+  affectedPositions: ReadonlyArray<GridPosition>,
+  seed: string
+): LightBallWavePlan {
+  const targets = [...affectedPositions].sort((left, right) => (
+    stableHash(`${seed}|${origin.row},${origin.col}|${left.row},${left.col}`) -
+    stableHash(`${seed}|${origin.row},${origin.col}|${right.row},${right.col}`)
+  ));
+  const concurrencyCap = Math.max(LIGHTBALL_WAVE_CONCURRENCY_CAP, Math.ceil(targets.length / 5));
+  const waveCount = Math.min(5, Math.max(LIGHTBALL_WAVE_COUNT, Math.ceil(targets.length / concurrencyCap)));
+  const waves = Array.from({ length: waveCount }, (_, index) => ({
+    atMs: LIGHTBALL_CHARGE_MS + index * LIGHTBALL_WAVE_STAGGER_MS,
+    targets: targets.filter((_, targetIndex) => targetIndex % waveCount === index)
+  })).filter((wave) => wave.targets.length > 0);
+  return {
+    concurrencyCap,
+    waves,
+    releaseAtMs: (waves.at(-1)?.atMs ?? LIGHTBALL_CHARGE_MS) + LIGHTBALL_RELEASE_DELAY_MS
   };
 }
 

@@ -7,6 +7,7 @@ import {
   createdPowerUpSpawns,
   eventIntensity,
   groupPowerUpEvents,
+  lightBallWavePlan,
   matchTimeline,
   pieceDisplayProfile,
   propellerFlightPlan,
@@ -172,6 +173,39 @@ describe("propellerFlightPlan", () => {
     );
 
     expect(plan.target).toEqual({ row: 0, col: 1 });
+  });
+});
+
+describe("lightBallWavePlan", () => {
+  it("uses only affected targets in deterministic capped waves", () => {
+    const targets = [
+      { row: 0, col: 0 }, { row: 0, col: 1 }, { row: 1, col: 0 },
+      { row: 2, col: 2 }, { row: 3, col: 3 }, { row: 4, col: 4 },
+      { row: 5, col: 5 }, { row: 6, col: 6 }
+    ];
+    const plan = lightBallWavePlan({ row: 3, col: 3 }, targets, "seed-1");
+
+    expect(plan.waves).toHaveLength(3);
+    expect(plan.waves.flatMap((wave) => wave.targets)).toEqual(expect.arrayContaining(targets));
+    expect(plan.waves.every((wave) => wave.targets.length <= plan.concurrencyCap)).toBe(true);
+    expect(plan.waves.every((wave) => wave.targets.every((target) => targets.some((candidate) => (
+      candidate.row === target.row && candidate.col === target.col
+    ))))).toBe(true);
+    expect(plan.releaseAtMs).toBeGreaterThan(plan.waves.at(-1)!.atMs);
+  });
+
+  it("retains every affected target when five waves require a larger cap", () => {
+    const targets = Array.from({ length: 21 }, (_, index) => ({
+      row: Math.floor(index / 7),
+      col: index % 7
+    }));
+    const plan = lightBallWavePlan({ row: 3, col: 3 }, targets, "dense-seed");
+
+    expect(plan.waves.length).toBeGreaterThanOrEqual(3);
+    expect(plan.waves.length).toBeLessThanOrEqual(5);
+    expect(plan.waves.flatMap((wave) => wave.targets)).toHaveLength(targets.length);
+    expect(plan.waves.every((wave) => wave.targets.length <= plan.concurrencyCap)).toBe(true);
+    expect(lightBallWavePlan({ row: 3, col: 3 }, targets, "dense-seed")).toEqual(plan);
   });
 });
 

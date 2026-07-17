@@ -23,6 +23,9 @@ import {
   MATCH_SMOKE_PUFF_COUNT,
   MATCH_WAVE_MAX_MS,
   MATCH_WAVE_PER_GRID_MS,
+  LIGHTBALL_CHARGE_MS,
+  LIGHTBALL_DIM_MS,
+  LIGHTBALL_RELEASE_DELAY_MS,
   ROCKET_EDGE_BURST_LIFESPAN_MS,
   ROCKET_IGNITION_MS,
   ROCKET_LANE_FLIGHT_MS,
@@ -52,7 +55,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CreatedPowerUpSpawn, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -239,7 +242,6 @@ const PROPELLER_FX_BUDGET_MS = PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + Math.ma
   PROPELLER_IMPACT_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
 // Web-only tuning: Phaser lightBall charge anticipation.
-const LIGHTBALL_CHARGE_MS = 140;
 // Web-only tuning: Phaser zap target cadence.
 const LIGHTBALL_ZAP_STAGGER_MS = 26;
 // Web-only tuning: Phaser lightning segment lifespan.
@@ -951,17 +953,16 @@ export class BoardScene extends Phaser.Scene {
     }
 
     for (const group of groupPowerUpEvents(delta.powerUpEvents)) {
-      // Dedicated combo choreography owns every rocket combo in Task 15. The
-      // booster resolver also emits a normal rocket event, which owns this
-      // task's two-head lane presentation.
+      // Task 15 owns combo choreography. Booster resolution also emits a
+      // normal event, which owns the single-power-up presentation here.
       if (group.kind === "combo" && (group.key === "tnt+tnt" || group.events.some((event) => (
-        event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller"
+        event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall"
       )))) continue;
       if (group.kind !== "combo") {
         for (const event of group.events) {
           this.playPowerUpEffect(
             event,
-            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller") && event.trigger.kind !== "combo"
+            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") && event.trigger.kind !== "combo"
               ? onSingleSequencedPowerUpCascade
               : undefined
           );
@@ -1855,59 +1856,130 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
-    const charge = this.add.graphics();
-    this.recordPresentation("powerup-charge", "lightBall");
-    this.cueBoardAudio("lightBallCharge");
-    charge.lineStyle(3, 0xf15bd7, 0.95);
-    charge.strokeCircle(origin.x, origin.y, this.tileSize * 0.48);
-    charge.setBlendMode(Phaser.BlendModes.ADD);
-    layer.add(charge);
-    this.tweens.add({
-      targets: charge,
-      alpha: 0.1,
-      scaleX: 1.45,
-      scaleY: 1.45,
-      duration: LIGHTBALL_CHARGE_MS,
-      ease: "Sine.easeOut",
-      onComplete: () => charge.destroy()
-    });
-
+    const plan = lightBallWavePlan(event.origin, targets, this.snapshot.rngSeed);
+    this.recordPresentation("lightBall-dim");
     const seed = this.snapshot.rngSeed;
-    const targetDelays = radialStagger(event.origin, targets, LIGHTBALL_ZAP_STAGGER_MS, LIGHTBALL_TARGET_STAGGER_MAX_MS);
-    let latestTargetDelay = 0;
-    targets.forEach((target, index) => {
-      const targetDelay = targetDelays.get(positionKey(target)) ?? 0;
-      latestTargetDelay = Math.max(latestTargetDelay, targetDelay);
-      const delay = LIGHTBALL_CHARGE_MS + targetDelay;
-      this.time.delayedCall(delay, () => {
-        if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
-        const center = this.cellCenter(target);
-        this.cueBoardAudio(index % 2 === 0 ? "lightBallZapA" : "lightBallZapB");
-        this.drawLightBallZap(origin, center, target, seed, index);
-        this.recordLightBallZap(1);
-        burst(this, this.fxLayer, center.x, center.y, {
-          texture: vfxTextureKeys.spark,
-          count: 7,
-          speed: this.tileSize * 1.5,
-          lifespanMs: LIGHTBALL_ZAP_BURST_LIFESPAN_MS,
-          tint: 0xf15bd7,
-          scale: Math.max(0.24, this.tileSize / 180)
-        });
-      });
-    });
+    const screenLayer = this.fxScreen;
+    const dimmer = screenLayer ? this.add.graphics() : undefined;
+    if (dimmer && screenLayer) {
+      dimmer.fillStyle(0x020712, 0.32);
+      dimmer.fillRect(-screenLayer.x, -screenLayer.y, this.scale.width, this.scale.height);
+      dimmer.setAlpha(0);
+      screenLayer.add(dimmer);
+      this.vfxCleanup.trackObject(dimmer);
+    }
 
-    const finalDelay = LIGHTBALL_CHARGE_MS + latestTargetDelay + LIGHTBALL_ZAP_LIFESPAN_MS;
-    this.time.delayedCall(finalDelay, () => {
+    const restoreExposure = () => {
+      const complete = () => {
+        if (dimmer) {
+          this.vfxCleanup.release(dimmer);
+          dimmer.destroy();
+        }
+        this.recordPresentation("lightBall-undim", undefined, LIGHTBALL_RELEASE_DELAY_MS);
+        this.time.delayedCall(1, () => onImpact?.());
+      };
+      if (!dimmer?.active) {
+        this.time.delayedCall(LIGHTBALL_RELEASE_DELAY_MS, complete);
+        return;
+      }
+      this.tweens.add({
+        targets: dimmer,
+        alpha: 0,
+        duration: LIGHTBALL_RELEASE_DELAY_MS,
+        ease: "Sine.easeOut",
+        onComplete: complete
+      });
+    };
+
+    const release = () => {
       if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
       this.recordPresentation("powerup-impact", "lightBall");
+      this.recordPresentation("lightBall-release");
       this.cueBoardAudio("lightBallRelease");
       audioService.vibrate(18);
-      onImpact?.();
+      if (this.fxScreen) {
+        this.recordPresentation("screen-flash", "alpha=0.22;durationMs=80");
+        screenFlash(this, this.fxScreen, { alpha: 0.22, durationMs: 80, tint: 0xe6d8ff }, this.vfxCleanup);
+      }
       shockwave(this, this.fxLayer, origin.x, origin.y, {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
         tint: 0xf15bd7
       });
+      shake(this, 0.006, 110, this.reducedMotion);
+      restoreExposure();
+    };
+
+    const playWave = (waveIndex: number) => {
+      if (!this.sys.isActive() || !this.fxLayer?.active) return;
+      const wave = plan.waves[waveIndex];
+      if (!wave) {
+        release();
+        return;
+      }
+      const previousAtMs = plan.waves[waveIndex - 1]?.atMs ?? 0;
+      this.recordPresentation("lightBall-arc-wave", String(waveIndex), wave.atMs - previousAtMs);
+      this.cueBoardAudio(waveIndex % 2 === 0 ? "lightBallZapA" : "lightBallZapB", { gain: 0.42 });
+      wave.targets.forEach((target, index) => {
+        const center = this.cellCenter(target);
+        this.drawLightBallZap(origin, center, target, seed, waveIndex * 4 + index);
+        this.recordPresentation("lightBall-target-impact", positionKey(target));
+        this.recordLightBallZap(1);
+        impactBurst(this, this.fxLayer!, center.x, center.y, { intensity: 0.46, lifespanMs: LIGHTBALL_ZAP_BURST_LIFESPAN_MS, tint: 0xf15bd7 }, this.vfxCleanup);
+      });
+      const nextAtMs = plan.waves[waveIndex + 1]?.atMs ?? plan.releaseAtMs;
+      this.time.delayedCall(nextAtMs - wave.atMs, () => (
+        waveIndex + 1 < plan.waves.length ? playWave(waveIndex + 1) : release()
+      ));
+    };
+
+    const beginCharge = () => {
+      if (!this.sys.isActive() || !layer.active) return;
+      this.recordPresentation("powerup-charge", "lightBall");
+      this.recordPresentation("lightBall-charge", undefined, LIGHTBALL_DIM_MS);
+      this.cueBoardAudio("lightBallCharge");
+      const charge = this.add.graphics({ x: origin.x, y: origin.y });
+      const radius = this.tileSize * 0.48;
+      charge.lineStyle(7, 0x70f2ea, 0.6);
+      charge.strokeCircle(0, 0, radius * 1.12);
+      charge.lineStyle(4, 0xf15bd7, 0.95);
+      charge.strokeCircle(0, 0, radius);
+      charge.lineStyle(2, 0xffffff, 0.96);
+      charge.strokeCircle(0, 0, radius * 0.72);
+      for (let index = 0; index < 8; index += 1) {
+        const angle = (Math.PI * 2 * index) / 8;
+        charge.beginPath();
+        charge.moveTo(Math.cos(angle) * radius * 1.6, Math.sin(angle) * radius * 1.6);
+        charge.lineTo(Math.cos(angle) * radius * 0.62, Math.sin(angle) * radius * 0.62);
+        charge.strokePath();
+      }
+      charge.setBlendMode(Phaser.BlendModes.ADD);
+      layer.add(charge);
+      this.tweens.add({
+        targets: charge,
+        alpha: 0.18,
+        angle: 28,
+        scaleX: 1.35,
+        scaleY: 1.35,
+        duration: LIGHTBALL_CHARGE_MS,
+        ease: "Sine.easeInOut",
+        onComplete: () => {
+          charge.destroy();
+          playWave(0);
+        }
+      });
+    };
+
+    if (!dimmer) {
+      this.time.delayedCall(LIGHTBALL_DIM_MS, beginCharge);
+      return;
+    }
+    this.tweens.add({
+      targets: dimmer,
+      alpha: 1,
+      duration: LIGHTBALL_DIM_MS,
+      ease: "Sine.easeInOut",
+      onComplete: beginCharge
     });
   }
 
@@ -1920,7 +1992,6 @@ export class BoardScene extends Phaser.Scene {
   ): void {
     if (!this.fxLayer) return;
     const graphics = this.add.graphics();
-    graphics.lineStyle(2, 0xf15bd7, 0.95);
     graphics.setBlendMode(Phaser.BlendModes.ADD);
     const jitterA = seededAngleJitter(position, `${seed}|lightBall-a|${index}`, LIGHTBALL_ZAP_JITTER_PX);
     const jitterB = seededAngleJitter(position, `${seed}|lightBall-b|${index}`, LIGHTBALL_ZAP_JITTER_PX);
@@ -1932,12 +2003,18 @@ export class BoardScene extends Phaser.Scene {
       x: origin.x + (target.x - origin.x) * 0.66 - jitterB,
       y: origin.y + (target.y - origin.y) * 0.66 + jitterA
     };
-    graphics.beginPath();
-    graphics.moveTo(origin.x, origin.y);
-    graphics.lineTo(mid1.x, mid1.y);
-    graphics.lineTo(mid2.x, mid2.y);
-    graphics.lineTo(target.x, target.y);
-    graphics.strokePath();
+    const strokePath = (width: number, color: number, alpha: number) => {
+      graphics.lineStyle(width, color, alpha);
+      graphics.beginPath();
+      graphics.moveTo(origin.x, origin.y);
+      graphics.lineTo(mid1.x, mid1.y);
+      graphics.lineTo(mid2.x, mid2.y);
+      graphics.lineTo(target.x, target.y);
+      graphics.strokePath();
+    };
+    strokePath(8, 0x70f2ea, 0.48);
+    strokePath(5, 0xb35cff, 0.82);
+    strokePath(2, 0xffffff, 0.98);
     this.fxLayer.add(graphics);
     this.tweens.add({
       targets: graphics,
@@ -2725,7 +2802,7 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
 
 function hasSingleSequencedPowerUp(delta: BoardDelta): boolean {
   return delta.powerUpEvents.some((event) => (
-    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller") && event.trigger.kind !== "combo"
+    (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") && event.trigger.kind !== "combo"
   ));
 }
 
