@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { areaForLevel, areas, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
@@ -123,9 +123,12 @@ function TopBar({ save, screen, navigate }: { save: SaveState; screen: Screen; n
   const active = screen.name;
   return (
     <header className="top-bar">
-      <button className="brand" onClick={() => navigate({ name: "home" })} aria-label="Home">
+      <button className={`brand${active === "home" ? " active" : ""}`} onClick={() => navigate({ name: "home" })} aria-label="Home">
         <img src={assetUrl(assetManifest.images.appIcon)} alt="" />
-        <span>GridWatch Match</span>
+        <span className="brand-copy">
+          <strong>GridWatch</strong>
+          <small>Match Command</small>
+        </span>
       </button>
       <nav className="main-nav" aria-label="Primary">
         <button className={active === "areas" || active === "levels" ? "active" : ""} onClick={() => navigate({ name: "areas" })}>Operations</button>
@@ -134,7 +137,10 @@ function TopBar({ save, screen, navigate }: { save: SaveState; screen: Screen; n
         <button className={active === "store" ? "active" : ""} onClick={() => navigate({ name: "store" })}>Store</button>
         <button className={active === "settings" ? "active" : ""} onClick={() => navigate({ name: "settings" })}>Settings</button>
       </nav>
-      <div className="currency" aria-label={`${save.coins} coins`}>{save.coins.toLocaleString()} coins</div>
+      <div className="currency" aria-label={`${save.coins} coins`}>
+        <span>Credits</span>
+        <strong>{save.coins.toLocaleString()}</strong>
+      </div>
     </header>
   );
 }
@@ -142,23 +148,99 @@ function TopBar({ save, screen, navigate }: { save: SaveState; screen: Screen; n
 function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Screen) => void }) {
   const area = currentArea(save);
   const hero = heroes.find((candidate) => candidate.id === save.selectedHeroId) ?? heroes[0];
+  const completedLevels = Object.keys(save.levels).length;
+  const nextLevel = Math.min(100, Math.max(1, completedLevels + 1));
+  const areaCompleted = completedLevelsInArea(save, area);
+  const areaTotal = area.lastLevel - area.firstLevel + 1;
+  const homeStyle = {
+    backgroundImage: `url(${assetUrl(assetManifest.images.backgrounds.home)})`,
+    "--area-accent": area.accent
+  } as CSSProperties;
+
   return (
-    <section className="home-grid">
-      <div className="home-visual" style={{ backgroundImage: `url(${assetUrl(assetManifest.images.backgrounds.home)})` }}>
+    <section className="home-grid" data-testid="home-command-deck" style={homeStyle}>
+      <div className="home-visual">
+        <div className="home-statusline">
+          <div className="network-status">
+            <span className="status-beacon" aria-hidden="true" />
+            <span>
+              <strong>Grid online</strong>
+              <small>Live defense network</small>
+            </span>
+          </div>
+          <div className="campaign-uplink">
+            <span>Campaign uplink</span>
+            <strong>{String(nextLevel).padStart(2, "0")} / 100</strong>
+          </div>
+        </div>
+
         <div className="home-copy">
-          <h1>GridWatch Match</h1>
-          <p>Defend the digital grid through 100 cyberpunk match-3 operations.</p>
+          <span className="home-kicker">Cyber defense command</span>
+          <h1><span>GridWatch</span> <strong>Match</strong></h1>
+          <p>Build combos, trigger countermeasures, and defend the city through 100 cyberpunk match-3 operations.</p>
           <div className="hero-actions">
             <button className="primary-action" onClick={() => navigate({ name: "areas" })}>Resume Operations</button>
-            <button onClick={() => navigate({ name: "game", levelId: Math.min(100, Math.max(1, Object.keys(save.levels).length + 1)) })}>Quick Deploy</button>
+            <button className="quick-deploy-action" onClick={() => navigate({ name: "game", levelId: nextLevel })}>Quick Deploy</button>
+          </div>
+          <div className="next-operation">
+            <span>Next operation</span>
+            <strong>Level {nextLevel}</strong>
+            <small>{area.name}</small>
           </div>
         </div>
       </div>
-      <aside className="home-panel">
-        <Stat label="Current Area" value={area.name} />
-        <Stat label="Selected Agent" value={hero.displayName} />
-        <Stat label="Completed Levels" value={`${Object.keys(save.levels).length}/100`} />
-        <Stat label="Best Area Progress" value={areaProgressLabel(save, area)} />
+
+      <aside className="home-panel" aria-label="Command status">
+        <header className="home-panel-header">
+          <span>Command status</span>
+          <strong><span className="status-dot" aria-hidden="true" /> Operational</strong>
+        </header>
+
+        <section className="operation-brief">
+          <span className="area-number">{String(area.id).padStart(2, "0")}</span>
+          <div>
+            <span>Current area</span>
+            <h2>{area.name}</h2>
+            <p>{area.subtitle}</p>
+          </div>
+        </section>
+
+        <section className="operation-progress">
+          <div>
+            <span>Sector defense</span>
+            <strong>{areaProgressLabel(save, area)}</strong>
+          </div>
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-label={`${area.name} progress`}
+            aria-valuemin={0}
+            aria-valuemax={areaTotal}
+            aria-valuenow={areaCompleted}
+          >
+            <span style={{ width: `${(areaCompleted / areaTotal) * 100}%` }} />
+          </div>
+        </section>
+
+        <section className="agent-brief">
+          <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt={`${hero.displayName}, selected agent`} />
+          <div>
+            <span>Selected agent</span>
+            <h2>{hero.displayName}</h2>
+            <p>{hero.description}</p>
+          </div>
+        </section>
+
+        <div className="home-stats">
+          <Stat label="Completed Levels" value={`${completedLevels}/100`} />
+          <Stat label="Best Area Progress" value={areaProgressLabel(save, area)} />
+        </div>
+
+        <footer className="threat-channel">
+          <span>Threat signature</span>
+          <strong>{area.villainName}</strong>
+          <small>Monitoring</small>
+        </footer>
       </aside>
     </section>
   );

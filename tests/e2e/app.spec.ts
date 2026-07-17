@@ -18,6 +18,19 @@ test("boots from a non-root deep-link path via SPA fallback", async ({ page }) =
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
 });
 
+test("home presents the active operation and agent as a command deck", async ({ page }) => {
+  await page.goto("/?gwTestMode=1");
+
+  const deck = page.getByTestId("home-command-deck");
+  await expect(deck).toBeVisible();
+  await expect(deck.getByText("Live defense network", { exact: true })).toBeVisible();
+  await expect(deck.getByText("Level 1", { exact: true })).toBeVisible();
+  await expect(deck.getByLabel("Perimeter Defense progress")).toHaveAttribute("aria-valuenow", "0");
+  await expect(deck.getByRole("img", { name: "Rusty, selected agent" })).toBeVisible();
+  await expect(deck.getByRole("button", { name: "Resume Operations" })).toBeVisible();
+  await expect(deck.getByRole("button", { name: "Quick Deploy" })).toBeVisible();
+});
+
 test("navigates Home to Operations to Level 1 and applies a deterministic swap", async ({ page }) => {
   await page.goto("/?gwTestMode=1");
   await page.getByRole("button", { name: "Operations", exact: true }).click();
