@@ -10,13 +10,16 @@ vi.mock("phaser", () => ({
 
 import {
   burst,
+  PresentationVfxBudget,
   reducedMotionVfxPlan,
   screenFlash,
   shockwave,
   vfxCleanupDelayMs,
   vfxIntensity,
+  VfxCleanupRegistry,
   vfxTextureKeys
 } from "../game/vfx";
+import { PRESENTATION_RESOURCE_LIMITS } from "../game/presentation";
 import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG } from "../game/vfxTiming";
 
 const burstOptions = {
@@ -136,5 +139,67 @@ describe("VFX presentation contract", () => {
     expect(() => vfxCleanupDelayMs(Number.POSITIVE_INFINITY)).toThrow("lifespanMs");
     expect(reducedMotionVfxPlan(true)).toEqual({ flash: false, particles: false, shake: false, travel: false });
     expect(reducedMotionVfxPlan(false)).toEqual({ flash: true, particles: true, shake: true, travel: true });
+  });
+
+  it("enforces desktop and mobile emitter, particle, arc, and audio allocations", () => {
+    const budget = new PresentationVfxBudget("desktop");
+
+    expect(budget.allocateEmitter(100)).toBe(100);
+    expect(budget.allocateEmitter(100)).toBe(80);
+    for (let index = 0; index < 20; index += 1) budget.allocateEmitter(1);
+    for (let index = 0; index < 20; index += 1) budget.allocateArc();
+    for (let index = 0; index < 20; index += 1) budget.allocateAudio();
+
+    expect(budget.snapshot().activeEmitters).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.concurrentEmitters);
+    expect(budget.snapshot().liveParticles).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.liveParticles.desktop);
+    expect(budget.snapshot().simultaneousArcs).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.simultaneousArcs);
+    expect(budget.snapshot().activeBoardAudio).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.activeBoardAudio);
+
+    budget.reset("mobile");
+    expect(budget.allocateEmitter(999)).toBe(PRESENTATION_RESOURCE_LIMITS.liveParticles.mobile);
+    expect(budget.snapshot().liveParticles).toBe(PRESENTATION_RESOURCE_LIMITS.liveParticles.mobile);
+  });
+
+  it("suppresses scheduled callbacks after disposal and reports an empty registry", () => {
+    let scheduledCallback: (() => void) | undefined;
+    const timer = { remove: vi.fn(), destroy: vi.fn() };
+    const scene = {
+      add: {},
+      time: {
+        delayedCall: vi.fn((_delay: number, callback: () => void) => {
+          scheduledCallback = callback;
+          return timer;
+        })
+      }
+    } as unknown as Parameters<VfxCleanupRegistry["schedule"]>[0];
+    const callback = vi.fn();
+    const registry = new VfxCleanupRegistry("desktop");
+
+    registry.schedule(scene, 100, callback);
+    expect(registry.resourceCounts().activeTimers).toBe(1);
+    registry.dispose();
+    scheduledCallback?.();
+
+    expect(callback).not.toHaveBeenCalled();
+    expect(Object.values(registry.resourceCounts().current).every((value) => value === 0)).toBe(true);
+  });
+
+  it("releases board audio slots on the short cue window instead of the particle tail", () => {
+    const scene = {
+      add: {},
+      time: {
+        delayedCall: vi.fn((_delay: number, _callback: () => void) => ({ remove: vi.fn(), destroy: vi.fn() }))
+      }
+    } as unknown as Parameters<VfxCleanupRegistry["allocateAudio"]>[0];
+    const registry = new VfxCleanupRegistry("desktop");
+
+    expect(registry.allocateAudio(scene)).toBe(true);
+    expect(scene.time.delayedCall).toHaveBeenCalledWith(PRESENTATION_RESOURCE_LIMITS.boardAudioSlotMs, expect.any(Function));
+    expect(PRESENTATION_RESOURCE_LIMITS.boardAudioSlotMs).toBeLessThan(VFX_BUDGETS.longestParticleLifetimeMs);
+  });
+
+  it("cleans effect resources no later than the longest tail plus 250 ms", () => {
+    expect(vfxCleanupDelayMs(VFX_BUDGETS.longestParticleLifetimeMs))
+      .toBeLessThanOrEqual(VFX_BUDGETS.longestParticleLifetimeMs + PRESENTATION_RESOURCE_LIMITS.cleanupTailBufferMs);
   });
 });

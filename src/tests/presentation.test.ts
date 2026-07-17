@@ -10,12 +10,15 @@ import {
   groupPowerUpEvents,
   lightBallWavePlan,
   matchTimeline,
+  PRESENTATION_RESOURCE_LIMITS,
+  presentationResourcePlan,
   pieceDisplayProfile,
   propellerFlightPlan,
   rocketLanePlan,
   tntDetonationPlan,
   tilePopVariation,
-  type CanonicalComboKey
+  type CanonicalComboKey,
+  type PresentationEffectKey
 } from "../game/presentation";
 
 const rocketHorizontal: PowerUpType = { kind: "rocket", orientation: "horizontal" };
@@ -23,6 +26,22 @@ const rocketVertical: PowerUpType = { kind: "rocket", orientation: "vertical" };
 const propeller: PowerUpType = { kind: "propeller" };
 const tnt: PowerUpType = { kind: "tnt" };
 const lightBall: PowerUpType = { kind: "lightBall" };
+const presentationEffects: PresentationEffectKey[] = [
+  "rocket",
+  "propeller",
+  "tnt",
+  "lightBall",
+  "rocket+rocket",
+  "propeller+rocket",
+  "rocket+tnt",
+  "lightBall+rocket",
+  "propeller+propeller",
+  "propeller+tnt",
+  "lightBall+propeller",
+  "tnt+tnt",
+  "lightBall+tnt",
+  "lightBall+lightBall"
+];
 
 function powerUpEvent(
   powerUpType: PowerUpType,
@@ -129,7 +148,7 @@ describe("comboChoreographyPlan", () => {
       events.flatMap((event) => event.affectedPositions)
     ));
     expect(plan.projectileCount).toBeLessThanOrEqual(12);
-    expect(plan.arcCount).toBeLessThanOrEqual(16);
+    expect(plan.arcCount).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.simultaneousArcs);
     expect(plan.particleCount).toBeLessThanOrEqual(120);
     expect(plan.screenFlashCount).toBeLessThanOrEqual(1);
     expect(plan.chargeAtMs).toBeGreaterThanOrEqual(180);
@@ -153,6 +172,42 @@ describe("comboChoreographyPlan", () => {
     expect(plan.particleCount).toBe(0);
     expect(plan.finalStatePositions).toEqual(expect.arrayContaining([...group.affectedPositions]));
     expect(plan.cascadeAtMs).toBe(0);
+  });
+});
+
+describe("presentation resource plans", () => {
+  it.each(["desktop", "mobile"] as const)("keeps every normal effect finite and within the %s budget", (viewport) => {
+    for (const effect of presentationEffects) {
+      const plan = presentationResourcePlan(effect, 49, viewport, false);
+      const values = [
+        plan.totalDurationMs,
+        plan.concurrentEmitters,
+        plan.liveParticles,
+        plan.simultaneousArcs,
+        plan.activeBoardAudio,
+        plan.screenFlashes
+      ];
+
+      expect(values.every((value) => Number.isFinite(value) && value >= 0), effect).toBe(true);
+      expect(plan.concurrentEmitters, effect).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.concurrentEmitters);
+      expect(plan.liveParticles, effect).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.liveParticles[viewport]);
+      expect(plan.simultaneousArcs, effect).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.simultaneousArcs);
+      expect(plan.activeBoardAudio, effect).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.activeBoardAudio);
+    }
+  });
+
+  it("reduces every effect to a stable sub-180 ms final-state plan without moving VFX", () => {
+    for (const effect of presentationEffects) {
+      const plan = presentationResourcePlan(effect, 49, "mobile", true);
+
+      expect(plan.totalDurationMs, effect).toBeLessThanOrEqual(PRESENTATION_RESOURCE_LIMITS.reducedMotionStableMs);
+      expect(plan.concurrentEmitters, effect).toBe(0);
+      expect(plan.liveParticles, effect).toBe(0);
+      expect(plan.simultaneousArcs, effect).toBe(0);
+      expect(plan.screenFlashes, effect).toBe(0);
+      expect(plan.travel, effect).toBe(false);
+      expect(plan.shake, effect).toBe(false);
+    }
   });
 });
 

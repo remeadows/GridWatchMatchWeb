@@ -13,6 +13,21 @@ const powerUpCombos: CanonicalComboKey[] = [
   "lightBall+tnt",
   "lightBall+lightBall"
 ];
+const presentationEffects = ["rocket", "propeller", "tnt", "lightBall", ...powerUpCombos] as const;
+
+interface PresentationResourceSnapshot {
+  current: {
+    activeFxObjects: number;
+    activeTimers: number;
+    activeTweens: number;
+    activeEmitters: number;
+    liveParticles: number;
+    simultaneousArcs: number;
+    activeBoardAudio: number;
+  };
+  peak: PresentationResourceSnapshot["current"];
+  profile: "desktop" | "mobile";
+}
 
 test.describe("piece rendering and board scale", () => {
   test("keeps the desktop board large while all rows and booster artwork remain reachable", async ({ page }) => {
@@ -328,6 +343,113 @@ test.describe("power-up combo choreography", () => {
   }
 });
 
+test.describe("presentation budget and cleanup", () => {
+  test("budget caps the heaviest board-wide effect on each viewport", async ({ page }, testInfo) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await previewPresentationEffect(page, "lightBall+lightBall");
+    const resources = await presentationResourceCounts(page);
+    const particleCap = testInfo.project.name === "mobile" ? 110 : 180;
+
+    expect(resources.peak.activeEmitters).toBeLessThanOrEqual(12);
+    expect(resources.peak.liveParticles).toBeLessThanOrEqual(particleCap);
+    expect(resources.peak.simultaneousArcs).toBeLessThanOrEqual(12);
+    expect(resources.peak.activeBoardAudio).toBeLessThanOrEqual(16);
+  });
+
+  test("cleanup empties the registry after every single and combo effect tail", async ({ page }) => {
+    for (const effect of presentationEffects) {
+      await page.goto("/?gwTestMode=1&level=1");
+      await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+      await waitForBoardReady(page);
+      await previewPresentationEffect(page, effect);
+      await page.waitForFunction(() => {
+        const resources = (window as Window & {
+          __gwPresentationResourceCounts?: PresentationResourceSnapshot;
+        }).__gwPresentationResourceCounts;
+        return resources !== undefined && Object.values(resources.current).every((value) => value === 0);
+      });
+    }
+  });
+
+  test("cleanup prevents every effect callback from surviving scene shutdown", async ({ page }) => {
+    const pageErrors: Error[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error));
+
+    for (const effect of presentationEffects) {
+      await page.goto("/?gwTestMode=1&level=1");
+      await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+      await waitForBoardReady(page);
+      await startPresentationEffect(page, effect);
+      await page.evaluate(() => {
+        const stop = (window as Window & { __gwStopBoardScene?: () => void }).__gwStopBoardScene;
+        if (!stop) throw new Error("Board shutdown test hook unavailable");
+        stop();
+      });
+      await expect.poll(() => presentationResourceCounts(page)).toMatchObject({
+        current: {
+          activeFxObjects: 0,
+          activeTimers: 0,
+          activeTweens: 0,
+          activeEmitters: 0,
+          liveParticles: 0,
+          simultaneousArcs: 0,
+          activeBoardAudio: 0
+        }
+      });
+    }
+
+    expect(pageErrors).toEqual([]);
+  });
+});
+
+test.describe("reduced motion presentation budget", () => {
+  test("all singles and combos reach stable final state within 180 ms without moving VFX or disabled SFX cues", async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem("gridwatch-match-web.save.v1", JSON.stringify({
+        version: 1,
+        settings: {
+          musicEnabled: true,
+          sfxEnabled: false,
+          voiceEnabled: true,
+          reducedMotion: true
+        }
+      }));
+    });
+
+    for (const effect of presentationEffects) {
+      await page.goto("/?gwTestMode=1&level=1");
+      await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+      await waitForBoardReady(page);
+      await previewPresentationEffect(page, effect);
+
+      const trace = await presentationTrace(page);
+      const start = traceEntry(trace, "effect-preview-start");
+      const complete = traceEntry(trace, "effect-preview-complete");
+      const forbiddenKinds = new Set([
+        "combo-charge",
+        "combo-visual-batch",
+        "lightBall-arc-wave",
+        "powerup-charge",
+        "propeller-flight",
+        "rocket-head-launch",
+        "screen-flash",
+        "shake-request",
+        "vfx-particles"
+      ]);
+
+      expect(complete.plannedAtMs - start.plannedAtMs, effect).toBeLessThanOrEqual(180);
+      expect(trace.some((entry) => forbiddenKinds.has(entry.kind)), effect).toBe(false);
+      expect(trace.some((entry) => entry.kind === "audio-cue"), effect).toBe(false);
+      const resources = await presentationResourceCounts(page);
+      expect(resources.peak.liveParticles, effect).toBe(0);
+      expect(resources.peak.simultaneousArcs, effect).toBe(0);
+    }
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -439,6 +561,34 @@ async function presentationTrace(page: Page): Promise<PresentationTraceEntry[]> 
   return page.evaluate(() => (
     (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace ?? []
   ));
+}
+
+async function startPresentationEffect(page: Page, effect: typeof presentationEffects[number]): Promise<void> {
+  await page.evaluate((key) => {
+    const preview = (window as Window & {
+      __gwPreviewPresentationEffect?: (effect: typeof key) => void;
+    }).__gwPreviewPresentationEffect;
+    if (!preview) throw new Error("Presentation effect preview hook unavailable");
+    preview(key);
+  }, effect);
+}
+
+async function previewPresentationEffect(page: Page, effect: typeof presentationEffects[number]): Promise<void> {
+  await startPresentationEffect(page, effect);
+  await page.waitForFunction(() => (
+    (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+      ?.some((entry) => entry.kind === "effect-preview-complete") ?? false
+  ));
+}
+
+async function presentationResourceCounts(page: Page): Promise<PresentationResourceSnapshot> {
+  return page.evaluate(() => {
+    const resources = (window as Window & {
+      __gwPresentationResourceCounts?: PresentationResourceSnapshot;
+    }).__gwPresentationResourceCounts;
+    if (!resources) throw new Error("Presentation resource counts unavailable");
+    return resources;
+  });
 }
 
 function traceEntry(trace: PresentationTraceEntry[], kind: string): PresentationTraceEntry {

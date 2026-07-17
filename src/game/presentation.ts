@@ -53,6 +53,34 @@ export type CanonicalComboKey =
   | "lightBall+tnt"
   | "lightBall+lightBall";
 
+export type SinglePowerUpEffectKey = "rocket" | "propeller" | "tnt" | "lightBall";
+export type PresentationEffectKey = SinglePowerUpEffectKey | CanonicalComboKey;
+export type PresentationViewportProfile = "desktop" | "mobile";
+
+export const PRESENTATION_RESOURCE_LIMITS = {
+  concurrentEmitters: 12,
+  liveParticles: {
+    desktop: 180,
+    mobile: 110
+  },
+  simultaneousArcs: 12,
+  activeBoardAudio: 16,
+  boardAudioSlotMs: 120,
+  cleanupTailBufferMs: 250,
+  reducedMotionStableMs: 180
+} as const;
+
+export interface PresentationResourcePlan {
+  totalDurationMs: number;
+  concurrentEmitters: number;
+  liveParticles: number;
+  simultaneousArcs: number;
+  activeBoardAudio: number;
+  screenFlashes: number;
+  travel: boolean;
+  shake: boolean;
+}
+
 export interface PowerUpPresentationGroup {
   kind: "single" | "combo";
   key: CanonicalComboKey | null;
@@ -187,6 +215,50 @@ export function canonicalComboKey(left: PowerUpType, right: PowerUpType): Canoni
   return [left.kind, right.kind].sort().join("+") as CanonicalComboKey;
 }
 
+export function presentationResourcePlan(
+  effect: PresentationEffectKey,
+  affectedCount: number,
+  viewport: PresentationViewportProfile,
+  reducedMotion: boolean
+): PresentationResourcePlan {
+  const count = Math.max(0, Math.floor(Number.isFinite(affectedCount) ? affectedCount : 0));
+  if (reducedMotion) {
+    return {
+      totalDurationMs: Math.min(120, PRESENTATION_RESOURCE_LIMITS.reducedMotionStableMs),
+      concurrentEmitters: 0,
+      liveParticles: 0,
+      simultaneousArcs: 0,
+      activeBoardAudio: 1,
+      screenFlashes: 0,
+      travel: false,
+      shake: false
+    };
+  }
+
+  const combo = isPresentationComboKey(effect);
+  const totalDurationMs = combo
+    ? COMBO_CHOREOGRAPHY_TIMING[effect].cascadeMs
+    : singleEffectDurationMs(effect);
+  const requestedEmitters = combo ? 4 + Math.ceil(count / 5) : 3 + Math.ceil(count / 4);
+  const requestedParticles = combo ? 48 + count * 5 : 24 + count * 4;
+  const requestedArcs = effect.includes("lightBall")
+    ? count
+    : effect.includes("propeller") || effect.includes("rocket")
+      ? Math.ceil(count / 2)
+      : 0;
+
+  return {
+    totalDurationMs,
+    concurrentEmitters: Math.min(PRESENTATION_RESOURCE_LIMITS.concurrentEmitters, requestedEmitters),
+    liveParticles: Math.min(PRESENTATION_RESOURCE_LIMITS.liveParticles[viewport], requestedParticles),
+    simultaneousArcs: Math.min(PRESENTATION_RESOURCE_LIMITS.simultaneousArcs, requestedArcs),
+    activeBoardAudio: Math.min(PRESENTATION_RESOURCE_LIMITS.activeBoardAudio, combo ? 4 : 3),
+    screenFlashes: effect.includes("tnt") || effect.includes("lightBall") ? 1 : 0,
+    travel: effect !== "tnt",
+    shake: effect === "tnt" || combo
+  };
+}
+
 export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUpPresentationGroup[] {
   const groups: PowerUpPresentationGroup[] = [];
 
@@ -284,7 +356,7 @@ export function comboChoreographyPlan(
     events,
     finalStatePositions,
     projectileCount: Math.min(COMBO_PROJECTILE_CAP, counts.projectiles),
-    arcCount: Math.min(COMBO_ARC_CAP, counts.arcs),
+    arcCount: Math.min(PRESENTATION_RESOURCE_LIMITS.simultaneousArcs, COMBO_ARC_CAP, counts.arcs),
     particleCount: Math.min(COMBO_BATCH_PARTICLE_CAP, counts.particles),
     screenFlashCount: 1
   };
@@ -464,6 +536,17 @@ export function pieceDisplayProfile(tileSize: number): PieceDisplayProfile {
 function clampFinite(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+function isPresentationComboKey(effect: PresentationEffectKey): effect is CanonicalComboKey {
+  return effect.includes("+");
+}
+
+function singleEffectDurationMs(effect: SinglePowerUpEffectKey): number {
+  if (effect === "tnt") return TNT_SEQUENCE_BUDGET_MS;
+  if (effect === "rocket") return ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS + 280;
+  if (effect === "propeller") return PROPELLER_SEQUENCE_BUDGET_MS;
+  return LIGHTBALL_CHARGE_MS + LIGHTBALL_WAVE_STAGGER_MS * 4 + LIGHTBALL_RELEASE_DELAY_MS * 2;
 }
 
 function comboVisualKind(key: CanonicalComboKey): ComboVisualKind {

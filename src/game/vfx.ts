@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { PRESENTATION_RESOURCE_LIMITS, type PresentationViewportProfile } from "./presentation";
 import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG, VFX_TIMING } from "./vfxTiming";
 
 export const vfxTextureKeys = {
@@ -63,60 +64,282 @@ export interface ImpactBurstOptions {
   tint: number;
 }
 
-type VfxDisposable = { destroy?: () => void; remove?: () => void; stop?: () => void };
+type VfxDisposable = {
+  destroy?: () => void;
+  remove?: (...args: never[]) => unknown;
+  stop?: () => void;
+  once?: (event: string, callback: () => void) => unknown;
+};
+
+export interface PresentationResourceCounts {
+  activeFxObjects: number;
+  activeTimers: number;
+  activeTweens: number;
+  activeEmitters: number;
+  liveParticles: number;
+  simultaneousArcs: number;
+  activeBoardAudio: number;
+}
+
+export interface PresentationResourceSnapshot extends PresentationResourceCounts {
+  current: PresentationResourceCounts;
+  peak: PresentationResourceCounts;
+  profile: PresentationViewportProfile;
+}
+
+type BudgetCounts = Pick<PresentationResourceCounts, "activeEmitters" | "liveParticles" | "simultaneousArcs" | "activeBoardAudio">;
+
+const emptyBudgetCounts = (): BudgetCounts => ({
+  activeEmitters: 0,
+  liveParticles: 0,
+  simultaneousArcs: 0,
+  activeBoardAudio: 0
+});
+
+const emptyResourceCounts = (): PresentationResourceCounts => ({
+  activeFxObjects: 0,
+  activeTimers: 0,
+  activeTweens: 0,
+  ...emptyBudgetCounts()
+});
+
+export class PresentationVfxBudget {
+  private current = emptyBudgetCounts();
+  private peak = emptyBudgetCounts();
+
+  constructor(private profile: PresentationViewportProfile) {}
+
+  allocateEmitter(requestedParticles: number): number {
+    if (!Number.isFinite(requestedParticles) || requestedParticles <= 0) return 0;
+    if (this.current.activeEmitters >= PRESENTATION_RESOURCE_LIMITS.concurrentEmitters) return 0;
+    const remainingParticles = PRESENTATION_RESOURCE_LIMITS.liveParticles[this.profile] - this.current.liveParticles;
+    const grantedParticles = Math.min(Math.floor(requestedParticles), Math.max(0, remainingParticles));
+    if (grantedParticles === 0) return 0;
+    this.current.activeEmitters += 1;
+    this.current.liveParticles += grantedParticles;
+    this.capturePeak();
+    return grantedParticles;
+  }
+
+  releaseEmitter(particleCount: number): void {
+    this.current.activeEmitters = Math.max(0, this.current.activeEmitters - 1);
+    this.current.liveParticles = Math.max(0, this.current.liveParticles - Math.max(0, particleCount));
+  }
+
+  allocateArc(): boolean {
+    if (this.current.simultaneousArcs >= PRESENTATION_RESOURCE_LIMITS.simultaneousArcs) return false;
+    this.current.simultaneousArcs += 1;
+    this.capturePeak();
+    return true;
+  }
+
+  releaseArc(): void {
+    this.current.simultaneousArcs = Math.max(0, this.current.simultaneousArcs - 1);
+  }
+
+  allocateAudio(): boolean {
+    if (this.current.activeBoardAudio >= PRESENTATION_RESOURCE_LIMITS.activeBoardAudio) return false;
+    this.current.activeBoardAudio += 1;
+    this.capturePeak();
+    return true;
+  }
+
+  releaseAudio(): void {
+    this.current.activeBoardAudio = Math.max(0, this.current.activeBoardAudio - 1);
+  }
+
+  reset(profile: PresentationViewportProfile): void {
+    this.profile = profile;
+    this.current = emptyBudgetCounts();
+    this.peak = emptyBudgetCounts();
+  }
+
+  clearCurrent(): void {
+    this.current = emptyBudgetCounts();
+  }
+
+  snapshot(): { current: BudgetCounts; peak: BudgetCounts; profile: PresentationViewportProfile } & BudgetCounts {
+    return {
+      ...this.current,
+      current: { ...this.current },
+      peak: { ...this.peak },
+      profile: this.profile
+    };
+  }
+
+  private capturePeak(): void {
+    for (const key of Object.keys(this.current) as Array<keyof BudgetCounts>) {
+      this.peak[key] = Math.max(this.peak[key], this.current[key]);
+    }
+  }
+}
 
 /** Owns transient Phaser resources so a scene shutdown cannot leave orphaned FX alive. */
 export class VfxCleanupRegistry {
-  private readonly objects = new Set<VfxDisposable>();
+  private readonly objects = new Map<VfxDisposable, { arc: boolean; emitterParticles: number }>();
   private readonly timers = new Set<VfxDisposable>();
   private readonly tweens = new Set<VfxDisposable>();
+  private readonly budget: PresentationVfxBudget;
+  private generation = 0;
+  private disposed = false;
+  private peak = emptyResourceCounts();
+
+  constructor(
+    profile: PresentationViewportProfile = "desktop",
+    private readonly onCountsChanged?: (snapshot: PresentationResourceSnapshot) => void
+  ) {
+    this.budget = new PresentationVfxBudget(profile);
+    this.publishCounts();
+  }
 
   trackObject<T extends VfxDisposable>(object: T): T {
-    this.objects.add(object);
+    if (this.disposed) {
+      object.destroy?.();
+      return object;
+    }
+    this.objects.set(object, { arc: false, emitterParticles: 0 });
+    object.once?.("destroy", () => this.release(object));
+    this.publishCounts();
     return object;
+  }
+
+  trackEmitter<T extends VfxDisposable>(emitter: T, requestedParticles: number): number {
+    if (this.disposed) {
+      emitter.destroy?.();
+      return 0;
+    }
+    const particleCount = this.budget.allocateEmitter(requestedParticles);
+    if (particleCount === 0) {
+      emitter.destroy?.();
+      return 0;
+    }
+    this.objects.set(emitter, { arc: false, emitterParticles: particleCount });
+    emitter.once?.("destroy", () => this.release(emitter));
+    this.publishCounts();
+    return particleCount;
+  }
+
+  trackArc<T extends VfxDisposable>(arc: T): T | null {
+    if (this.disposed || !this.budget.allocateArc()) {
+      arc.destroy?.();
+      return null;
+    }
+    this.objects.set(arc, { arc: true, emitterParticles: 0 });
+    arc.once?.("destroy", () => this.release(arc));
+    this.publishCounts();
+    return arc;
   }
 
   trackTimer<T extends VfxDisposable>(timer: T): T {
     this.timers.add(timer);
+    this.publishCounts();
     return timer;
   }
 
   trackTween<T extends VfxDisposable>(tween: T): T {
     this.tweens.add(tween);
+    tween.once?.("complete", () => this.release(tween));
+    tween.once?.("stop", () => this.release(tween));
+    this.publishCounts();
     return tween;
   }
 
   release(resource: VfxDisposable): void {
-    this.objects.delete(resource);
+    const metadata = this.objects.get(resource);
+    if (metadata) {
+      if (metadata.emitterParticles > 0) this.budget.releaseEmitter(metadata.emitterParticles);
+      if (metadata.arc) this.budget.releaseArc();
+      this.objects.delete(resource);
+    }
     this.timers.delete(resource);
     this.tweens.delete(resource);
+    this.publishCounts();
+  }
+
+  allocateAudio(scene: Phaser.Scene, lifespanMs = PRESENTATION_RESOURCE_LIMITS.boardAudioSlotMs): boolean {
+    if (this.disposed || !this.budget.allocateAudio()) return false;
+    this.publishCounts();
+    this.schedule(scene, lifespanMs, () => {
+      this.budget.releaseAudio();
+      this.publishCounts();
+    });
+    return true;
   }
 
   schedule(scene: Phaser.Scene, delayMs: number, callback: () => void): Phaser.Time.TimerEvent {
     assertScene("cleanup", scene);
     assertPositiveFinite("cleanup", "delayMs", delayMs);
+    const generation = this.generation;
     let timer: Phaser.Time.TimerEvent;
     timer = scene.time.delayedCall(delayMs, () => {
       this.release(timer);
+      if (this.disposed || generation !== this.generation) return;
       callback();
     });
     return this.trackTimer(timer);
   }
 
+  reset(profile: PresentationViewportProfile): void {
+    this.dispose();
+    this.disposed = false;
+    this.budget.reset(profile);
+    this.peak = emptyResourceCounts();
+    this.publishCounts();
+  }
+
+  resourceCounts(): PresentationResourceSnapshot {
+    const budget = this.budget.snapshot();
+    const current: PresentationResourceCounts = {
+      activeFxObjects: this.objects.size,
+      activeTimers: this.timers.size,
+      activeTweens: this.tweens.size,
+      ...budget.current
+    };
+    return {
+      ...current,
+      current,
+      peak: { ...this.peak },
+      profile: budget.profile
+    };
+  }
+
   dispose(): void {
-    for (const tween of this.tweens) {
+    this.generation += 1;
+    this.disposed = true;
+    for (const tween of [...this.tweens]) {
       tween.stop?.();
       tween.remove?.();
       tween.destroy?.();
     }
-    for (const timer of this.timers) {
+    for (const timer of [...this.timers]) {
       timer.remove?.();
       timer.destroy?.();
     }
-    for (const object of this.objects) object.destroy?.();
+    for (const object of [...this.objects.keys()]) object.destroy?.();
     this.objects.clear();
     this.timers.clear();
     this.tweens.clear();
+    this.budget.clearCurrent();
+    this.publishCounts();
+  }
+
+  private publishCounts(): void {
+    const budget = this.budget.snapshot();
+    const current: PresentationResourceCounts = {
+      activeFxObjects: this.objects.size,
+      activeTimers: this.timers.size,
+      activeTweens: this.tweens.size,
+      ...budget.current
+    };
+    for (const key of Object.keys(current) as Array<keyof PresentationResourceCounts>) {
+      this.peak[key] = Math.max(this.peak[key], current[key]);
+    }
+    this.onCountsChanged?.({
+      ...current,
+      current,
+      peak: { ...this.peak },
+      profile: budget.profile
+    });
   }
 }
 
@@ -266,6 +489,7 @@ export function electricArc(
   assertPositiveFinite("electricArc", "segments", segments);
   assertPositiveFinite("electricArc", "width", width);
   const graphics = scene.add.graphics();
+  if (cleanup && !cleanup.trackArc(graphics)) return;
   const localFrom = { x: from.x - layer.x, y: from.y - layer.y };
   const localTo = { x: to.x - layer.x, y: to.y - layer.y };
   const random = seededRandom(options.seed);
@@ -285,7 +509,6 @@ export function electricArc(
   graphics.strokePath();
   graphics.setBlendMode(Phaser.BlendModes.ADD);
   layer.add(graphics);
-  cleanup?.trackObject(graphics);
   const tween = scene.tweens.add({
     targets: graphics,
     alpha: 0,
@@ -455,9 +678,10 @@ export function burst(
     speed: { min: options.speed * VFX_TIMING.PARTICLE_MIN_SPEED_RATIO, max: options.speed },
     tint: options.tint
   });
+  const particleCount = cleanup ? cleanup.trackEmitter(emitter, options.count) : options.count;
+  if (particleCount === 0) return;
   layer.add(emitter);
-  cleanup?.trackObject(emitter);
-  emitter.explode(options.count, 0, 0);
+  emitter.explode(particleCount, 0, 0);
   const destroy = () => {
     cleanup?.release(emitter);
     emitter.destroy();

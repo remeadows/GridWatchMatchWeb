@@ -56,9 +56,9 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, comboChoreographyPlan, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
-import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys } from "./vfx";
+import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 
 export interface BoardSceneData {
@@ -359,6 +359,9 @@ export class BoardScene extends Phaser.Scene {
   private dragWatchdog: Phaser.Time.TimerEvent | null = null;
   private selected: GridPosition | null = null;
   private activeAnimationId: number | null = null;
+  private activeResolvedSnapshot: BoardSnapshot | null = null;
+  private lastScaleWidth = 0;
+  private lastScaleHeight = 0;
   private lastAnimationId = 0;
   private reducedMotion = false;
   private pendingBooster: BoosterType | null = null;
@@ -393,12 +396,21 @@ export class BoardScene extends Phaser.Scene {
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
     this.fxScreen = this.add.container(0, 0);
-    this.vfxCleanup = new VfxCleanupRegistry();
+    this.vfxCleanup = new VfxCleanupRegistry(
+      this.presentationViewportProfile(),
+      (snapshot) => this.publishPresentationResourceCounts(snapshot)
+    );
     this.events.once("shutdown", this.disposeVfx, this);
     ensureVfxTextures(this);
     this.resetPresentationTrace();
     this.installDomPointerHandlers();
+    this.lastScaleWidth = this.scale.width;
+    this.lastScaleHeight = this.scale.height;
     this.scale.on("resize", () => {
+      const dimensionsChanged = this.scale.width !== this.lastScaleWidth || this.scale.height !== this.lastScaleHeight;
+      this.lastScaleWidth = this.scale.width;
+      this.lastScaleHeight = this.scale.height;
+      if (!dimensionsChanged) return;
       // A resize can land while a committed swap's resolve handoff is parked
       // on the settle tween (pendingCommitCb). hardClearDrag alone would kill
       // that tween and drop the handoff, wedging the active animation forever
@@ -412,6 +424,7 @@ export class BoardScene extends Phaser.Scene {
         pendingHandoff();
         return;
       }
+      if (this.settleInterruptedPresentation()) return;
       this.renderSnapshot();
     });
     this.renderSnapshot();
@@ -441,6 +454,7 @@ export class BoardScene extends Phaser.Scene {
       this.playResolvedAnimation(snapshot, animation);
       return;
     }
+    this.vfxCleanup.dispose();
     this.hardClearDrag();
     this.snapshot = snapshot;
     this.renderSnapshot();
@@ -450,6 +464,7 @@ export class BoardScene extends Phaser.Scene {
   private finishAnimation(): void {
     this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
     this.activeAnimationId = null;
+    this.activeResolvedSnapshot = null;
   }
 
   private isPresentationTestMode(): boolean {
@@ -469,6 +484,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private beginPresentationSequence(action: BoardAction): void {
+    this.vfxCleanup.reset(this.presentationViewportProfile());
     this.presentationSequenceId += 1;
     this.activePresentationSequenceId = this.presentationSequenceId;
     this.presentationPlannedAtMs = this.time.now;
@@ -492,8 +508,23 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private cueBoardAudio(key: PresentationAudioKey, playback?: Partial<BoardAudioPlayback>): void {
+    if (!this.vfxCleanup.allocateAudio(this)) return;
     audioService.playBoardCue(key, playback);
     this.recordPresentation("audio-cue", key);
+  }
+
+  private cueReducedMotionAudio(key: PresentationAudioKey): void {
+    audioService.playBoardCue(key, { gain: 0.28 });
+  }
+
+  private presentationViewportProfile(): "desktop" | "mobile" {
+    return Math.min(this.scale.width, this.game.canvas.clientWidth || this.scale.width) <= 480 ? "mobile" : "desktop";
+  }
+
+  private publishPresentationResourceCounts(snapshot: PresentationResourceSnapshot): void {
+    if (!this.isPresentationTestMode()) return;
+    const target = window as Window & { __gwPresentationResourceCounts?: PresentationResourceSnapshot };
+    target.__gwPresentationResourceCounts = snapshot;
   }
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
@@ -575,6 +606,7 @@ export class BoardScene extends Phaser.Scene {
 
   playWinSequence(onComplete: () => void): boolean {
     if (!this.snapshot || !this.layer || !this.fxLayer) return false;
+    this.vfxCleanup.reset(this.presentationViewportProfile());
     const sourceSnapshot = this.snapshot;
     const poppedKeys = occupiedKeys(sourceSnapshot);
     this.hardClearDrag();
@@ -629,6 +661,7 @@ export class BoardScene extends Phaser.Scene {
 
   private playResolvedAnimation(nextSnapshot: BoardSnapshot, animation: Extract<BoardAnimationEvent, { kind: "resolved" }>): void {
     const previousSnapshot = this.snapshot;
+    this.activeResolvedSnapshot = nextSnapshot;
 
     if (this.reducedMotion) {
       this.hardClearDrag();
@@ -955,8 +988,8 @@ export class BoardScene extends Phaser.Scene {
     if (this.reducedMotion) {
       const combo = groups.find((group) => group.kind === "combo");
       const event = delta.powerUpEvents[0];
-      if (combo) this.cueBoardAudio("comboImpact", { gain: 0.28 });
-      else if (event) this.cueBoardAudio(reducedMotionPowerUpCue(event), { gain: 0.28 });
+      if (combo) this.cueReducedMotionAudio("comboImpact");
+      else if (event) this.cueReducedMotionAudio(reducedMotionPowerUpCue(event));
       return;
     }
 
@@ -993,7 +1026,7 @@ export class BoardScene extends Phaser.Scene {
     }
     const plan = comboChoreographyPlan(group, this.snapshot.rngSeed, this.reducedMotion);
     if (this.reducedMotion) {
-      this.cueBoardAudio("comboImpact", { gain: 0.28 });
+      this.cueReducedMotionAudio("comboImpact");
       onComplete?.();
       return;
     }
@@ -1004,14 +1037,14 @@ export class BoardScene extends Phaser.Scene {
     this.cueBoardAudio("comboCharge");
     this.playComboChargeVisual(plan, group, center);
 
-    this.time.delayedCall(plan.chargeAtMs, () => {
+    this.vfxCleanup.schedule(this, plan.chargeAtMs, () => {
       if (!this.sys.isActive() || !this.fxLayer?.active) return;
       this.recordPresentation("combo-armed", plan.key);
       this.cueComboTypeLayer(plan.key);
       this.playComboLaunchVisual(plan, center);
     });
 
-    this.time.delayedCall(plan.impactAtMs, () => {
+    this.vfxCleanup.schedule(this, plan.impactAtMs, () => {
       if (!this.sys.isActive() || !this.fxLayer?.active) return;
       this.recordPresentation("combo-impact", plan.key);
       this.cueBoardAudio("comboImpact");
@@ -1020,7 +1053,7 @@ export class BoardScene extends Phaser.Scene {
     });
 
     plan.batches.forEach((batch, index) => {
-      this.time.delayedCall(batch.atMs, () => {
+      this.vfxCleanup.schedule(this, batch.atMs, () => {
         if (!this.sys.isActive() || !this.fxLayer?.active) return;
         this.recordPresentation("combo-visual-batch", `${plan.key}:${index}:${batch.affectedPositions.length}`);
         this.playComboBatchVisual(plan, batch, index, center);
@@ -1028,17 +1061,17 @@ export class BoardScene extends Phaser.Scene {
     });
 
     const restoreAtMs = Math.max(plan.impactAtMs, plan.cascadeAtMs - COMBO_DIM_OUT_MS);
-    this.time.delayedCall(restoreAtMs, () => {
+    this.vfxCleanup.schedule(this, restoreAtMs, () => {
       if (!dimmer?.active) return;
-      this.tweens.add({
+      this.vfxCleanup.trackTween(this.tweens.add({
         targets: dimmer,
         alpha: 0,
         duration: COMBO_DIM_OUT_MS,
         ease: "Sine.easeOut",
         onComplete: () => dimmer.destroy()
-      });
+      }));
     });
-    this.time.delayedCall(plan.cascadeAtMs, () => {
+    this.vfxCleanup.schedule(this, plan.cascadeAtMs, () => {
       if (!this.sys.isActive()) return;
       if (dimmer?.active) dimmer.destroy();
       onComplete?.();
@@ -1053,7 +1086,8 @@ export class BoardScene extends Phaser.Scene {
     dimmer.fillRect(-this.fxScreen.x, -this.fxScreen.y, this.scale.width, this.scale.height);
     dimmer.setAlpha(0);
     this.fxScreen.add(dimmer);
-    this.tweens.add({ targets: dimmer, alpha: 1, duration: COMBO_DIM_IN_MS, ease: "Sine.easeInOut" });
+    this.vfxCleanup.trackObject(dimmer);
+    this.vfxCleanup.trackTween(this.tweens.add({ targets: dimmer, alpha: 1, duration: COMBO_DIM_IN_MS, ease: "Sine.easeInOut" }));
     return dimmer;
   }
 
@@ -1079,18 +1113,19 @@ export class BoardScene extends Phaser.Scene {
     rig.add([halo, ...icons]);
     rig.setBlendMode(Phaser.BlendModes.ADD);
     this.fxLayer.add(rig);
+    this.vfxCleanup.trackObject(rig);
     if (plan.key === "lightBall+lightBall") rig.setAngle(-90);
     icons.forEach((icon, index) => {
-      this.tweens.add({
+      this.vfxCleanup.trackTween(this.tweens.add({
         targets: icon,
         x: (index === 0 ? -1 : 1) * this.tileSize * 0.14,
         scaleX: icon.scaleX * 1.16,
         scaleY: icon.scaleY * 1.16,
         duration: plan.chargeAtMs,
         ease: "Sine.easeInOut"
-      });
+      }));
     });
-    this.tweens.add({
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: rig,
       angle: plan.key === "lightBall+lightBall" ? 270 : 18,
       scaleX: 1.12,
@@ -1098,7 +1133,7 @@ export class BoardScene extends Phaser.Scene {
       duration: plan.impactAtMs,
       ease: "Sine.easeInOut",
       onComplete: () => rig.destroy()
-    });
+    }));
 
     const originCenters = group.events.slice(0, 4).map((event) => this.cellCenter(event.origin));
     for (const origin of originCenters) {
@@ -1130,7 +1165,8 @@ export class BoardScene extends Phaser.Scene {
     }
     overlays.setAlpha(0);
     this.fxLayer.add(overlays);
-    this.tweens.add({
+    this.vfxCleanup.trackObject(overlays);
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: overlays,
       alpha: 0.78,
       duration: plan.chargeAtMs,
@@ -1138,7 +1174,7 @@ export class BoardScene extends Phaser.Scene {
       hold: Math.max(0, plan.cascadeAtMs - plan.chargeAtMs * 2),
       ease: "Sine.easeInOut",
       onComplete: () => overlays.destroy()
-    });
+    }));
   }
 
   private cueComboTypeLayer(key: CanonicalComboKey): void {
@@ -1172,9 +1208,11 @@ export class BoardScene extends Phaser.Scene {
         : undefined;
     targets.forEach((target, index) => {
       const destination = this.cellCenter(target);
-      this.time.delayedCall(index * 28, () => {
+      const launch = () => {
         if (this.sys.isActive()) this.launchComboPayload(powerUp, center, destination, Math.max(180, plan.impactAtMs - plan.chargeAtMs), payload);
-      });
+      };
+      if (index === 0) launch();
+      else this.vfxCleanup.schedule(this, index * 28, launch);
     });
   }
 
@@ -1198,14 +1236,15 @@ export class BoardScene extends Phaser.Scene {
     craft.setBlendMode(Phaser.BlendModes.ADD);
     craft.setAngle(Phaser.Math.RadToDeg(Math.atan2(to.y - from.y, to.x - from.x)));
     this.fxLayer.add(craft);
-    this.tweens.add({
+    this.vfxCleanup.trackObject(craft);
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: craft,
       x: to.x,
       y: to.y,
       duration: durationMs,
       ease: powerUp.kind === "propeller" ? "Sine.easeInOut" : "Linear",
       onComplete: () => craft.destroy()
-    });
+    }));
   }
 
   private playComboPrimaryImpact(plan: ComboChoreographyPlan, center: { x: number; y: number }): void {
@@ -1259,7 +1298,8 @@ export class BoardScene extends Phaser.Scene {
       core.setBlendMode(Phaser.BlendModes.ADD);
       core.setScale(Math.max(0.34, this.tileSize / 110));
       this.fxLayer!.add(core);
-      this.tweens.add({
+      this.vfxCleanup.trackObject(core);
+      this.vfxCleanup.trackTween(this.tweens.add({
         targets: core,
         alpha: 0,
         scaleX: core.scaleX * 1.8,
@@ -1267,7 +1307,7 @@ export class BoardScene extends Phaser.Scene {
         duration: COMBO_LOCAL_CORE_MS,
         ease: "Quad.easeOut",
         onComplete: () => core.destroy()
-      });
+      }));
       if (index < COMBO_BATCH_BURST_CAP) {
         burst(this, this.fxLayer!, target.x, target.y, {
           texture: batch.kind === "blast" ? vfxTextureKeys.shard : vfxTextureKeys.spark,
@@ -1311,14 +1351,34 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private previewPowerUpCombo(key: CanonicalComboKey): void {
-    if (!this.isPresentationTestMode() || !this.snapshot || !isCanonicalComboKey(key)) return;
+    this.previewPresentationEffect(key, true);
+  }
+
+  private previewPresentationEffect(effect: PresentationEffectKey, legacyComboTrace = false): void {
+    if (!this.isPresentationTestMode() || !this.snapshot || !isPresentationEffectKey(effect)) return;
     this.resetPresentationTrace();
+    this.vfxCleanup.reset(this.presentationViewportProfile());
     this.presentationSequenceId += 1;
     this.activePresentationSequenceId = this.presentationSequenceId;
     this.presentationPlannedAtMs = this.time.now;
-    this.recordPresentation("combo-preview-start", key);
-    const group = comboPreviewGroup(key, this.snapshot);
-    this.playComboPowerUpEffect(group, () => this.recordPresentation("combo-preview-complete", key));
+    this.recordPresentation("effect-preview-start", effect);
+    if (legacyComboTrace) this.recordPresentation("combo-preview-start", effect);
+    const complete = () => {
+      this.recordPresentation("effect-preview-complete", effect);
+      if (legacyComboTrace) this.recordPresentation("combo-preview-complete", effect);
+    };
+
+    if (this.reducedMotion) {
+      this.cueReducedMotionAudio(previewAudioCue(effect));
+      this.recordPresentation("effect-preview-complete", effect, 120);
+      if (legacyComboTrace) this.recordPresentation("combo-preview-complete", effect);
+      return;
+    }
+    if (isCanonicalComboKey(effect)) {
+      this.playComboPowerUpEffect(comboPreviewGroup(effect, this.snapshot), complete);
+      return;
+    }
+    this.playPowerUpEffect(singlePreviewEvent(effect, this.snapshot), complete);
   }
 
   private playTilePops(
@@ -1535,7 +1595,7 @@ export class BoardScene extends Phaser.Scene {
       lifespanMs: MATCH_BURST_LIFESPAN_MS,
       tint,
       scale: Math.max(MATCH_BURST_MIN_PARTICLE_SCALE, this.tileSize / MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR)
-    });
+    }, this.vfxCleanup);
     this.tweens.add({
       targets: object,
       alpha: 0,
@@ -1556,7 +1616,7 @@ export class BoardScene extends Phaser.Scene {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
       durationMs: WIN_ROW_DESTRUCTION_POP_MS,
       tint: 0x9bfff2
-    });
+    }, this.vfxCleanup);
     burst(this, this.fxLayer, x, y, {
       texture: vfxTextureKeys.shard,
       count: WIN_FINAL_BURST_PARTICLE_COUNT,
@@ -1564,7 +1624,7 @@ export class BoardScene extends Phaser.Scene {
       lifespanMs: MATCH_BURST_LIFESPAN_MS,
       tint: 0xded2ff,
       scale: Math.max(0.34, this.tileSize / 150)
-    });
+    }, this.vfxCleanup);
   }
 
   private recordMatchBurst(): void {
@@ -1861,27 +1921,28 @@ export class BoardScene extends Phaser.Scene {
     flash.setBlendMode(Phaser.BlendModes.ADD);
     fuse.add([flash, icon]);
     fxLayer.add(fuse);
+    this.vfxCleanup.trackObject(fuse);
 
-    this.tweens.add({
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: icon,
       scaleX: 1.15,
       scaleY: 1.15,
       duration: plan.chargeAtMs,
       ease: "Sine.easeInOut"
-    });
-    this.tweens.add({
+    }));
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: flash,
       alpha: 0.95,
       duration: plan.chargeAtMs / 2,
       yoyo: true,
       ease: "Sine.easeInOut"
-    });
+    }));
 
-    this.time.delayedCall(plan.chargeAtMs, () => {
+    this.vfxCleanup.schedule(this, plan.chargeAtMs, () => {
       if (this.sys.isActive()) this.recordPresentation("tnt-charge");
     });
 
-    this.time.delayedCall(plan.detonationAtMs, () => {
+    this.vfxCleanup.schedule(this, plan.detonationAtMs, () => {
       if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active || !fxLayer.active) return;
       const activeFxLayer = this.fxLayer;
       if (fuse.active) fuse.destroy();
@@ -1890,7 +1951,7 @@ export class BoardScene extends Phaser.Scene {
       this.cueBoardAudio("tntBlast");
       audioService.vibrate([18, 35, 28]);
       if (onImpact) {
-        this.time.delayedCall(TNT_CASCADE_AFTER_DETONATION_MS, () => {
+        this.vfxCleanup.schedule(this, TNT_CASCADE_AFTER_DETONATION_MS, () => {
           onImpact();
         });
       }
@@ -1919,7 +1980,7 @@ export class BoardScene extends Phaser.Scene {
         lifespanMs: TNT_SPARK_BURST_LIFESPAN_MS,
         tint: 0xfff1b8,
         scale: Math.max(0.42, this.tileSize / 120)
-      });
+      }, this.vfxCleanup);
       burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.shard,
         count: 12,
@@ -1927,12 +1988,12 @@ export class BoardScene extends Phaser.Scene {
         lifespanMs: TNT_SHARD_BURST_LIFESPAN_MS,
         tint: 0xff8a3d,
         scale: Math.max(0.34, this.tileSize / 150)
-      });
+      }, this.vfxCleanup);
       this.recordPresentation("shake-request", String(TNT_SHAKE_INTENSITY));
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
       event.affectedPositions.forEach((position, index) => {
         const atMs = plan.impactAtMs[index] ?? plan.detonationAtMs;
-        this.time.delayedCall(Math.max(0, atMs - plan.detonationAtMs), () => {
+        const impact = () => {
           if (!this.sys.isActive() || !this.fxLayer) return;
           const target = this.cellCenter(position);
           this.recordPresentation("tnt-tile-impact", positionKey(position));
@@ -1941,10 +2002,13 @@ export class BoardScene extends Phaser.Scene {
             lifespanMs: 260,
             tint: 0xff9a43
           }, this.vfxCleanup);
-        });
+        };
+        const delayMs = Math.max(0, atMs - plan.detonationAtMs);
+        if (delayMs === 0) impact();
+        else this.vfxCleanup.schedule(this, delayMs, impact);
       });
     });
-    this.time.delayedCall(POWERUP_FX_BUDGET_MS, () => {
+    this.vfxCleanup.schedule(this, POWERUP_FX_BUDGET_MS, () => {
       if (!this.sys.isActive() || !this.fxLayer?.active) return;
       if (fuse.active) fuse.destroy();
     });
@@ -2028,9 +2092,12 @@ export class BoardScene extends Phaser.Scene {
           speed: { min: this.tileSize * 0.1, max: this.tileSize * 0.46 },
           tint: 0xbaf6ff
         });
-        trail.startFollow(sprite, 0, 0, true);
-        layer.add(trail);
-        this.vfxCleanup.trackObject(trail);
+        const trailParticleCount = Math.ceil(ROCKET_TRAIL_LIFESPAN_MS / 24);
+        const hasTrailBudget = this.vfxCleanup.trackEmitter(trail, trailParticleCount) > 0;
+        if (hasTrailBudget) {
+          trail.startFollow(sprite, 0, 0, true);
+          layer.add(trail);
+        }
 
         let nextPassIndex = 0;
         const playPass = () => {
@@ -2074,7 +2141,7 @@ export class BoardScene extends Phaser.Scene {
             this.recordPresentation("rocket-edge-impact", positionKey(head.destination));
             this.recordPresentation("powerup-impact", "rocket");
             this.cueBoardAudio("rocketImpact", { gain: 0.38 });
-            trail.stop();
+            if (hasTrailBudget) trail.stop();
             impactBurst(this, layer, end.x, end.y, {
               intensity: 0.58,
               lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
@@ -2083,10 +2150,12 @@ export class BoardScene extends Phaser.Scene {
             this.vfxCleanup.release(sprite);
             this.vfxCleanup.release(flightTween);
             sprite.destroy();
-            this.vfxCleanup.schedule(this, ROCKET_TRAIL_CLEANUP_MS, () => {
-              this.vfxCleanup.release(trail);
-              if (trail.active) trail.destroy();
-            });
+            if (hasTrailBudget) {
+              this.vfxCleanup.schedule(this, ROCKET_TRAIL_CLEANUP_MS, () => {
+                this.vfxCleanup.release(trail);
+                if (trail.active) trail.destroy();
+              });
+            }
             completedHeads += 1;
             if (completedHeads === plan.heads.length && !cascadeTriggered) {
               cascadeTriggered = true;
@@ -2120,14 +2189,16 @@ export class BoardScene extends Phaser.Scene {
     icon.setBlendMode(Phaser.BlendModes.ADD);
     drone.add(icon);
     layer.add(drone);
+    this.vfxCleanup.trackObject(drone);
     const liftRing = this.add.image(origin.x, origin.y, vfxTextureKeys.ring);
     liftRing.setTint(0x70f2ea);
     liftRing.setBlendMode(Phaser.BlendModes.ADD);
     liftRing.setScale(Math.max(0.5, this.tileSize / 80));
     layer.add(liftRing);
-    this.tweens.add({ targets: liftRing, alpha: 0, scaleX: liftRing.scaleX * 1.5, scaleY: liftRing.scaleY * 1.5, duration: PROPELLER_LIFT_MS, onComplete: () => liftRing.destroy() });
+    this.vfxCleanup.trackObject(liftRing);
+    this.vfxCleanup.trackTween(this.tweens.add({ targets: liftRing, alpha: 0, scaleX: liftRing.scaleX * 1.5, scaleY: liftRing.scaleY * 1.5, duration: PROPELLER_LIFT_MS, onComplete: () => liftRing.destroy() }));
 
-    this.tweens.add({
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: drone,
       scaleX: 1.16,
       scaleY: 1.16,
@@ -2142,15 +2213,16 @@ export class BoardScene extends Phaser.Scene {
         reticle.setAlpha(0.58);
         reticle.setScale(Math.max(0.42, this.tileSize / 110));
         layer.add(reticle);
-        this.time.delayedCall(PROPELLER_RETICLE_DELAY_MS, () => this.recordPresentation("propeller-reticle", positionKey(plan.target)));
-        this.tweens.add({ targets: reticle, alpha: 0, scaleX: reticle.scaleX * 1.4, scaleY: reticle.scaleY * 1.4, duration: PROPELLER_FLIGHT_MS, onComplete: () => reticle.destroy() });
+        this.vfxCleanup.trackObject(reticle);
+        this.vfxCleanup.schedule(this, PROPELLER_RETICLE_DELAY_MS, () => this.recordPresentation("propeller-reticle", positionKey(plan.target)));
+        this.vfxCleanup.trackTween(this.tweens.add({ targets: reticle, alpha: 0, scaleX: reticle.scaleX * 1.4, scaleY: reticle.scaleY * 1.4, duration: PROPELLER_FLIGHT_MS, onComplete: () => reticle.destroy() }));
         const path = quadraticFlightPath(
           { x: drone.x, y: drone.y },
           primaryCenter,
           this.tileSize * PROPELLER_ARC_LIFT_CELLS,
           PROPELLER_ARC_SAMPLES
         );
-        this.tweens.addCounter({
+        this.vfxCleanup.trackTween(this.tweens.addCounter({
           from: 0,
           to: 1,
           duration: PROPELLER_FLIGHT_MS,
@@ -2171,20 +2243,20 @@ export class BoardScene extends Phaser.Scene {
             this.recordPropellerStrike(targets.length);
             impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.72, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
             targets.slice(1).forEach((target, index) => {
-              this.time.delayedCall((index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
+              this.vfxCleanup.schedule(this, (index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
                 if (!this.sys.isActive() || !this.fxLayer) return;
                 const center = this.cellCenter(target);
                 this.recordPresentation("propeller-secondary-impact", positionKey(target));
                 impactBurst(this, this.fxLayer, center.x, center.y, { intensity: 0.4, lifespanMs: 160, tint: 0x70f2ea }, this.vfxCleanup);
               });
             });
-            this.time.delayedCall(Math.max(1, targets.length - 1) * PROPELLER_SECONDARY_STAGGER_MS, () => onImpact?.());
+            this.vfxCleanup.schedule(this, Math.max(1, targets.length - 1) * PROPELLER_SECONDARY_STAGGER_MS, () => onImpact?.());
           }
-        });
+        }));
       }
-    });
+    }));
 
-    this.time.delayedCall(PROPELLER_FX_BUDGET_MS, () => {
+    this.vfxCleanup.schedule(this, PROPELLER_FX_BUDGET_MS, () => {
       if (!this.sys.isActive()) return;
       if (drone.active) drone.destroy();
     });
@@ -2220,19 +2292,19 @@ export class BoardScene extends Phaser.Scene {
           dimmer.destroy();
         }
         this.recordPresentation("lightBall-undim", undefined, LIGHTBALL_RELEASE_DELAY_MS);
-        this.time.delayedCall(1, () => onImpact?.());
+        this.vfxCleanup.schedule(this, 1, () => onImpact?.());
       };
       if (!dimmer?.active) {
-        this.time.delayedCall(LIGHTBALL_RELEASE_DELAY_MS, complete);
+        this.vfxCleanup.schedule(this, LIGHTBALL_RELEASE_DELAY_MS, complete);
         return;
       }
-      this.tweens.add({
+      this.vfxCleanup.trackTween(this.tweens.add({
         targets: dimmer,
         alpha: 0,
         duration: LIGHTBALL_RELEASE_DELAY_MS,
         ease: "Sine.easeOut",
         onComplete: complete
-      });
+      }));
     };
 
     const release = () => {
@@ -2249,7 +2321,7 @@ export class BoardScene extends Phaser.Scene {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
         tint: 0xf15bd7
-      });
+      }, this.vfxCleanup);
       shake(this, 0.006, 110, this.reducedMotion);
       restoreExposure();
     };
@@ -2272,7 +2344,7 @@ export class BoardScene extends Phaser.Scene {
         impactBurst(this, this.fxLayer!, center.x, center.y, { intensity: 0.46, lifespanMs: LIGHTBALL_ZAP_BURST_LIFESPAN_MS, tint: 0xf15bd7 }, this.vfxCleanup);
       });
       const nextAtMs = plan.waves[waveIndex + 1]?.atMs ?? plan.releaseAtMs;
-      this.time.delayedCall(nextAtMs - wave.atMs, () => (
+      this.vfxCleanup.schedule(this, nextAtMs - wave.atMs, () => (
         waveIndex + 1 < plan.waves.length ? playWave(waveIndex + 1) : release()
       ));
     };
@@ -2299,7 +2371,8 @@ export class BoardScene extends Phaser.Scene {
       }
       charge.setBlendMode(Phaser.BlendModes.ADD);
       layer.add(charge);
-      this.tweens.add({
+      this.vfxCleanup.trackObject(charge);
+      this.vfxCleanup.trackTween(this.tweens.add({
         targets: charge,
         alpha: 0.18,
         angle: 28,
@@ -2311,20 +2384,20 @@ export class BoardScene extends Phaser.Scene {
           charge.destroy();
           playWave(0);
         }
-      });
+      }));
     };
 
     if (!dimmer) {
-      this.time.delayedCall(LIGHTBALL_DIM_MS, beginCharge);
+      this.vfxCleanup.schedule(this, LIGHTBALL_DIM_MS, beginCharge);
       return;
     }
-    this.tweens.add({
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: dimmer,
       alpha: 1,
       duration: LIGHTBALL_DIM_MS,
       ease: "Sine.easeInOut",
       onComplete: beginCharge
-    });
+    }));
   }
 
   private drawLightBallZap(
@@ -2336,6 +2409,7 @@ export class BoardScene extends Phaser.Scene {
   ): void {
     if (!this.fxLayer) return;
     const graphics = this.add.graphics();
+    if (!this.vfxCleanup.trackArc(graphics)) return;
     graphics.setBlendMode(Phaser.BlendModes.ADD);
     const jitterA = seededAngleJitter(position, `${seed}|lightBall-a|${index}`, LIGHTBALL_ZAP_JITTER_PX);
     const jitterB = seededAngleJitter(position, `${seed}|lightBall-b|${index}`, LIGHTBALL_ZAP_JITTER_PX);
@@ -2360,13 +2434,13 @@ export class BoardScene extends Phaser.Scene {
     strokePath(5, 0xb35cff, 0.82);
     strokePath(2, 0xffffff, 0.98);
     this.fxLayer.add(graphics);
-    this.tweens.add({
+    this.vfxCleanup.trackTween(this.tweens.add({
       targets: graphics,
       alpha: 0,
       duration: LIGHTBALL_ZAP_LIFESPAN_MS,
       ease: "Sine.easeOut",
       onComplete: () => graphics.destroy()
-    });
+    }));
   }
 
   private recordPowerUpFxStart(): void {
@@ -2503,10 +2577,14 @@ export class BoardScene extends Phaser.Scene {
       __gwBoardReady?: boolean;
       __gwBoardCellClientPoint?: ((row: number, col: number) => { x: number; y: number } | null) | null;
       __gwPreviewPowerUpCombo?: ((combo: CanonicalComboKey) => void) | null;
+      __gwPreviewPresentationEffect?: ((effect: PresentationEffectKey) => void) | null;
+      __gwStopBoardScene?: (() => void) | null;
     };
     target.__gwBoardReady = ready;
     target.__gwBoardCellClientPoint = ready ? (row, col) => this.cellClientPoint(row, col) : null;
     target.__gwPreviewPowerUpCombo = ready ? (combo) => this.previewPowerUpCombo(combo) : null;
+    target.__gwPreviewPresentationEffect = ready ? (effect) => this.previewPresentationEffect(effect) : null;
+    target.__gwStopBoardScene = ready ? () => this.scene.stop() : null;
   }
 
   private cellClientPoint(row: number, col: number): { x: number; y: number } | null {
@@ -2967,14 +3045,29 @@ export class BoardScene extends Phaser.Scene {
   private recoverFromWedgedDrag(drag: ActiveDrag): void {
     if (this.pendingResolvedSnapshot) {
       const resolvedSnapshot = this.pendingResolvedSnapshot;
+      this.vfxCleanup.dispose();
+      this.tweens.killAll();
       this.finishAnimation();
       this.hardClearDrag();
       this.snapshot = resolvedSnapshot;
       this.renderSnapshot();
       return;
     }
+    this.vfxCleanup.dispose();
     this.finishAnimation();
     this.snapBackDrag(drag);
+  }
+
+  private settleInterruptedPresentation(): boolean {
+    if (!this.activeResolvedSnapshot) return false;
+    const resolvedSnapshot = this.activeResolvedSnapshot;
+    this.vfxCleanup.dispose();
+    this.tweens.killAll();
+    this.hardClearDrag();
+    this.snapshot = resolvedSnapshot;
+    this.finishAnimation();
+    this.renderSnapshot();
+    return true;
   }
 
   private hardClearDrag(): void {
@@ -3082,6 +3175,10 @@ function isCanonicalComboKey(value: string): value is CanonicalComboKey {
   return canonicalComboKeys.includes(value as CanonicalComboKey);
 }
 
+function isPresentationEffectKey(value: string): value is PresentationEffectKey {
+  return value === "rocket" || value === "propeller" || value === "tnt" || value === "lightBall" || isCanonicalComboKey(value);
+}
+
 function comboPowerUpPair(key: CanonicalComboKey): [PowerUpType, PowerUpType] {
   const rocketHorizontal: PowerUpType = { kind: "rocket", orientation: "horizontal" };
   const rocketVertical: PowerUpType = { kind: "rocket", orientation: "vertical" };
@@ -3151,6 +3248,41 @@ function comboPreviewGroup(key: CanonicalComboKey, snapshot: BoardSnapshot): Pow
     events,
     affectedPositions: events.flatMap((event) => event.affectedPositions)
   };
+}
+
+function singlePreviewEvent(effect: Exclude<PresentationEffectKey, CanonicalComboKey>, snapshot: BoardSnapshot): PowerUpEvent {
+  const positions = snapshot.grid.allPositions.filter((position) => snapshot.grid.get(position).generator === null);
+  const origin = positions[Math.floor(positions.length / 2)] ?? { row: 0, col: 0 };
+  const powerUpType: PowerUpType = effect === "rocket"
+    ? { kind: "rocket", orientation: "horizontal" }
+    : { kind: effect };
+  let affectedPositions: GridPosition[];
+  if (effect === "rocket") {
+    affectedPositions = positions.filter((position) => position.row === origin.row);
+  } else if (effect === "tnt") {
+    affectedPositions = positions.filter((position) => (
+      Math.max(Math.abs(position.row - origin.row), Math.abs(position.col - origin.col)) <= 2
+    ));
+  } else if (effect === "propeller") {
+    affectedPositions = [positions[0], positions.at(-1), positions[Math.floor(positions.length / 3)]]
+      .filter((position): position is GridPosition => Boolean(position));
+  } else {
+    affectedPositions = positions;
+  }
+  return {
+    powerUpType,
+    origin,
+    affectedPositions: affectedPositions.length > 0 ? affectedPositions : [origin],
+    trigger: { kind: "tap" }
+  };
+}
+
+function previewAudioCue(effect: PresentationEffectKey): PresentationAudioKey {
+  if (isCanonicalComboKey(effect)) return "comboImpact";
+  if (effect === "rocket") return "rocketImpact";
+  if (effect === "propeller") return "propellerImpact";
+  if (effect === "tnt") return "tntBlast";
+  return "lightBallRelease";
 }
 
 function comboTint(key: CanonicalComboKey): number {
