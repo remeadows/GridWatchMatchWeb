@@ -74,9 +74,22 @@ test("animated win destroys the board before showing the result modal", async ({
   await page.getByTestId("qa-win-animated").click();
 
   const modalTitle = page.getByText("Grid secured");
+  await page.waitForFunction(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace
+      ?.some((entry) => entry.kind === "win-sequence-start") ?? false
+  ));
   await page.waitForTimeout(winSequenceDurationMs(7, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS) - 120);
   await expect(modalTitle).not.toBeVisible();
+  const boundaryTrace = await page.evaluate(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace ?? []
+  ));
+  expect(boundaryTrace.some((entry) => entry.kind === "win-row-destroyed")).toBe(true);
+  expect(boundaryTrace.some((entry) => entry.kind === "win-sequence-complete")).toBe(false);
   await expect(modalTitle).toBeVisible({ timeout: 1_200 });
+  await page.waitForFunction(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace
+      ?.some((entry) => entry.kind === "win-sequence-complete") ?? false
+  ));
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {

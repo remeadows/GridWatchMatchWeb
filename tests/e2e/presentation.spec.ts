@@ -74,7 +74,7 @@ test.describe("normal presentation timeline", () => {
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
-    await page.getByTestId("qa-swap").click();
+    await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
     await page.waitForFunction(() => {
       const trace = (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace;
       return trace?.some((entry) => entry.kind === "resolution-complete") ?? false;
@@ -96,6 +96,26 @@ test.describe("normal presentation timeline", () => {
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(900);
     expect(cascadeStart.detail).toBe("occupants-unique");
+  });
+
+  test("returns a live invalid swap to the unchanged board before completing", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+    const stateBefore = await comboPreviewState(page);
+
+    await dragBoardCells(page, { row: 0, col: 0 }, { row: 0, col: 1 });
+    await page.waitForFunction(() => (
+      (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+        ?.some((entry) => entry.kind === "invalid-swap-return") ?? false
+    ));
+
+    const trace = await presentationTrace(page);
+    const attempt = traceEntry(trace, "invalid-swap-attempt");
+    const returned = traceEntry(trace, "invalid-swap-return");
+    expect(attempt.atMs).toBeLessThan(returned.atMs);
+    expect(trace.some((entry) => entry.kind === "match-impact")).toBe(false);
+    expect(await comboPreviewState(page)).toEqual(stateBefore);
   });
 
   test("reduced motion completes without moving or popping presentation beats", async ({ page }) => {
@@ -286,6 +306,11 @@ test.describe("single light ball", () => {
     const undim = traceEntry(trace, "lightBall-undim");
     const cascade = traceEntry(trace, "cascade-start");
     const flashes = trace.filter((entry) => entry.kind === "screen-flash");
+    const cascadePlans = trace
+      .filter((entry) => entry.kind === "cascade-fall-plan")
+      .map((entry) => parseCascadeFallPlan(entry.detail));
+    const oneCellPlan = cascadePlans.find((plan) => plan.distanceCells === 1);
+    const longPlan = cascadePlans.find((plan) => plan.distanceCells >= 5);
     expect(dim.atMs).toBeLessThan(charge.atMs);
     expect(waves.length).toBeGreaterThanOrEqual(3);
     expect(waves.length).toBeLessThanOrEqual(5);
@@ -301,6 +326,9 @@ test.describe("single light ball", () => {
     expect(trace.some((entry) => entry.kind === "combo-charge")).toBe(false);
     expect(flashes).toHaveLength(1);
     expect(flashes[0].detail).toBe("alpha=0.22;durationMs=80");
+    expect(oneCellPlan).toBeDefined();
+    expect(longPlan).toBeDefined();
+    expect(longPlan!.durationMs).toBeGreaterThan(oneCellPlan!.durationMs);
   });
 });
 
@@ -450,6 +478,56 @@ test.describe("reduced motion presentation budget", () => {
   });
 });
 
+test.describe("test-mode presentation hooks", () => {
+  test("rejects non-exact test mode and exposes no preview globals in production mode", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    const staleHookResult = await page.evaluate(() => {
+      const preview = (window as Window & {
+        __gwPreviewPresentationEffect?: (effect: "rocket") => void;
+      }).__gwPreviewPresentationEffect;
+      if (!preview) throw new Error("Presentation effect preview hook unavailable");
+      history.replaceState({}, "", "/?gwTestMode=true&level=1");
+      try {
+        preview("rocket");
+        return { message: "", threw: false };
+      } catch (error) {
+        return { message: error instanceof Error ? error.message : String(error), threw: true };
+      }
+    });
+    expect(staleHookResult.threw).toBe(true);
+    expect(staleHookResult.message).toContain("exact gwTestMode=1");
+
+    await page.goto("/");
+    await page.getByRole("button", { name: "Operations", exact: true }).click();
+    await page.getByRole("button", { name: "Open Levels" }).first().click();
+    await page.getByRole("button", { name: "Level 1 Ready" }).click();
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    expect(await page.evaluate(() => {
+      const target = window as Window & {
+        __gwBoardReady?: unknown;
+        __gwBoardCellClientPoint?: unknown;
+        __gwPresentationResourceCounts?: unknown;
+        __gwPresentationTrace?: unknown;
+        __gwPreviewPowerUpCombo?: unknown;
+        __gwPreviewPresentationEffect?: unknown;
+        __gwStopBoardScene?: unknown;
+      };
+      return [
+        target.__gwBoardReady,
+        target.__gwBoardCellClientPoint,
+        target.__gwPresentationResourceCounts,
+        target.__gwPresentationTrace,
+        target.__gwPreviewPowerUpCombo,
+        target.__gwPreviewPresentationEffect,
+        target.__gwStopBoardScene
+      ].every((value) => value === undefined);
+    })).toBe(true);
+  });
+});
+
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -595,6 +673,12 @@ function traceEntry(trace: PresentationTraceEntry[], kind: string): Presentation
   const entry = trace.find((candidate) => candidate.kind === kind);
   if (!entry) throw new Error(`Missing presentation trace entry: ${kind}`);
   return entry;
+}
+
+function parseCascadeFallPlan(detail: string | undefined): { distanceCells: number; durationMs: number } {
+  const match = detail?.match(/^distanceCells=([\d.]+);durationMs=(\d+)$/);
+  if (!match) throw new Error(`Invalid cascade fall plan: ${detail ?? "missing"}`);
+  return { distanceCells: Number(match[1]), durationMs: Number(match[2]) };
 }
 
 async function comboPreviewState(page: Page): Promise<{

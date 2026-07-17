@@ -483,6 +483,15 @@ export class BoardScene extends Phaser.Scene {
     delete target.__gwPresentationTrace;
   }
 
+  private beginWinPresentationTrace(): void {
+    if (!this.isPresentationTestMode()) return;
+    this.resetPresentationTrace();
+    this.presentationSequenceId += 1;
+    this.activePresentationSequenceId = this.presentationSequenceId;
+    this.presentationPlannedAtMs = this.time.now;
+    this.recordPresentation("win-sequence-start");
+  }
+
   private beginPresentationSequence(action: BoardAction): void {
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.presentationSequenceId += 1;
@@ -607,6 +616,7 @@ export class BoardScene extends Phaser.Scene {
   playWinSequence(onComplete: () => void): boolean {
     if (!this.snapshot || !this.layer || !this.fxLayer) return false;
     this.vfxCleanup.reset(this.presentationViewportProfile());
+    this.beginWinPresentationTrace();
     const sourceSnapshot = this.snapshot;
     const poppedKeys = occupiedKeys(sourceSnapshot);
     this.hardClearDrag();
@@ -616,6 +626,7 @@ export class BoardScene extends Phaser.Scene {
         this.snapshot = buildPostClearSnapshot(sourceSnapshot, poppedKeys);
         this.renderSnapshot();
       }
+      this.recordPresentation("win-sequence-complete");
       onComplete();
     };
 
@@ -635,6 +646,7 @@ export class BoardScene extends Phaser.Scene {
           return position.row === row && poppedKeys.has(key);
         });
         for (const position of rowPositions) hiddenKeys.add(positionKey(position));
+        this.recordPresentation("win-row-destroyed", String(row));
         this.snapshot = sourceSnapshot;
         this.renderSnapshot(new Set(hiddenKeys), false);
         for (const position of rowPositions) {
@@ -811,6 +823,7 @@ export class BoardScene extends Phaser.Scene {
       this.finishAnimation();
       return;
     }
+    this.recordPresentation("invalid-swap-attempt");
 
     const drag = this.drag;
     // Primary: snap the committed live sprites back to their homes -- the tile
@@ -830,6 +843,7 @@ export class BoardScene extends Phaser.Scene {
 
       if (this.reducedMotion) {
         this.renderSnapshot();
+        this.recordPresentation("invalid-swap-return");
         this.finishAnimation();
         return;
       }
@@ -839,6 +853,7 @@ export class BoardScene extends Phaser.Scene {
         remaining -= 1;
         if (remaining === 0) {
           this.renderSnapshot();
+          this.recordPresentation("invalid-swap-return");
           this.finishAnimation();
         }
       };
@@ -893,6 +908,7 @@ export class BoardScene extends Phaser.Scene {
       this.renderSnapshot();
       this.flashCell(action.from, 0xff4968, 160);
       this.flashCell(action.to, 0xff4968, 160);
+      this.recordPresentation("invalid-swap-return");
       this.finishAnimation();
       return;
     }
@@ -913,6 +929,7 @@ export class BoardScene extends Phaser.Scene {
           remaining -= 1;
           if (remaining === 0) {
             this.renderSnapshot();
+            this.recordPresentation("invalid-swap-return");
             this.finishAnimation();
           }
         }
@@ -920,6 +937,7 @@ export class BoardScene extends Phaser.Scene {
     }
     if (ghosts.length === 0) {
       this.renderSnapshot();
+      this.recordPresentation("invalid-swap-return");
       this.finishAnimation();
     }
     for (const position of [action.from, action.to]) {
@@ -1355,7 +1373,10 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private previewPresentationEffect(effect: PresentationEffectKey, legacyComboTrace = false): void {
-    if (!this.isPresentationTestMode() || !this.snapshot || !isPresentationEffectKey(effect)) return;
+    if (!this.isPresentationTestMode()) {
+      throw new Error("Presentation previews require the exact gwTestMode=1 query");
+    }
+    if (!this.snapshot || !isPresentationEffectKey(effect)) return;
     this.resetPresentationTrace();
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.presentationSequenceId += 1;
@@ -1738,6 +1759,10 @@ export class BoardScene extends Phaser.Scene {
     for (const entry of allTweens) {
       const start = { x: entry.sprite.x, y: entry.sprite.y };
       const fallDuration = Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
+      this.recordPresentation(
+        "cascade-fall-plan",
+        `distanceCells=${entry.distanceCells.toFixed(3)};durationMs=${fallDuration}`
+      );
       const bounceFromY = entry.to.y + Math.min(CASCADE_BOUNCE_MAX_PX, Math.abs(entry.to.y - start.y) * CASCADE_BOUNCE_FACTOR);
       this.tweens.add({
         targets: entry.sprite,
