@@ -1,6 +1,89 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-15
+Last updated: 2026-07-17
+
+## 2026-07-17: GridWatch presentation overhaul complete
+
+Tasks 0-18 from `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
+are complete on local branch `codex/gridwatch-presentation-overhaul`. The implementation
+commits run from `7fa1c67 Add project skills guide` through
+`eab2cfc Enforce light ball combo overlay budget`; this handoff is the final Task 18
+documentation commit. Nothing from this work has been pushed or deployed.
+
+### Delivered presentation system
+
+- Approved art is Candidate B, the bright tactical die-cast hardware set: five tile
+  images, five board power-up images, and five booster-tray variants. Web-owned files
+  live under `public/assets/images/web-overrides/` and asset sync preserves them.
+- The presentation contract and approval record are in
+  `docs/art/gridwatch-match-presentation-bible.md`. The audio source and license record
+  are in `docs/art/gridwatch-match-audio-provenance.md`.
+- Twenty CC0 Tactical Glass board cues live under `public/assets/audio/web-overrides/`.
+  Board audio is driven from Phaser scene beats, not from the already-resolved engine
+  delta. Normal clears vary pop samples; cascades, creation reveals, all four singles,
+  and all ten combos have authored cues.
+- Normal clears now read as recognition, compression, centroid-staggered impact, and
+  refill landing. Cascades use distance-scaled drops and bounded squash/settle timing.
+- Rocket, TNT, propeller, and light-ball creation and single activation have distinct
+  causal choreography. All ten unordered power-up combinations have bespoke charge,
+  impact, affected-position, and reduced-motion plans.
+- Reduced motion removes travel, particles, shake, and full-screen flashes while
+  preserving immediate final state and a low-gain impact cue. Central resource budgets,
+  deterministic downsampling, and shutdown cleanup bound all transient Phaser objects.
+- The final performance correction applies the authored 12-arc cap to dense Light Ball
+  combo overlays. A 49-cell Light Ball + Light Ball clear now samples 12 evenly spread
+  overlay cells while retaining its board-wide dimmer, charge, impact ring, and clear.
+
+### Final verification
+
+- `npm run test`: 235/235 passed across seven files. This reconciles to the 170-test
+  baseline plus 65 presentation tests, including the final dense-overlay regression.
+- `npm run test:e2e`: 90/90 passed across Chromium and mobile. This reconciles to the
+  36-test baseline plus 54 presentation cases. The known pre-existing
+  `tests/e2e/app.spec.ts:22` race did not occur and required no rerun.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed. The existing non-blocking Vite warning for the Phaser-heavy
+  bundle remaining above 500 kB is unchanged.
+- `npm audit --audit-level=high`: 0 vulnerabilities.
+- `git diff --check`: passed.
+- Base audit from `821728bde9d3c05af7500c4884fb0345a2499f65` found no changes to
+  `src/engine/**`, `public/levels/**`, Worker, auth, Supabase, score APIs, database,
+  leaderboard, wrangler, environment, or validation code. `src/App.tsx` is limited to
+  booster artwork and removal of three early delta-timed board SFX calls.
+- Task 17's warm-preview drag loop passed 20/20 iterations across both Chromium and
+  mobile, for 40/40 successful browser runs with no drag, swap, cascade, or cleanup
+  failure.
+
+### Manual presentation and performance matrix
+
+The warm production preview was exercised with SFX and music enabled and real headed
+browser audio at desktop 1280x720 and iPhone 15 393x852. The matrix covered idle board
+and tray, live valid drag, invalid return, short and long cascades, all four creation
+families, all four singles, all ten combos, animated win, and reduced-motion normal/TNT/
+Light Ball/Light Ball + Light Ball. Fifty-six diagnostic captures were kept outside the
+repo under `/tmp/gridwatch-task18-settled/`; direct canvas captures avoided fixed-header
+stitching artifacts.
+
+The matrix passed causal ordering, tile readability, settled refill, power hierarchy,
+seven-row reachability, reduced-motion flash limits, and cleanup. No destination pop-in,
+ghost trail, hard overshoot, duplicate sprite, board-waiting tail, page overlap, runtime
+console error, emitter leak, or audio pile-up was observed. The approved audio pack was
+exercised in a real browser; scene traces place cue dispatch on the authored impact beat,
+and the asset audit confirms the files are peak-limited to -1.1 dBFS with no clipping.
+
+After the final overlay cap, five fresh headed runs per viewport measured the heaviest
+Light Ball + Light Ball combo at desktop p95 9.1-9.8 ms and iPhone-emulation p95
+9.6-9.8 ms, with no JS long tasks and all FX resources returning to zero. Peak bounded
+resources were 12 emitters, 48 live particles, and at most two active board-audio slots.
+
+Accepted residual risks:
+
+- Software-rendered headless Chromium can report a cold native WebGL task at 97-101 ms;
+  the required real headed-browser gate produced no long tasks in ten fresh runs.
+- The app requests an unconfigured `favicon.ico`, producing a benign 404 in generic
+  browser logging; no Phaser, React, audio, or gameplay console error occurred.
+- Physical-device speaker latency was not measured after deployment because this branch
+  was intentionally neither pushed nor deployed.
 
 ## 2026-07-15: input-freeze bug reported live, root-caused, fixed, deployed
 
