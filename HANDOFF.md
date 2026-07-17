@@ -7,8 +7,14 @@ Last updated: 2026-07-17
 Tasks 0-18 from `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
 are complete on local branch `codex/gridwatch-presentation-overhaul`. The implementation
 commits run from `7fa1c67 Add project skills guide` through
-`eab2cfc Enforce light ball combo overlay budget`; this handoff is the final Task 18
-documentation commit. Nothing from this work has been pushed or deployed.
+`eab2cfc Enforce light ball combo overlay budget`; `d8ecbe7` is the final Task 18
+documentation commit and the application revision deployed on 2026-07-17.
+
+The branch was pushed to `origin/codex/gridwatch-presentation-overhaul`. Production was
+deployed with Wrangler as Worker version `f9699373-caf5-4046-a16f-7621ff0b133d` to
+`https://gridwatchmatchweb.warsignallabs.net` and the workers.dev fallback. Live checks
+passed for the root, SPA deep-link fallback, exact hashed JS/CSS assets, desktop and
+iPhone 15 board rendering, unauthenticated score protection, and unknown API routing.
 
 ### Delivered presentation system
 
@@ -82,8 +88,8 @@ Accepted residual risks:
   the required real headed-browser gate produced no long tasks in ten fresh runs.
 - The app requests an unconfigured `favicon.ico`, producing a benign 404 in generic
   browser logging; no Phaser, React, audio, or gameplay console error occurred.
-- Physical-device speaker latency was not measured after deployment because this branch
-  was intentionally neither pushed nor deployed.
+- Physical-device speaker latency was not measured after deployment; the live browser
+  audio path and scene-timed cue dispatch were verified before release.
 
 ## 2026-07-15: input-freeze bug reported live, root-caused, fixed, deployed
 

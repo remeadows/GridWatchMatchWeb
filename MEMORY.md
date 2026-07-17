@@ -45,8 +45,9 @@ Last updated: 2026-07-17
 
 ## Latest Known Good State
 
-- Local presentation implementation: `eab2cfc Enforce light ball combo overlay budget`
-  on `codex/gridwatch-presentation-overhaul`; not pushed or deployed.
+- Presentation implementation `eab2cfc` and final handoff `d8ecbe7` are pushed on
+  `codex/gridwatch-presentation-overhaul`. Application revision `d8ecbe7` was deployed
+  on 2026-07-17 as Worker version `f9699373-caf5-4046-a16f-7621ff0b133d`.
 - Verification: 235 unit tests, 90 Playwright tests, 100 levels, production build, and
   `npm audit --audit-level=high` all pass.
 - The presentation overhaul did not change Worker, auth, Supabase, score, database, or
