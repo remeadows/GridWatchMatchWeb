@@ -2,11 +2,12 @@
 
 Last updated: 2026-07-18
 
-## 2026-07-18: Approved local pacing and cascade-integrity follow-up
+## 2026-07-18: Power-up completion and cascade-integrity follow-up deployed
 
-Russ approved the current localhost gameplay feel for branch push and will perform the
-next physical-mobile check. This follow-up remains intentionally undeployed until that
-mobile test is accepted.
+After physical-mobile testing exposed the last winning power-up being skipped, Russ
+approved the all-level animation-completion fix for production. The follow-up is now
+deployed from app commit `213945e` as Cloudflare Worker version
+`41d5c91f-e1fa-4de4-8d36-0ce3823d905d`.
 
 - The bottom-to-top terminal clear is now 2,500 ms: 150 ms lead-in, 300 ms row
   cadence, 250 ms row burst, and 300 ms final hold.
@@ -40,6 +41,14 @@ Verification:
   combo, cleanup, reduced-motion, and audio-ordering cases passed.
 - Manual localhost Level 6 inspection confirmed the lower-board refill with no pop-in
   replacement or missing destination tile.
+- Release build passed with only the existing Phaser bundle-size warning, and
+  `npm audit --audit-level=high` reported zero vulnerabilities.
+- The public root, SPA deep link, and workers.dev fallback serve
+  `assets/index-c-pro_nY.js`.
+- Live production checks passed on desktop and iPhone 15 emulation. The winning
+  rocket-combo trace was `combo-charge` -> `combo-impact` -> `resolution-complete` ->
+  `win-sequence-start` in both viewports, and `Grid secured` appeared only after that
+  ordering completed.
 
 ## 2026-07-18: Production validation complete; game-feel timing retuned
 
