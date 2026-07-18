@@ -52,8 +52,12 @@ for the first pass is complete: app commit `c61ed98` was pushed to
 new `index-B08Ht4Yz.js` bundle. Live desktop and mobile animated-clear smoke checks each
 reported seven ordered row impacts, seven synchronized row cues, the completion event,
 no runtime errors, and zero resources remaining after the modal appeared.
-The slower Level 13 follow-up has passed the same local verification matrix and is pending
-commit and deployment.
+The slower Level 13 follow-up shipped as app commit `ac8e5af` and Cloudflare Worker
+version `aa392aa0-11fa-4395-8849-d270396c1ab0`; production serves bundle
+`index-Dumx3sC1.js` from both the root and Level 13 SPA deep link. Live Level 13 smoke
+checks measured 4.74 seconds on desktop and 4.80 seconds on mobile, with approximately
+2.8 seconds between the first and last row, seven synchronized row cues, no runtime
+errors, and zero tracked resources remaining at completion.
 
 ## 2026-07-17: GridWatch presentation overhaul complete
 
