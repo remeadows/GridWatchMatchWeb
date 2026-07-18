@@ -53,6 +53,7 @@ export const COMBO_BATCH_PARTICLE_CAP = 120;
 export const COMBO_ARC_CAP = 16;
 export const COMBO_PROJECTILE_CAP = 12;
 export const COMBO_CHOREOGRAPHY_MAX_MS = 1_150;
+export const POWERUP_CASCADE_HOLD_MS = 200;
 export const MATCH_WAVE_PER_GRID_MS = 30;
 export const MATCH_WAVE_MAX_MS = 120;
 export const CASCADE_START_AFTER_IMPACT_MS = 200;

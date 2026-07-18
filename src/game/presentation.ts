@@ -17,6 +17,7 @@ import {
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
   MATCH_WAVE_MAX_MS,
+  POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
   LIGHTBALL_RELEASE_DELAY_MS,
   LIGHTBALL_WAVE_CONCURRENCY_CAP,
@@ -552,10 +553,10 @@ function isPresentationComboKey(effect: PresentationEffectKey): effect is Canoni
 }
 
 function singleEffectDurationMs(effect: SinglePowerUpEffectKey): number {
-  if (effect === "tnt") return TNT_SEQUENCE_BUDGET_MS;
-  if (effect === "rocket") return ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS + 280;
-  if (effect === "propeller") return PROPELLER_SEQUENCE_BUDGET_MS;
-  return LIGHTBALL_CHARGE_MS + LIGHTBALL_WAVE_STAGGER_MS * 4 + LIGHTBALL_RELEASE_DELAY_MS * 2;
+  if (effect === "tnt") return TNT_SEQUENCE_BUDGET_MS + POWERUP_CASCADE_HOLD_MS;
+  if (effect === "rocket") return ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS + 280 + POWERUP_CASCADE_HOLD_MS;
+  if (effect === "propeller") return PROPELLER_SEQUENCE_BUDGET_MS + POWERUP_CASCADE_HOLD_MS;
+  return LIGHTBALL_CHARGE_MS + LIGHTBALL_WAVE_STAGGER_MS * 4 + LIGHTBALL_RELEASE_DELAY_MS * 2 + POWERUP_CASCADE_HOLD_MS;
 }
 
 function comboVisualKind(key: CanonicalComboKey): ComboVisualKind {

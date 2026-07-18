@@ -10,6 +10,7 @@ interface GameCanvasProps {
   reducedMotion: boolean;
   pendingBooster: BoosterType | null;
   onAction: (action: BoardAction) => void;
+  onAnimationComplete: (animationId: number) => void;
 }
 
 export interface GameCanvasHandle {
@@ -18,16 +19,21 @@ export interface GameCanvasHandle {
 }
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
-  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction },
+  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onActionRef = useRef(onAction);
+  const onAnimationCompleteRef = useRef(onAnimationComplete);
 
   useEffect(() => {
     onActionRef.current = onAction;
   }, [onAction]);
+
+  useEffect(() => {
+    onAnimationCompleteRef.current = onAnimationComplete;
+  }, [onAnimationComplete]);
 
   useImperativeHandle(ref, () => ({
     activateBoosterAtClientPoint: (booster, clientX, clientY) => {
@@ -81,7 +87,10 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
         }
       }
     });
-    game.scene.start("BoardScene", { onAction: (action: BoardAction) => onActionRef.current(action) });
+    game.scene.start("BoardScene", {
+      onAction: (action: BoardAction) => onActionRef.current(action),
+      onAnimationComplete: (animationId: number) => onAnimationCompleteRef.current(animationId)
+    });
     gameRef.current = game;
     return () => {
       containerRef.current?.removeEventListener("pointerdown", unlockBoardSounds);

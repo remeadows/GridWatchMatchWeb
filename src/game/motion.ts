@@ -12,6 +12,23 @@ export interface MotionPoint {
   y: number;
 }
 
+export interface CascadePresentationMove {
+  from: GridPosition;
+  to: GridPosition;
+  debugTileId: number;
+}
+
+export interface CascadePresentationSpawn {
+  position: GridPosition;
+  debugTileId: number;
+}
+
+export interface CascadePresentationPlan {
+  clearKeys: Set<string>;
+  moves: CascadePresentationMove[];
+  spawns: CascadePresentationSpawn[];
+}
+
 /**
  * Per-position pop delay keyed by `${row},${col}`. Positions near the group's
  * centroid get smaller delays so the pop reads as a wave radiating outward.
@@ -62,6 +79,51 @@ export function seededAngleJitter(
 }
 
 /**
+ * Builds one stable visual cascade from persistent tile IDs. Engine deltas
+ * aggregate every automatic match and gravity round triggered by an action, so
+ * replaying their move/spawn arrays as one phase can replace a surviving tile
+ * with a later spawn. Comparing the snapshots keeps each original occupant
+ * attached to its real sprite and only spawns occupants that are actually new.
+ */
+export function cascadePresentationPlan(
+  before: BoardSnapshot,
+  after: BoardSnapshot,
+  reservedDestinationKeys: ReadonlySet<string> = new Set()
+): CascadePresentationPlan {
+  const beforePositions = new Map<number, GridPosition>();
+  const afterIds = new Set<number>();
+  const clearKeys = new Set<string>();
+  const moves: CascadePresentationMove[] = [];
+  const spawns: CascadePresentationSpawn[] = [];
+
+  for (const position of before.grid.allPositions) {
+    const debugTileId = before.grid.get(position).debugTileId;
+    if (debugTileId !== null) beforePositions.set(debugTileId, position);
+  }
+
+  for (const position of after.grid.allPositions) {
+    const debugTileId = after.grid.get(position).debugTileId;
+    if (debugTileId === null) continue;
+    if (reservedDestinationKeys.has(`${position.row},${position.col}`)) continue;
+    afterIds.add(debugTileId);
+    const from = beforePositions.get(debugTileId);
+    if (!from) {
+      spawns.push({ position, debugTileId });
+      continue;
+    }
+    if (from.row !== position.row || from.col !== position.col) {
+      moves.push({ from, to: position, debugTileId });
+    }
+  }
+
+  for (const [debugTileId, position] of beforePositions) {
+    if (!afterIds.has(debugTileId)) clearKeys.add(`${position.row},${position.col}`);
+  }
+
+  return { clearKeys, moves, spawns };
+}
+
+/**
  * Returns `moves` ordered so the renderer can safely remap occupant sprites in
  * place — deleting the `from` key and setting the `to` key one move at a time.
  *
@@ -84,7 +146,7 @@ export function seededAngleJitter(
  * phase; iOS reassigns nodes directly and needs no equivalent. Kept here (not in
  * BoardScene) so it stays a pure, unit-tested function.
  */
-export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] {
+export function orderCascadeMoves<T extends Pick<MoveEvent, "from" | "to">>(moves: ReadonlyArray<T>): T[] {
   return [...moves].sort((a, b) => b.to.row - a.to.row);
 }
 
@@ -110,8 +172,8 @@ export function orderCascadeMoves(moves: ReadonlyArray<MoveEvent>): MoveEvent[] 
  * stays a pure, unit-tested function.
  */
 export function cascadeHiddenDestinations(
-  moves: ReadonlyArray<MoveEvent>,
-  spawns: ReadonlyArray<SpawnEvent>
+  moves: ReadonlyArray<Pick<MoveEvent, "from" | "to">>,
+  spawns: ReadonlyArray<Pick<SpawnEvent, "position">>
 ): Set<string> {
   const sources = new Set(moves.map((move) => `${move.from.row},${move.from.col}`));
   const hidden = new Set<string>();

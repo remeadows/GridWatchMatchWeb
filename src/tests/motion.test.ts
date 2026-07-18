@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BoardDelta, BoardSnapshot, CellState, MoveEvent, SpawnEvent } from "../engine";
 import { Grid2D } from "../engine/grid";
 import { buildPostClearSnapshot } from "../game/motion";
+import { cascadePresentationPlan } from "../game/motion";
 import { cascadeHiddenDestinations } from "../game/motion";
 import { clearedKeysFromDelta } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
@@ -88,6 +89,10 @@ function emptyCell(): CellState {
 
 function tileCell(baseTile: CellState["baseTile"]): CellState {
   return { ...emptyCell(), baseTile };
+}
+
+function identifiedTileCell(baseTile: CellState["baseTile"], debugTileId: number): CellState {
+  return { ...tileCell(baseTile), debugTileId };
 }
 
 function snapshotOf(grid: Grid2D<CellState>): BoardSnapshot {
@@ -235,7 +240,7 @@ describe("winSequenceDurationMs", () => {
   });
 
   it("includes the dramatic lead-in and final hold around row destruction", () => {
-    expect(winSequenceDurationMs(7, 450, 700, 500, 750)).toBe(4_650);
+    expect(winSequenceDurationMs(7, 300, 250, 150, 300)).toBe(2_500);
   });
 
   it("returns zero for non-positive or non-finite row counts", () => {
@@ -403,5 +408,45 @@ describe("cascadeHiddenDestinations", () => {
     const hidden = cascadeHiddenDestinations([move([0, 0], [3, 0])], [spawn([0, 0])]);
     expect(hidden.has("0,0")).toBe(false);
     expect(hidden).toEqual(new Set(["3,0"]));
+  });
+});
+
+describe("cascadePresentationPlan", () => {
+  it("keeps surviving tiles as movers instead of replacing them with final-state spawns", () => {
+    const before = snapshotOf(new Grid2D<CellState>(4, 1, ({ row }) => {
+      const tiles: CellState["baseTile"][] = ["packet", "firewall", "key", "threat"];
+      return identifiedTileCell(tiles[row], 10 + row);
+    }));
+    const after = snapshotOf(new Grid2D<CellState>(4, 1, ({ row }) => {
+      if (row === 0) return identifiedTileCell("key", 20);
+      if (row === 1) return identifiedTileCell("packet", 10);
+      if (row === 2) return identifiedTileCell("firewall", 11);
+      return identifiedTileCell("threat", 13);
+    }));
+
+    const plan = cascadePresentationPlan(before, after);
+
+    expect(plan.clearKeys).toEqual(new Set(["2,0"]));
+    expect(plan.moves).toEqual([
+      { from: { row: 0, col: 0 }, to: { row: 1, col: 0 }, debugTileId: 10 },
+      { from: { row: 1, col: 0 }, to: { row: 2, col: 0 }, debugTileId: 11 }
+    ]);
+    expect(plan.spawns).toEqual([
+      { position: { row: 0, col: 0 }, debugTileId: 20 }
+    ]);
+  });
+
+  it("reserves created power-up destinations for their reveal animation", () => {
+    const before = snapshotOf(new Grid2D<CellState>(1, 1, () => identifiedTileCell("packet", 10)));
+    const after = snapshotOf(new Grid2D<CellState>(1, 1, () => ({
+      ...identifiedTileCell(null, 10),
+      powerUp: { kind: "lightBall" }
+    })));
+
+    const plan = cascadePresentationPlan(before, after, new Set(["0,0"]));
+
+    expect(plan.clearKeys).toEqual(new Set(["0,0"]));
+    expect(plan.moves).toEqual([]);
+    expect(plan.spawns).toEqual([]);
   });
 });

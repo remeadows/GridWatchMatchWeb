@@ -2,6 +2,45 @@
 
 Last updated: 2026-07-18
 
+## 2026-07-18: Approved local pacing and cascade-integrity follow-up
+
+Russ approved the current localhost gameplay feel for branch push and will perform the
+next physical-mobile check. This follow-up remains intentionally undeployed until that
+mobile test is accepted.
+
+- The bottom-to-top terminal clear is now 2,500 ms: 150 ms lead-in, 300 ms row
+  cadence, 250 ms row burst, and 300 ms final hold.
+- Single power-up choreography holds the resolved board for another 200 ms before
+  cascade, making the power-up result readable before refill begins.
+- Winning actions now wait for the exact Phaser resolution-complete callback before
+  starting the terminal row clear. A bounded watchdog remains as recovery only. This
+  fixes winning rocket combinations skipping directly to `Grid secured` before their
+  combo animation finishes.
+- Cascade presentation now compares persistent tile IDs in the before/after snapshots.
+  Surviving occupants move their real Phaser sprite to the final cell; only genuinely
+  new IDs enter through the spawn path. This fixes the Level 6 report where lower-board
+  clears appeared to replace stationary tiles with new pieces instead of dropping the
+  pieces above them. The planner is level-independent and applies to every board.
+- Power-up creation destinations are reserved for the existing hero-reveal animation,
+  and intermediate creations that do not survive to the final snapshot are not rendered
+  as ordinary refill tiles.
+
+Verification:
+
+- `npm run test`: 238/238 passed.
+- Focused Level 6 cascade regression: passed on Chromium and mobile.
+- Production-level identity audit: 1,350 deterministic actions across all 100 levels,
+  9,097 surviving-tile moves, 8,762 true spawns, and zero missing sprites, identity
+  mismatches, existing-as-spawn errors, or non-gravity moves.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- Full Playwright run: 95/96 passed; the sole mobile terminal-duration measurement was
+  2,905 ms against a 2,900 ms wall-clock ceiling. Its immediate isolated rerun passed
+  without code or assertion changes, confirming runner jitter rather than a gameplay
+  regression. The complete desktop run and all other mobile gameplay, single-power-up,
+  combo, cleanup, reduced-motion, and audio-ordering cases passed.
+- Manual localhost Level 6 inspection confirmed the lower-board refill with no pop-in
+  replacement or missing destination tile.
+
 ## 2026-07-18: Production validation complete; game-feel timing retuned
 
 Russ completed the remaining human production gates on physical mobile hardware:

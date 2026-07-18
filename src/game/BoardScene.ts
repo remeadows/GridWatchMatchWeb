@@ -29,6 +29,7 @@ import {
   MATCH_SMOKE_PUFF_COUNT,
   MATCH_WAVE_MAX_MS,
   MATCH_WAVE_PER_GRID_MS,
+  POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
   LIGHTBALL_DIM_MS,
   LIGHTBALL_RELEASE_DELAY_MS,
@@ -60,7 +61,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, resolvedPopKeys, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs, type CascadePresentationPlan } from "./motion";
 import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
@@ -68,6 +69,7 @@ import { VFX_TIMING } from "./vfxTiming";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
+  onAnimationComplete: (animationId: number) => void;
 }
 
 export type BoardAnimationEvent =
@@ -302,6 +304,7 @@ const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
 );
 const POWERUP_RESOLVE_BUDGET_MS =
   Math.max(POWERUP_POP_STAGGER_BUDGET_MS, COMBO_CHOREOGRAPHY_MAX_MS) +
+  POWERUP_CASCADE_HOLD_MS +
   MATCH_POP_COMPRESSION_MS +
   MATCH_IMPACT_MS +
   CASCADE_FALL_MAX_MS +
@@ -342,6 +345,7 @@ const SWAP_COMMIT_THRESHOLD_FACTOR = 0.45;
 export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
   private onAction: ((action: BoardAction) => void) | null = null;
+  private onAnimationComplete: ((animationId: number) => void) | null = null;
   private layer: Phaser.GameObjects.Container | null = null;
   private fxUnderlay: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
@@ -382,6 +386,7 @@ export class BoardScene extends Phaser.Scene {
 
   init(data: BoardSceneData): void {
     this.onAction = data.onAction;
+    this.onAnimationComplete = data.onAnimationComplete;
   }
 
   preload(): void {
@@ -471,9 +476,11 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private finishAnimation(): void {
+    const completedAnimationId = this.activeAnimationId;
     this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
     this.activeAnimationId = null;
     this.activeResolvedSnapshot = null;
+    if (completedAnimationId !== null) this.onAnimationComplete?.(completedAnimationId);
   }
 
   private isPresentationTestMode(): boolean {
@@ -494,7 +501,8 @@ export class BoardScene extends Phaser.Scene {
 
   private beginWinPresentationTrace(): void {
     if (!this.isPresentationTestMode()) return;
-    this.resetPresentationTrace();
+    const target = window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] };
+    if (target.__gwPresentationTrace?.at(-1)?.kind !== "resolution-complete") this.resetPresentationTrace();
     this.presentationSequenceId += 1;
     this.activePresentationSequenceId = this.presentationSequenceId;
     this.presentationPlannedAtMs = this.time.now;
@@ -543,6 +551,31 @@ export class BoardScene extends Phaser.Scene {
     if (!this.isPresentationTestMode()) return;
     const target = window as Window & { __gwPresentationResourceCounts?: PresentationResourceSnapshot };
     target.__gwPresentationResourceCounts = snapshot;
+  }
+
+  private publishCascadeAudit(
+    before: BoardSnapshot,
+    plan: CascadePresentationPlan,
+    missingMoveIds: number[]
+  ): void {
+    if (!this.isPresentationTestMode()) return;
+    const beforeIds = before.grid.allPositions
+      .map((position) => before.grid.get(position).debugTileId)
+      .filter((debugTileId): debugTileId is number => debugTileId !== null);
+    const target = window as Window & {
+      __gwCascadeAudit?: {
+        beforeIds: number[];
+        moveIds: number[];
+        spawnIds: number[];
+        missingMoveIds: number[];
+      };
+    };
+    target.__gwCascadeAudit = {
+      beforeIds,
+      moveIds: plan.moves.map((move) => move.debugTileId),
+      spawnIds: plan.spawns.map((spawn) => spawn.debugTileId),
+      missingMoveIds
+    };
   }
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
@@ -762,13 +795,17 @@ export class BoardScene extends Phaser.Scene {
   private playResolvedNonSwapAnimation(nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
     this.hardClearDrag();
     const baseline = this.snapshot ?? nextSnapshot;
-    const clearedKeys = clearedKeysFromDelta(delta);
+    const creations = survivingCreatedPowerUps(nextSnapshot, delta);
+    const creationKeys = new Set(creations.map((creation) => positionKey(creation.position)));
+    const cascadePlan = cascadePresentationPlan(baseline, nextSnapshot, creationKeys);
+    const clearedKeys = cascadePlan.clearKeys;
+    const deltaClearKeys = clearedKeysFromDelta(delta);
     const flashColors = clearFlashColors(delta);
     const popStagger = powerUpPopStagger(delta, baseline, clearedKeys);
     const runCascade = () => {
       const postClear = buildPostClearSnapshot(baseline, clearedKeys);
-      this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
-        this.playDeltaEffects(delta, clearedKeys);
+      this.playCascadeAndSpawn(postClear, nextSnapshot, delta, cascadePlan, creations, () => {
+        this.playDeltaEffects(delta, deltaClearKeys);
         this.finishAnimation();
       });
     };
@@ -819,13 +856,17 @@ export class BoardScene extends Phaser.Scene {
   private playPostSwapMatchResolution(postSwapSnapshot: BoardSnapshot, nextSnapshot: BoardSnapshot, delta: BoardDelta): void {
     this.snapshot = postSwapSnapshot;
     this.renderSnapshot();
-    const popKeys = resolvedPopKeys(initialMatchKeys(postSwapSnapshot), delta);
+    const creations = survivingCreatedPowerUps(nextSnapshot, delta);
+    const creationKeys = new Set(creations.map((creation) => positionKey(creation.position)));
+    const cascadePlan = cascadePresentationPlan(postSwapSnapshot, nextSnapshot, creationKeys);
+    const popKeys = cascadePlan.clearKeys;
+    const deltaClearKeys = clearedKeysFromDelta(delta);
     const flashColors = clearFlashColors(delta);
     const popStagger = powerUpPopStagger(delta, postSwapSnapshot, popKeys);
     const runCascade = () => {
       const postClear = buildPostClearSnapshot(postSwapSnapshot, popKeys);
-      this.playCascadeAndSpawn(postClear, nextSnapshot, delta, () => {
-        this.playDeltaEffects(delta, popKeys);
+      this.playCascadeAndSpawn(postClear, nextSnapshot, delta, cascadePlan, creations, () => {
+        this.playDeltaEffects(delta, deltaClearKeys);
         this.finishAnimation();
       });
     };
@@ -1038,6 +1079,12 @@ export class BoardScene extends Phaser.Scene {
 
     const hasSingleGroup = groups.some((group) => group.kind === "single");
     const comboGroups = groups.filter((group) => group.kind === "combo" && !hasSingleGroup);
+    let singleCascadeScheduled = false;
+    const finishSingle = () => {
+      if (singleCascadeScheduled || !onSingleSequencedPowerUpCascade) return;
+      singleCascadeScheduled = true;
+      this.vfxCleanup.schedule(this, POWERUP_CASCADE_HOLD_MS, onSingleSequencedPowerUpCascade);
+    };
     let remainingCombos = comboGroups.length;
     const finishCombo = () => {
       remainingCombos -= 1;
@@ -1052,7 +1099,7 @@ export class BoardScene extends Phaser.Scene {
             comboGroups.length === 0 &&
             (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") &&
             event.trigger.kind !== "combo"
-              ? onSingleSequencedPowerUpCascade
+              ? finishSingle
               : undefined
           );
         }
@@ -1684,6 +1731,8 @@ export class BoardScene extends Phaser.Scene {
     postClearSnapshot: BoardSnapshot,
     nextSnapshot: BoardSnapshot,
     delta: BoardDelta,
+    cascadePlan: CascadePresentationPlan,
+    creations: CreatedPowerUpSpawn[],
     onComplete: () => void
   ): void {
     if (this.reducedMotion) {
@@ -1695,7 +1744,6 @@ export class BoardScene extends Phaser.Scene {
 
     const plannedCascadeLeadMs = hasSequencedPowerUp(delta) ? 0 : CASCADE_START_AFTER_IMPACT_MS;
     this.recordPresentation("cascade-start", "occupants-unique", plannedCascadeLeadMs);
-    const creations = createdPowerUpSpawns(delta.spawns);
 
     this.snapshot = postClearSnapshot;
     // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty
@@ -1703,18 +1751,22 @@ export class BoardScene extends Phaser.Scene {
     // them at the end of their tweens. A destination that is also a move source
     // (collapsing column) is NOT hidden, so its occupant sprite still exists to
     // animate the lower move. See cascadeHiddenDestinations.
-    const destinationKeys = cascadeHiddenDestinations(delta.moves, delta.spawns);
+    const destinationKeys = cascadeHiddenDestinations(cascadePlan.moves, cascadePlan.spawns);
     this.renderSnapshot(destinationKeys, false);
 
     const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
+    const missingMoveIds: number[] = [];
     // Remap occupant sprites in place: read the source key, then reattach under
     // the destination key. In a collapsing column one move's source cell is
     // another move's destination cell, so this read-then-write must run
     // destination-bottom-first or it picks up the wrong sprite and tiles leak.
     // orderCascadeMoves enforces that ordering regardless of engine emission order.
-    for (const move of orderCascadeMoves(delta.moves)) {
+    for (const move of orderCascadeMoves(cascadePlan.moves)) {
       const sprite = this.occupantNodes.get(positionKey(move.from));
-      if (!sprite) continue;
+      if (!sprite) {
+        missingMoveIds.push(move.debugTileId);
+        continue;
+      }
       this.layer?.bringToTop(sprite);
       moveTweens.push({
         sprite,
@@ -1728,8 +1780,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
-    for (const spawn of delta.spawns) {
-      if (spawn.asPowerUp) continue;
+    for (const spawn of cascadePlan.spawns) {
       if (!this.layer) continue;
       const targetCell = nextSnapshot.grid.get(spawn.position);
       const startX = this.cellCenter(spawn.position).x;
@@ -1746,6 +1797,7 @@ export class BoardScene extends Phaser.Scene {
       });
       this.occupantNodes.set(positionKey(spawn.position), sprite);
     }
+    this.publishCascadeAudit(postClearSnapshot, cascadePlan, missingMoveIds);
 
     const allTweens = [...moveTweens, ...spawnTweens];
 
@@ -3378,6 +3430,14 @@ function occupiedKeys(snapshot: BoardSnapshot): Set<string> {
     if (cell.baseTile || cell.powerUp) keys.add(positionKey(position));
   }
   return keys;
+}
+
+function survivingCreatedPowerUps(snapshot: BoardSnapshot, delta: BoardDelta): CreatedPowerUpSpawn[] {
+  return createdPowerUpSpawns(delta.spawns).filter((creation) => {
+    if (!snapshot.grid.isValid(creation.position)) return false;
+    const finalPowerUp = snapshot.grid.get(creation.position).powerUp;
+    return finalPowerUp !== null && powerUpKey(finalPowerUp) === powerUpKey(creation.powerUp);
+  });
 }
 
 function clearFlashColors(delta: BoardDelta): Map<string, number> {

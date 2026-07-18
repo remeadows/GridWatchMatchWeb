@@ -55,6 +55,33 @@ test("dragging a board tile into a deterministic match applies a swap", async ({
   await expect(page.getByText("Collect 20 Packets: 3/20")).toBeVisible();
 });
 
+test("level 6 cascades preserve surviving tile sprites across automatic matches", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=6");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+
+  await dragBoardCells(page, { row: 0, col: 5 }, { row: 0, col: 6 });
+  const firstSequenceId = await waitForResolutionComplete(page);
+  await dragBoardCells(page, { row: 3, col: 5 }, { row: 3, col: 6 });
+  await waitForResolutionComplete(page, firstSequenceId);
+
+  const audit = await page.evaluate(() => (
+    (window as Window & {
+      __gwCascadeAudit?: {
+        beforeIds: number[];
+        moveIds: number[];
+        spawnIds: number[];
+        missingMoveIds: number[];
+      };
+    }).__gwCascadeAudit
+  ));
+  expect(audit).toBeDefined();
+  expect(audit!.moveIds.length).toBeGreaterThan(0);
+  expect(audit!.missingMoveIds).toEqual([]);
+  expect(audit!.moveIds.every((id) => audit!.beforeIds.includes(id))).toBe(true);
+  expect(audit!.spawnIds.every((id) => !audit!.beforeIds.includes(id))).toBe(true);
+});
+
 test("match pops burst with particles", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -115,11 +142,45 @@ test("animated win destroys the board before showing the result modal", async ({
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string; detail?: string; atMs: number }> }).__gwPresentationTrace ?? []
   ));
   const destroyedRows = finalTrace.filter((entry) => entry.kind === "win-row-destroyed");
+  const sequenceStart = finalTrace.find((entry) => entry.kind === "win-sequence-start");
+  const sequenceComplete = finalTrace.find((entry) => entry.kind === "win-sequence-complete");
   expect(destroyedRows).toHaveLength(7);
   expect(destroyedRows[0]?.detail).toBe("6");
   expect(destroyedRows.at(-1)?.detail).toBe("0");
-  expect((destroyedRows.at(-1)?.atMs ?? 0) - (destroyedRows[0]?.atMs ?? 0)).toBeGreaterThanOrEqual(2_400);
+  for (let index = 1; index < destroyedRows.length; index += 1) {
+    expect(destroyedRows[index]!.atMs - destroyedRows[index - 1]!.atMs)
+      .toBeGreaterThanOrEqual(WIN_ROW_DESTRUCTION_POP_MS - 20);
+  }
+  expect((sequenceComplete?.atMs ?? 0) - (sequenceStart?.atMs ?? 0)).toBeGreaterThanOrEqual(2_300);
+  expect((sequenceComplete?.atMs ?? 0) - (sequenceStart?.atMs ?? 0)).toBeLessThanOrEqual(2_900);
   expect(finalTrace.filter((entry) => entry.kind === "audio-cue" && entry.detail === "tileClusterBody")).toHaveLength(7);
+});
+
+test("finishes a winning rocket combo before the terminal row sequence", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=5");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await waitForBoardReady(page);
+
+  await page.getByTestId("qa-setup-winning-rocket-combo").click();
+  await expect(page.getByText("Clear 1: 0/1")).toBeVisible();
+  await page.getByTestId("qa-trigger-winning-rocket-combo").click();
+  await expect(page.getByText("Grid secured")).toBeVisible({ timeout: 8_000 });
+
+  const trace = await page.evaluate(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string; detail?: string; atMs: number }> }).__gwPresentationTrace ?? []
+  ));
+  const comboCharge = trace.find((entry) => entry.kind === "combo-charge" && entry.detail === "rocket+rocket");
+  const comboImpact = trace.find((entry) => entry.kind === "combo-impact" && entry.detail === "rocket+rocket");
+  const resolutionComplete = trace.find((entry) => entry.kind === "resolution-complete");
+  const winStart = trace.find((entry) => entry.kind === "win-sequence-start");
+
+  expect(comboCharge).toBeDefined();
+  expect(comboImpact).toBeDefined();
+  expect(resolutionComplete).toBeDefined();
+  expect(winStart).toBeDefined();
+  expect(comboCharge!.atMs).toBeLessThan(comboImpact!.atMs);
+  expect(comboImpact!.atMs).toBeLessThanOrEqual(resolutionComplete!.atMs);
+  expect(resolutionComplete!.atMs).toBeLessThanOrEqual(winStart!.atMs);
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {
@@ -355,6 +416,17 @@ async function waitForBoardReady(page: Page): Promise<void> {
     };
     return w.__gwBoardReady === true && typeof w.__gwBoardCellClientPoint === "function";
   }, { timeout: BOARD_READY_TIMEOUT_MS });
+}
+
+async function waitForResolutionComplete(page: Page, afterSequenceId = 0): Promise<number> {
+  await page.waitForFunction((minimumSequenceId) => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
+      ?.some((entry) => entry.kind === "resolution-complete" && entry.sequenceId > minimumSequenceId) ?? false
+  ), afterSequenceId, { timeout: GAMEPLAY_POLL_TIMEOUT_MS });
+  return page.evaluate(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
+      ?.find((entry) => entry.kind === "resolution-complete")?.sequenceId ?? 0
+  ));
 }
 
 async function clickBoardPoint(page: Page, point: { x: number; y: number }): Promise<void> {

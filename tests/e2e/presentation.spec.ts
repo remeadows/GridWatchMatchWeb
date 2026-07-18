@@ -324,6 +324,7 @@ test.describe("single light ball", () => {
     expect(charge.atMs).toBeLessThan(release.atMs);
     expect(release.atMs).toBeLessThan(undim.atMs);
     expect(undim.atMs).toBeLessThan(cascade.atMs);
+    expect(cascade.atMs - undim.atMs).toBeGreaterThanOrEqual(180);
     expect(cascade.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_050);
     expect(trace.some((entry) => entry.kind === "combo-charge")).toBe(false);
     expect(flashes).toHaveLength(1);

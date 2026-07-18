@@ -357,6 +357,13 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const tutorialInitialMoveRef = useRef(0);
   const finalRef = useRef(false);
   const animationIdRef = useRef(0);
+  const pendingWinRef = useRef<{
+    animationId: number;
+    nextScore: number;
+    engine: BoardEngine;
+    level: LevelDefinition;
+    fallbackId: number;
+  } | null>(null);
   const runStatsRef = useRef({ tilesCleared: 0, powerUpEvents: 0, chainSum: 0 });
 
   useEffect(() => {
@@ -386,6 +393,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setSelectedBooster(null);
     setBoosterDrag(null);
     finalRef.current = false;
+    if (pendingWinRef.current) window.clearTimeout(pendingWinRef.current.fallbackId);
+    pendingWinRef.current = null;
     queueRef.current = [];
     setQueueDepth(0);
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
@@ -520,7 +529,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         saveRef.current = nextSave;
       }
       animationIdRef.current += 1;
-      setAnimationEvent({ id: animationIdRef.current, kind: "resolved", action, delta });
+      const animationId = animationIdRef.current;
+      setAnimationEvent({ id: animationId, kind: "resolved", action, delta });
       const nextScore = scoreRef.current + delta.scoreGained;
       scoreRef.current = nextScore;
       setScore(nextScore);
@@ -531,7 +541,21 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       runStatsRef.current.chainSum += Math.max(0, delta.chainDepth);
       setMessage(delta.shuffleAttempts > 0 ? `Grid reshuffled after ${delta.shuffleAttempts} attempt(s).` : "");
       if (delta.isWin) {
-        finishWin(nextScore, engine, level);
+        statusRef.current = "wonAnimating";
+        setStatus("wonAnimating");
+        const pending = {
+          animationId,
+          nextScore,
+          engine,
+          level,
+          fallbackId: 0
+        };
+        pending.fallbackId = window.setTimeout(() => {
+          if (pendingWinRef.current !== pending) return;
+          pendingWinRef.current = null;
+          finishWin(nextScore, engine, level);
+        }, RESOLVE_ANIMATION_BUDGET_MS + 500);
+        pendingWinRef.current = pending;
       } else if (delta.isFail) {
         setStatus("playOn");
       }
@@ -545,6 +569,14 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       }
     }
   }, [commitSave, finishWin, level]);
+
+  const handleBoardAnimationComplete = useCallback((animationId: number) => {
+    const pending = pendingWinRef.current;
+    if (!pending || pending.animationId !== animationId) return;
+    window.clearTimeout(pending.fallbackId);
+    pendingWinRef.current = null;
+    finishWin(pending.nextScore, pending.engine, pending.level);
+  }, [finishWin]);
 
   const drainQueue = useCallback(() => {
     if (processingRef.current) return;
@@ -695,6 +727,25 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     if (engine && level) finishWin(scoreRef.current + 100, engine, level, { animate: true });
   };
 
+  const qaSetupWinningRocketCombo = () => {
+    if (!level) return;
+    const harness = winningRocketComboLevel(level);
+    const engine = new BoardEngine(harness, levelSeed(harness.id));
+    engineRef.current = engine;
+    finalRef.current = false;
+    scoreRef.current = 0;
+    statusRef.current = "running";
+    setLevel(harness);
+    setSnapshot(engine.snapshot);
+    setAnimationEvent(null);
+    setScore(0);
+    setStatus("running");
+  };
+
+  const qaTriggerWinningRocketCombo = () => {
+    enqueueAction({ kind: "swap", from: { row: 3, col: 3 }, to: { row: 3, col: 4 } });
+  };
+
   const area = areaForLevel(levelId);
   const objectives = level?.objectives ?? [];
   const moveRemaining = snapshot ? Math.max(0, snapshot.moveLimit - snapshot.moveCount) : 0;
@@ -734,6 +785,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           reducedMotion={save.settings.reducedMotion}
           pendingBooster={selectedBooster}
           onAction={handleBoardAction}
+          onAnimationComplete={handleBoardAnimationComplete}
         />
       </div>
 
@@ -769,6 +821,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {isTestMode && <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>}
         {isTestMode && <button data-testid="qa-win" onClick={qaWin}>QA Win</button>}
         {isTestMode && <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>}
+        {isTestMode && <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>}
+        {isTestMode && <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>}
         {isTestMode && <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>}
         {isTestMode && <button data-testid="qa-boss-timeout" onClick={() => {
           setBossRemaining(0);
@@ -850,6 +904,18 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       )}
     </section>
   );
+}
+
+function winningRocketComboLevel(source: LevelDefinition): LevelDefinition {
+  const cellMap = source.cellMap.map((row) => row.map((cell) => ({ ...cell })));
+  cellMap[3][3] = { ...cellMap[3][3], tile: null, powerUp: "rocket_h", locked: false };
+  cellMap[3][4] = { ...cellMap[3][4], tile: null, powerUp: "rocket_v", locked: false };
+  return {
+    ...source,
+    name: "QA Rocket Combo Finish",
+    objectives: [{ id: "clear", target: 1, displayName: "Clear 1", tileType: null }],
+    cellMap
+  };
 }
 
 function AccountScreen({ save, commitSave, auth }: { save: SaveState; commitSave: (save: SaveState) => void; auth: ReturnType<typeof useAuth> }) {
