@@ -89,14 +89,14 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(110);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(130);
-    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(115);
-    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(170);
-    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(190);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(185);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(205);
+    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(190);
+    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(230);
+    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(250);
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(720);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(850);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(980);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_150);
     expect(cascadeStart.detail).toBe("occupants-unique");
   });
 

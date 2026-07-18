@@ -235,7 +235,7 @@ describe("winSequenceDurationMs", () => {
   });
 
   it("includes the dramatic lead-in and final hold around row destruction", () => {
-    expect(winSequenceDurationMs(7, 270, 560, 240, 320)).toBe(2_740);
+    expect(winSequenceDurationMs(7, 450, 700, 500, 750)).toBe(4_650);
   });
 
   it("returns zero for non-positive or non-finite row counts", () => {

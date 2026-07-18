@@ -16,6 +16,7 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  MATCH_WAVE_MAX_MS,
   LIGHTBALL_CHARGE_MS,
   LIGHTBALL_RELEASE_DELAY_MS,
   LIGHTBALL_WAVE_CONCURRENCY_CAP,
@@ -491,7 +492,7 @@ export function lightBallWavePlan(
 }
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {
-  const stagger = clampFinite(maxStaggerMs, 0, 64);
+  const stagger = clampFinite(maxStaggerMs, 0, MATCH_WAVE_MAX_MS);
   const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS;
   const impactCompletionMs = MATCH_IMPACT_MS + stagger;
 

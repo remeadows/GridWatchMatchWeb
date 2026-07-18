@@ -19,34 +19,41 @@ IndexedDB with a localStorage fallback and therefore remain device/browser-local
 is no account save-sync implementation.
 
 The 2026-07-18 feel pass keeps deterministic engine results unchanged while slowing the
-presentation layer:
+presentation layer. After playing Level 13 on production, Russ reported that the first
+deployed pass still read too quickly. The follow-up therefore makes a substantial timing
+change rather than another incremental adjustment:
 
-- Ordinary match recognition, compression, impact, and refill settle now take roughly
-  11% longer, preserving the existing swap feel while making tile destruction readable.
-- One-cell cascade falls increased from 165 ms to 195 ms; the long-fall cap increased
-  from 320 ms to 380 ms with longer landing squash and settle phases.
-- The seven-row level-clear presentation increased from 800 ms to 2,740 ms: a 240 ms
-  charge-in, 270 ms bottom-to-top row cadence, 560 ms tile bursts, and a 320 ms final
-  hold before the result modal.
+- Ordinary resolved matches take roughly 35% longer than the first deployed feel pass.
+  Recognition is 100 ms, pop compression is 90 ms, impact is 170 ms, and centroid pop
+  waves can spread across 120 ms while the existing swap movement remains unchanged.
+- One-cell cascade falls are now 260 ms and the long-fall cap is 540 ms, with 95 ms
+  landing squash and settle phases. Power-up-specific choreography retains its own
+  authored timing instead of inheriting an unintended extra cascade delay.
+- The seven-row level-clear presentation is now 4,650 ms: a 500 ms charge-in, 450 ms
+  bottom-to-top row cadence, 700 ms tile bursts, and a 750 ms final hold before the
+  result modal. Level 13 measured 4.75 seconds in the scene clock with 2.75 seconds from
+  the first destroyed row to the last on both desktop and mobile.
 - Each destroyed row now receives a synchronized escalating impact cue. The final row
   adds a stronger impact cue, shake, shockwave, and larger bounded particle burst.
 - `BoardScene` now owns the terminal presentation until completion so routine React
   snapshot sync or resize work cannot dispose its row audio and VFX mid-sequence.
 
-Red-green verification is complete: the old values failed the new unit timing contracts
-and browser row-span/audio assertions. The implementation passes 236/236 Vitest cases,
+Red-green verification is complete: both earlier timing sets failed the new unit timing
+contracts and browser row-span assertions. The implementation passes 236/236 Vitest cases,
 92/92 Playwright cases across desktop Chromium and the mobile project, all 100 level
 validations, the production build, `git diff --check`, and a high-severity dependency
 audit with zero vulnerabilities. Manual 1280x720 and 393x852 captures confirm the board
 clears progressively without overlap before the result modal. Peak level-clear resources
 were 132 desktop particles and 110 mobile particles, two simultaneous board-audio slots,
 and all tracked timers, tweens, emitters, particles, and audio returned to zero. Deployment
-is complete: app commit `c61ed98` was pushed to
+for the first pass is complete: app commit `c61ed98` was pushed to
 `origin/codex/gridwatch-presentation-overhaul` and deployed as Cloudflare Worker version
 `53e82193-2bb1-4087-99d6-a1c3b7ac2621`. Public root and SPA deep-link requests serve the
 new `index-B08Ht4Yz.js` bundle. Live desktop and mobile animated-clear smoke checks each
 reported seven ordered row impacts, seven synchronized row cues, the completion event,
 no runtime errors, and zero resources remaining after the modal appeared.
+The slower Level 13 follow-up has passed the same local verification matrix and is pending
+commit and deployment.
 
 ## 2026-07-17: GridWatch presentation overhaul complete
 

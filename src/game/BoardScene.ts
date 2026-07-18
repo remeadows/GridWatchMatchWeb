@@ -1693,7 +1693,8 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
-    this.recordPresentation("cascade-start", "occupants-unique", MATCH_IMPACT_MS);
+    const plannedCascadeLeadMs = hasSequencedPowerUp(delta) ? 0 : CASCADE_START_AFTER_IMPACT_MS;
+    this.recordPresentation("cascade-start", "occupants-unique", plannedCascadeLeadMs);
     const creations = createdPowerUpSpawns(delta.spawns);
 
     this.snapshot = postClearSnapshot;

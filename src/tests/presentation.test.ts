@@ -376,31 +376,31 @@ describe("lightBallWavePlan", () => {
 
 describe("matchTimeline", () => {
   it("uses named phases and gives an ordinary match readable impact and settle time", () => {
-    const timeline = matchTimeline(64);
+    const timeline = matchTimeline(120);
 
     expect(timeline.swapTravelMs).toBeGreaterThanOrEqual(150);
     expect(timeline.swapTravelMs).toBeLessThanOrEqual(175);
     expect(timeline.swapSettleMs).toBeGreaterThanOrEqual(45);
     expect(timeline.swapSettleMs).toBeLessThanOrEqual(60);
-    expect(timeline.recognitionHoldMs).toBeGreaterThanOrEqual(55);
-    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(70);
-    expect(timeline.popCompressionMs).toBeGreaterThanOrEqual(50);
-    expect(timeline.popCompressionMs).toBeLessThanOrEqual(65);
-    expect(timeline.impactMs).toBeGreaterThanOrEqual(115);
-    expect(timeline.impactMs).toBeLessThanOrEqual(140);
-    expect(timeline.maxStaggerMs).toBe(64);
-    expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(115);
-    expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(145);
-    expect(timeline.totalMs).toBeGreaterThanOrEqual(950);
-    expect(timeline.totalMs).toBeLessThanOrEqual(1_050);
+    expect(timeline.recognitionHoldMs).toBeGreaterThanOrEqual(95);
+    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(110);
+    expect(timeline.popCompressionMs).toBeGreaterThanOrEqual(85);
+    expect(timeline.popCompressionMs).toBeLessThanOrEqual(100);
+    expect(timeline.impactMs).toBeGreaterThanOrEqual(165);
+    expect(timeline.impactMs).toBeLessThanOrEqual(185);
+    expect(timeline.maxStaggerMs).toBe(120);
+    expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(190);
+    expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(220);
+    expect(timeline.totalMs).toBeGreaterThanOrEqual(1_300);
+    expect(timeline.totalMs).toBeLessThanOrEqual(1_400);
   });
 });
 
 describe("cascadeFallDurationMs", () => {
   it("uses distance-based falls with the specified minimum and cap", () => {
-    expect(cascadeFallDurationMs(1)).toBe(195);
+    expect(cascadeFallDurationMs(1)).toBe(260);
     expect(cascadeFallDurationMs(2)).toBeGreaterThan(cascadeFallDurationMs(1));
-    expect(cascadeFallDurationMs(7)).toBe(380);
+    expect(cascadeFallDurationMs(7)).toBe(540);
   });
 });
 

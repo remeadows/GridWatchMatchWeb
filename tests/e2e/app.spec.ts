@@ -118,7 +118,7 @@ test("animated win destroys the board before showing the result modal", async ({
   expect(destroyedRows).toHaveLength(7);
   expect(destroyedRows[0]?.detail).toBe("6");
   expect(destroyedRows.at(-1)?.detail).toBe("0");
-  expect((destroyedRows.at(-1)?.atMs ?? 0) - (destroyedRows[0]?.atMs ?? 0)).toBeGreaterThanOrEqual(1_400);
+  expect((destroyedRows.at(-1)?.atMs ?? 0) - (destroyedRows[0]?.atMs ?? 0)).toBeGreaterThanOrEqual(2_400);
   expect(finalTrace.filter((entry) => entry.kind === "audio-cue" && entry.detail === "tileClusterBody")).toHaveLength(7);
 });
 
