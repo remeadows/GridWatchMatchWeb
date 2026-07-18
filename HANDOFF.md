@@ -41,7 +41,12 @@ audit with zero vulnerabilities. Manual 1280x720 and 393x852 captures confirm th
 clears progressively without overlap before the result modal. Peak level-clear resources
 were 132 desktop particles and 110 mobile particles, two simultaneous board-audio slots,
 and all tracked timers, tweens, emitters, particles, and audio returned to zero. Deployment
-is pending for this release candidate.
+is complete: app commit `c61ed98` was pushed to
+`origin/codex/gridwatch-presentation-overhaul` and deployed as Cloudflare Worker version
+`53e82193-2bb1-4087-99d6-a1c3b7ac2621`. Public root and SPA deep-link requests serve the
+new `index-B08Ht4Yz.js` bundle. Live desktop and mobile animated-clear smoke checks each
+reported seven ordered row impacts, seven synchronized row cues, the completion event,
+no runtime errors, and zero resources remaining after the modal appeared.
 
 ## 2026-07-17: GridWatch presentation overhaul complete
 
