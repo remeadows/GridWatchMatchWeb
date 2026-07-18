@@ -3,7 +3,9 @@ import {
   GAMEPLAY_POLL_TIMEOUT_MS,
   BOARD_READY_TIMEOUT_MS,
   WIN_ROW_DESTRUCTION_POP_MS,
-  WIN_ROW_DESTRUCTION_STAGGER_MS
+  WIN_ROW_DESTRUCTION_STAGGER_MS,
+  WIN_SEQUENCE_FINAL_HOLD_MS,
+  WIN_SEQUENCE_LEAD_IN_MS
 } from "../../src/data/gameplayTiming";
 import { winSequenceDurationMs } from "../../src/game/motion";
 
@@ -91,7 +93,13 @@ test("animated win destroys the board before showing the result modal", async ({
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace
       ?.some((entry) => entry.kind === "win-sequence-start") ?? false
   ));
-  await page.waitForTimeout(winSequenceDurationMs(7, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS) - 120);
+  await page.waitForTimeout(winSequenceDurationMs(
+    7,
+    WIN_ROW_DESTRUCTION_STAGGER_MS,
+    WIN_ROW_DESTRUCTION_POP_MS,
+    WIN_SEQUENCE_LEAD_IN_MS,
+    WIN_SEQUENCE_FINAL_HOLD_MS
+  ) - 120);
   await expect(modalTitle).not.toBeVisible();
   const boundaryTrace = await page.evaluate(() => (
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace ?? []
@@ -103,6 +111,15 @@ test("animated win destroys the board before showing the result modal", async ({
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string }> }).__gwPresentationTrace
       ?.some((entry) => entry.kind === "win-sequence-complete") ?? false
   ));
+  const finalTrace = await page.evaluate(() => (
+    (window as Window & { __gwPresentationTrace?: Array<{ kind: string; detail?: string; atMs: number }> }).__gwPresentationTrace ?? []
+  ));
+  const destroyedRows = finalTrace.filter((entry) => entry.kind === "win-row-destroyed");
+  expect(destroyedRows).toHaveLength(7);
+  expect(destroyedRows[0]?.detail).toBe("6");
+  expect(destroyedRows.at(-1)?.detail).toBe("0");
+  expect((destroyedRows.at(-1)?.atMs ?? 0) - (destroyedRows[0]?.atMs ?? 0)).toBeGreaterThanOrEqual(1_400);
+  expect(finalTrace.filter((entry) => entry.kind === "audio-cue" && entry.detail === "tileClusterBody")).toHaveLength(7);
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {

@@ -6,7 +6,12 @@ import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
-import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "./data/gameplayTiming";
+import {
+  WIN_ROW_DESTRUCTION_POP_MS,
+  WIN_ROW_DESTRUCTION_STAGGER_MS,
+  WIN_SEQUENCE_FINAL_HOLD_MS,
+  WIN_SEQUENCE_LEAD_IN_MS
+} from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
 import { RESOLVE_ANIMATION_BUDGET_MS, type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
@@ -478,7 +483,13 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       if (fallbackId !== null) window.clearTimeout(fallbackId);
       completeWin();
     };
-    const durationMs = winSequenceDurationMs(currentSnapshot.grid.rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS);
+    const durationMs = winSequenceDurationMs(
+      currentSnapshot.grid.rows,
+      WIN_ROW_DESTRUCTION_STAGGER_MS,
+      WIN_ROW_DESTRUCTION_POP_MS,
+      WIN_SEQUENCE_LEAD_IN_MS,
+      WIN_SEQUENCE_FINAL_HOLD_MS
+    );
     fallbackId = window.setTimeout(completeOnce, durationMs + 120);
     const started = gameCanvasRef.current?.playWinSequence(completeOnce) ?? false;
     if (!started) {

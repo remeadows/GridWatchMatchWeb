@@ -234,6 +234,10 @@ describe("winSequenceDurationMs", () => {
     expect(winSequenceDurationMs(7, 90, 260)).toBe(800);
   });
 
+  it("includes the dramatic lead-in and final hold around row destruction", () => {
+    expect(winSequenceDurationMs(7, 270, 560, 240, 320)).toBe(2_740);
+  });
+
   it("returns zero for non-positive or non-finite row counts", () => {
     expect(winSequenceDurationMs(0, 90, 260)).toBe(0);
     expect(winSequenceDurationMs(Number.NaN, 90, 260)).toBe(0);

@@ -202,9 +202,19 @@ export function rowDestructionOrder(rows: number): number[] {
   return result;
 }
 
-export function winSequenceDurationMs(rows: number, perRowMs: number, popMs: number): number {
+export function winSequenceDurationMs(
+  rows: number,
+  perRowMs: number,
+  popMs: number,
+  leadInMs = 0,
+  finalHoldMs = 0
+): number {
   if (!Number.isFinite(rows) || rows <= 0) return 0;
-  return (Math.floor(rows) - 1) * perRowMs + popMs;
+  const perRow = Number.isFinite(perRowMs) ? Math.max(0, perRowMs) : 0;
+  const pop = Number.isFinite(popMs) ? Math.max(0, popMs) : 0;
+  const leadIn = Number.isFinite(leadInMs) ? Math.max(0, leadInMs) : 0;
+  const finalHold = Number.isFinite(finalHoldMs) ? Math.max(0, finalHoldMs) : 0;
+  return leadIn + (Math.floor(rows) - 1) * perRow + pop + finalHold;
 }
 
 /**

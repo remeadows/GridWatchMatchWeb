@@ -69,7 +69,7 @@ test.describe("piece rendering and board scale", () => {
 });
 
 test.describe("normal presentation timeline", () => {
-  test("records a fast scene-clock swap, impact, cascade, and completion sequence", async ({ page }) => {
+  test("records a paced scene-clock swap, impact, cascade, and completion sequence", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
@@ -89,12 +89,14 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(80);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(110);
     expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(130);
-    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(80);
+    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(115);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(170);
+    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(190);
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(900);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(720);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(850);
     expect(cascadeStart.detail).toBe("occupants-unique");
   });
 

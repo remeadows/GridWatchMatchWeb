@@ -1,7 +1,12 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
 import type { PresentationAudioKey } from "../data/presentationAssets";
-import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS } from "../data/gameplayTiming";
+import {
+  WIN_ROW_DESTRUCTION_POP_MS,
+  WIN_ROW_DESTRUCTION_STAGGER_MS,
+  WIN_SEQUENCE_FINAL_HOLD_MS,
+  WIN_SEQUENCE_LEAD_IN_MS
+} from "../data/gameplayTiming";
 import {
   CASCADE_FALL_MAX_MS,
   CASCADE_LANDING_SETTLE_MS,
@@ -181,11 +186,11 @@ const MATCH_BURST_SPEED_TILE_FACTOR = 2.4;
 const MATCH_BURST_LIFESPAN_MS = 260;
 const MATCH_BURST_MIN_PARTICLE_SCALE = 0.35;
 const MATCH_BURST_PARTICLE_SCALE_TILE_DIVISOR = 140;
-const WIN_ROW_SHAKE_INTENSITY = 0.004;
-const WIN_FINAL_SHAKE_INTENSITY = 0.007;
-const WIN_ROW_SHAKE_DURATION_MS = 130;
-const WIN_FINAL_BURST_PARTICLE_COUNT = 30;
-const WIN_TILE_BURST_PARTICLE_COUNT = 9;
+const WIN_ROW_SHAKE_INTENSITY = 0.005;
+const WIN_FINAL_SHAKE_INTENSITY = 0.01;
+const WIN_ROW_SHAKE_DURATION_MS = 180;
+const WIN_FINAL_BURST_PARTICLE_COUNT = 42;
+const WIN_TILE_BURST_PARTICLE_COUNT = 11;
 
 // Mirrors iOS BoardNode.swift springyReturnAction stretch phase.
 const INVALID_SWAP_OVERSHOOT_FACTOR = 0.025;
@@ -369,6 +374,7 @@ export class BoardScene extends Phaser.Scene {
   private activePresentationSequenceId = 0;
   private presentationPlannedAtMs = 0;
   private hasPlannedMatchImpact = false;
+  private winPresentationActive = false;
 
   constructor() {
     super("BoardScene");
@@ -411,6 +417,7 @@ export class BoardScene extends Phaser.Scene {
       this.lastScaleWidth = this.scale.width;
       this.lastScaleHeight = this.scale.height;
       if (!dimensionsChanged) return;
+      if (this.winPresentationActive) return;
       // A resize can land while a committed swap's resolve handoff is parked
       // on the settle tween (pendingCommitCb). hardClearDrag alone would kill
       // that tween and drop the handoff, wedging the active animation forever
@@ -431,6 +438,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private disposeVfx(): void {
+    this.winPresentationActive = false;
     this.vfxCleanup.dispose();
     this.fxUnderlay = null;
     this.fxLayer = null;
@@ -438,6 +446,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   sync(snapshot: BoardSnapshot, animation?: BoardAnimationEvent | null, reducedMotion = false, pendingBooster: BoosterType | null = null): void {
+    if (this.winPresentationActive) return;
     this.reducedMotion = reducedMotion;
     this.pendingBooster = pendingBooster;
     this.game.canvas.classList.toggle("booster-targeting", pendingBooster !== null);
@@ -614,7 +623,8 @@ export class BoardScene extends Phaser.Scene {
   }
 
   playWinSequence(onComplete: () => void): boolean {
-    if (!this.snapshot || !this.layer || !this.fxLayer) return false;
+    if (!this.snapshot || !this.layer || !this.fxLayer || this.winPresentationActive) return false;
+    this.winPresentationActive = true;
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.beginWinPresentationTrace();
     const sourceSnapshot = this.snapshot;
@@ -622,6 +632,7 @@ export class BoardScene extends Phaser.Scene {
     this.hardClearDrag();
 
     const finish = () => {
+      this.winPresentationActive = false;
       if (this.sys.isActive()) {
         this.snapshot = buildPostClearSnapshot(sourceSnapshot, poppedKeys);
         this.renderSnapshot();
@@ -638,8 +649,9 @@ export class BoardScene extends Phaser.Scene {
     const hiddenKeys = new Set<string>();
     const rows = rowDestructionOrder(sourceSnapshot.grid.rows);
     const seed = sourceSnapshot.rngSeed;
+    this.cueBoardAudio("comboCharge", { gain: 0.3, playbackRate: 0.9 });
     rows.forEach((row, index) => {
-      this.time.delayedCall(index * WIN_ROW_DESTRUCTION_STAGGER_MS, () => {
+      this.time.delayedCall(WIN_SEQUENCE_LEAD_IN_MS + index * WIN_ROW_DESTRUCTION_STAGGER_MS, () => {
         if (!this.sys.isActive() || !this.fxLayer) return;
         const rowPositions = sourceSnapshot.grid.allPositions.filter((position) => {
           const key = positionKey(position);
@@ -649,6 +661,10 @@ export class BoardScene extends Phaser.Scene {
         this.recordPresentation("win-row-destroyed", String(row));
         this.snapshot = sourceSnapshot;
         this.renderSnapshot(new Set(hiddenKeys), false);
+        this.cueBoardAudio("tileClusterBody", {
+          gain: 0.3 + index * 0.035,
+          playbackRate: 0.92 + index * 0.02
+        });
         for (const position of rowPositions) {
           this.playWinTilePop(sourceSnapshot, position, seed);
         }
@@ -660,12 +676,21 @@ export class BoardScene extends Phaser.Scene {
             this.reducedMotion
           );
         }
-        if (row === 0) this.playWinFinalBurst();
+        if (row === 0) {
+          this.cueBoardAudio("comboImpact", { gain: 0.55, playbackRate: 0.96 });
+          this.playWinFinalBurst();
+        }
       });
     });
 
     this.time.delayedCall(
-      winSequenceDurationMs(sourceSnapshot.grid.rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS),
+      winSequenceDurationMs(
+        sourceSnapshot.grid.rows,
+        WIN_ROW_DESTRUCTION_STAGGER_MS,
+        WIN_ROW_DESTRUCTION_POP_MS,
+        WIN_SEQUENCE_LEAD_IN_MS,
+        WIN_SEQUENCE_FINAL_HOLD_MS
+      ),
       finish
     );
     return true;

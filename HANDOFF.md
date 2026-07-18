@@ -1,6 +1,47 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
+
+## 2026-07-18: Production validation complete; game-feel timing retuned
+
+Russ completed the remaining human production gates on physical mobile hardware:
+
+- Account login works on the public site.
+- A real signed-in level win submits successfully and the leaderboard updates.
+- Mobile touch gameplay, board reachability, and booster interaction are verified.
+- Campaign progress remains on the phone/browser where it was earned, as designed by
+  the current local save system.
+
+Persistence is intentionally split today. Supabase leaderboard rows are keyed to the
+authenticated user and therefore follow that account across devices. Campaign progress,
+level stars, coins, boosters, selected agent, intel state, and settings are stored in
+IndexedDB with a localStorage fallback and therefore remain device/browser-local. There
+is no account save-sync implementation.
+
+The 2026-07-18 feel pass keeps deterministic engine results unchanged while slowing the
+presentation layer:
+
+- Ordinary match recognition, compression, impact, and refill settle now take roughly
+  11% longer, preserving the existing swap feel while making tile destruction readable.
+- One-cell cascade falls increased from 165 ms to 195 ms; the long-fall cap increased
+  from 320 ms to 380 ms with longer landing squash and settle phases.
+- The seven-row level-clear presentation increased from 800 ms to 2,740 ms: a 240 ms
+  charge-in, 270 ms bottom-to-top row cadence, 560 ms tile bursts, and a 320 ms final
+  hold before the result modal.
+- Each destroyed row now receives a synchronized escalating impact cue. The final row
+  adds a stronger impact cue, shake, shockwave, and larger bounded particle burst.
+- `BoardScene` now owns the terminal presentation until completion so routine React
+  snapshot sync or resize work cannot dispose its row audio and VFX mid-sequence.
+
+Red-green verification is complete: the old values failed the new unit timing contracts
+and browser row-span/audio assertions. The implementation passes 236/236 Vitest cases,
+92/92 Playwright cases across desktop Chromium and the mobile project, all 100 level
+validations, the production build, `git diff --check`, and a high-severity dependency
+audit with zero vulnerabilities. Manual 1280x720 and 393x852 captures confirm the board
+clears progressively without overlap before the result modal. Peak level-clear resources
+were 132 desktop particles and 110 mobile particles, two simultaneous board-audio slots,
+and all tracked timers, tweens, emitters, particles, and audio returned to zero. Deployment
+is pending for this release candidate.
 
 ## 2026-07-17: GridWatch presentation overhaul complete
 
