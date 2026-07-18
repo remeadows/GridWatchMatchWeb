@@ -49,6 +49,9 @@ Verification:
   rocket-combo trace was `combo-charge` -> `combo-impact` -> `resolution-complete` ->
   `win-sequence-start` in both viewports, and `Grid secured` appeared only after that
   ordering completed.
+- Russ completed the final physical-mobile production check successfully. Winning
+  power-up choreography, the terminal clear sequence, and cascade behavior are accepted
+  on real mobile hardware; this presentation and gameplay-fix cycle is complete.
 
 ## 2026-07-18: Production validation complete; game-feel timing retuned
 
@@ -472,7 +475,6 @@ Previously flaky drag-test loop from supervisor verification:
 
 ## Open Priorities
 
-- Playtest the public URL on real mobile touch hardware after the live-drag deploy cache has settled.
 - Continue tuning swap/match timing if the player still perceives the settle/pause/pop sequence as too fast.
 - Keep improving animation feel for cascades, power-up effects, and match pops without changing engine determinism.
 - Add regression coverage for any future row reachability, viewport overlap, or booster-targeting issue.
