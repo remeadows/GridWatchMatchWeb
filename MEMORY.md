@@ -1,6 +1,6 @@
 # GridWatch Match Web Memory
 
-Last updated: 2026-06-04
+Last updated: 2026-07-17
 
 ## Durable Context
 
@@ -13,13 +13,26 @@ Last updated: 2026-06-04
 
 ## Product Priorities
 
-- Gameplay feel matters more than cosmetic polish right now.
+- Gameplay feel and presentation clarity are release-critical.
 - The board must be responsive on mouse, touch, desktop, and mobile.
 - All seven rows must be playable; prior bugs affected rows 5-7 due to board interaction/layout issues.
 - Tile drag should feel direct: click/press, hold, and move should move the real tile under the pointer.
 - Valid swaps should settle into their new grid positions, pause briefly, then pop matched tiles.
 - The moved matching tile must not start returning to its original cell before disappearing.
 - Booster tray power-ups must not randomly detonate. They require a deliberate target by click-select plus board tap/click or by dragging onto the board.
+
+## Presentation Contract
+
+- `docs/art/gridwatch-match-presentation-bible.md` is the durable presentation contract.
+- Candidate B is the approved bright tactical die-cast piece set. Web-owned tile,
+  power-up, and booster art lives under `public/assets/images/web-overrides/` and must
+  survive iOS asset sync.
+- The approved Tactical Glass sound pack contains 20 CC0 board cues under
+  `public/assets/audio/web-overrides/`; provenance is recorded in
+  `docs/art/gridwatch-match-audio-provenance.md`.
+- Board sound is scene-timed from Phaser animation beats, not delta-timed from React.
+  Do not restore early clear, chain, or power-up board SFX calls in `src/App.tsx`.
+- Presentation plans and budgets must not alter engine outcomes or affected positions.
 
 ## Current Implementation Notes
 
@@ -32,15 +45,13 @@ Last updated: 2026-06-04
 
 ## Latest Known Good State
 
-- Commit: `6578026 Use live tile drag for swaps`.
-- Deploy passed for that commit.
-- CodeQL passed for that commit.
-- Verification after that commit:
-  - `npm run test` passed: 115 tests.
-  - `npm run test:e2e` passed: 20 tests.
-  - `npm run validate:levels` passed: 100 levels.
-  - `npm run build` passed.
-  - `npm audit --audit-level=high` passed: 0 vulnerabilities.
+- Presentation implementation `eab2cfc` and final handoff `d8ecbe7` are pushed on
+  `codex/gridwatch-presentation-overhaul`. Application revision `d8ecbe7` was deployed
+  on 2026-07-17 as Worker version `f9699373-caf5-4046-a16f-7621ff0b133d`.
+- Verification: 235 unit tests, 90 Playwright tests, 100 levels, production build, and
+  `npm audit --audit-level=high` all pass.
+- The presentation overhaul did not change Worker, auth, Supabase, score, database, or
+  leaderboard code.
 
 ## User Preferences
 

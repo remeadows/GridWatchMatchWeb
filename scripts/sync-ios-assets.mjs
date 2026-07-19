@@ -19,6 +19,7 @@ const publicRoot = path.join(repoRoot, "public");
 const imageOut = path.join(publicRoot, "assets/images");
 const imageOverrideOut = path.join(imageOut, "web-overrides");
 const audioOut = path.join(publicRoot, "assets/audio");
+const audioOverrideOut = path.join(audioOut, "web-overrides");
 const lottieOut = path.join(publicRoot, "assets/lottie");
 const videoOut = path.join(publicRoot, "assets/video");
 const levelsOut = path.join(publicRoot, "levels");
@@ -56,22 +57,22 @@ const images = {
     gamePanel: "assets/images/backgrounds/game_panel.png"
   },
   villains: {
-    vexis: "assets/images/villains/VEXIS.jpg",
-    kron: "assets/images/villains/KRON.jpg",
-    zero: "assets/images/villains/ZERO.jpg",
-    ax10m: "assets/images/villains/AX10M.jpg",
-    ax10m2: "assets/images/villains/AX10M2.jpg",
-    aurora6: "assets/images/villains/AURORA-6.jpg",
+    vexis: "assets/images/villains/VEXIS.png",
+    kron: "assets/images/villains/KRON.png",
+    zero: "assets/images/villains/ZERO.png",
+    ax10m: "assets/images/villains/AX10M.png",
+    ax10m2: "assets/images/villains/AX10M2.png",
+    aurora6: "assets/images/villains/AURORA-6.png",
     rusty: "assets/images/villains/Rusty.png",
     tee: "assets/images/villains/Tee_v1.png",
     tish: "assets/images/villains/Tish3.jpg",
-    helix: "assets/images/villains/Helix.png"
+    helix: "assets/images/villains/Helix.jpg"
   },
   heroes: {
     rusty: "assets/images/heroes/Rusty.png",
     tee: "assets/images/heroes/Tee_v1.png",
     tish: "assets/images/heroes/Tish3.jpg",
-    helix: "assets/images/heroes/Helix.png"
+    helix: "assets/images/heroes/Helix.jpg"
   },
   appIcon: "assets/images/app/AppIcon_1024.png"
 };
@@ -99,21 +100,21 @@ const imageCopies = [
   ["Assets.xcassets/Backgrounds/game_panel.imageset/game_panel.png", images.backgrounds.gamePanel],
   ["Assets.xcassets/AppIcon.appiconset/AppIcon_1024.png", images.appIcon],
 
-  ["Assets.xcassets/Vexis.imageset/VEXIS.jpg", images.villains.vexis],
-  ["Assets.xcassets/Kron.imageset/KRON.jpg", images.villains.kron],
-  ["Assets.xcassets/Zero.imageset/ZERO.jpg", images.villains.zero],
-  ["Assets.xcassets/Ax10m.imageset/AX10M.jpg", images.villains.ax10m],
-  ["Assets.xcassets/Ax10m2.imageset/AX10M2.jpg", images.villains.ax10m2],
-  ["Assets.xcassets/area6_villain.imageset/AURORA-6.jpg", images.villains.aurora6],
+  ["Assets.xcassets/Vexis.imageset/VEXIS.png", images.villains.vexis],
+  ["Assets.xcassets/Kron.imageset/KRON.png", images.villains.kron],
+  ["Assets.xcassets/Zero.imageset/ZERO.png", images.villains.zero],
+  ["Assets.xcassets/Ax10m.imageset/AX10M.png", images.villains.ax10m],
+  ["Assets.xcassets/Ax10m2.imageset/AX10M2.png", images.villains.ax10m2],
+  ["Assets.xcassets/area6_villain.imageset/AURORA-6.png", images.villains.aurora6],
   ["Assets.xcassets/Rusty.imageset/Rusty.png", images.villains.rusty],
   ["Assets.xcassets/Tee.imageset/Tee_v1.png", images.villains.tee],
   ["Assets.xcassets/Tish.imageset/Tish3.jpg", images.villains.tish],
-  ["Assets.xcassets/Helix.imageset/Helix.png", images.villains.helix],
+  ["Assets.xcassets/Helix.imageset/Helix.jpg", images.villains.helix],
 
   ["Assets.xcassets/Rusty.imageset/Rusty.png", images.heroes.rusty],
   ["Assets.xcassets/Tee.imageset/Tee_v1.png", images.heroes.tee],
   ["Assets.xcassets/Tish.imageset/Tish3.jpg", images.heroes.tish],
-  ["Assets.xcassets/Helix.imageset/Helix.png", images.heroes.helix]
+  ["Assets.xcassets/Helix.imageset/Helix.jpg", images.heroes.helix]
 ];
 
 const audioFiles = [
@@ -150,17 +151,28 @@ async function sha256(filePath) {
 }
 
 function assertAssetOverrideRules() {
-  if (!assetOverrideRules.imageAssetPrefix || !assetOverrideRules.webImageOverridePrefix) {
+  if (
+    !assetOverrideRules.imageAssetPrefix ||
+    !assetOverrideRules.webImageOverridePrefix ||
+    !assetOverrideRules.audioAssetPrefix ||
+    !assetOverrideRules.webAudioOverridePrefix
+  ) {
     throw new Error(`Asset override rule file is missing required prefixes: ${assetOverrideRulesPath}`);
   }
   if (!assetOverrideRules.webImageOverridePrefix.startsWith(assetOverrideRules.imageAssetPrefix)) {
     throw new Error(`webImageOverridePrefix must be nested under imageAssetPrefix: ${assetOverrideRulesPath}`);
+  }
+  if (!assetOverrideRules.webAudioOverridePrefix.startsWith(assetOverrideRules.audioAssetPrefix)) {
+    throw new Error(`webAudioOverridePrefix must be nested under audioAssetPrefix: ${assetOverrideRulesPath}`);
   }
   if (normalizeManifestPath(" ///assets/images/tiles/tile_packet.png ") !== "assets/images/tiles/tile_packet.png") {
     throw new Error("Asset override path normalization drifted from src/data/assetOverrides.ts");
   }
   if (webOverridePath("assets/images/tiles/tile_packet.png") !== "assets/images/web-overrides/tiles/tile_packet.png") {
     throw new Error("Asset override path construction drifted from src/data/assetOverrides.ts");
+  }
+  if (webAudioOverridePath(" ///tile_pop_a.mp3 ") !== "assets/audio/web-overrides/tile_pop_a.mp3") {
+    throw new Error("Audio override path construction drifted from src/data/assetOverrides.ts");
   }
 }
 
@@ -179,6 +191,15 @@ function webOverridePath(assetPath) {
 
   const imageRelativePath = normalized.slice(assetOverrideRules.imageAssetPrefix.length);
   return imageRelativePath ? `${assetOverrideRules.webImageOverridePrefix}${imageRelativePath}` : null;
+}
+
+function webAudioOverridePath(assetPath) {
+  const normalized = normalizeManifestPath(assetPath);
+  if (!normalized || normalized.startsWith(assetOverrideRules.webAudioOverridePrefix)) return null;
+  const fileName = normalized.startsWith(assetOverrideRules.audioAssetPrefix)
+    ? normalized.slice(assetOverrideRules.audioAssetPrefix.length)
+    : normalized;
+  return fileName && !fileName.includes("/") ? `${assetOverrideRules.webAudioOverridePrefix}${fileName}` : null;
 }
 
 async function resolveImageAssetPath(assetPath) {
@@ -387,6 +408,11 @@ async function cleanSyncedImages() {
   );
 }
 
+async function cleanSyncedAudio() {
+  await mkdir(audioOverrideOut, { recursive: true });
+  await Promise.all(audioFiles.map((file) => rm(path.join(audioOut, file), { force: true })));
+}
+
 async function copyRelative(sourceRelative, destRelative) {
   const source = path.join(sourceRoot, sourceRelative);
   const dest = path.join(publicRoot, destRelative);
@@ -426,7 +452,7 @@ async function main() {
 
   await Promise.all([
     cleanSyncedImages(),
-    rm(audioOut, { recursive: true, force: true }),
+    cleanSyncedAudio(),
     rm(lottieOut, { recursive: true, force: true }),
     rm(videoOut, { recursive: true, force: true }),
     rm(levelsOut, { recursive: true, force: true })

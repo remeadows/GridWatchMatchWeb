@@ -1,4 +1,6 @@
 {
   "imageAssetPrefix": "assets/images/",
-  "webImageOverridePrefix": "assets/images/web-overrides/"
+  "webImageOverridePrefix": "assets/images/web-overrides/",
+  "audioAssetPrefix": "assets/audio/",
+  "webAudioOverridePrefix": "assets/audio/web-overrides/"
 }

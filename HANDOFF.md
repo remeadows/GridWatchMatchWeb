@@ -1,6 +1,292 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-15
+Last updated: 2026-07-19
+
+## 2026-07-19: Main-integration review corrections awaiting deployment
+
+PR #29 integrates `codex/gridwatch-presentation-overhaul` into `main`. Automated
+review identified and the branch now fixes two board-audio gaps: reduced-motion
+resolutions retain one low-gain impact cue, and multi-stage cascades emit the authored
+`chainRise` cue at cascade start. Review cleanup also centralizes existing timing
+values, removes unsafe non-null assertions from the reviewed paths, and fixes the
+Playwright resolution helper so repeated actions return the newly completed sequence.
+
+- Engine outcomes, level data, Worker APIs, authentication, scores, leaderboards,
+  Supabase, and database behavior are unchanged.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 102/102 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning; the
+  reviewed local build is `assets/index-tBNyYWXV.js`.
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- These post-deployment review corrections are not deployed yet. Production remains on
+  Cloudflare Worker version `9571cfdb-00d8-4afa-a2ff-61074046aff9`, serving
+  `assets/index-DTqt8yiP.js`, until a separate deployment is explicitly authorized.
+
+## 2026-07-19: Locked-cell containment and match pacing deployed
+
+Level 7's two design-locked tiles previously differed from normal cells only through a
+darker background, which made them look incorrectly rendered. The game now keeps
+their tile art at normal readability and identifies each locked cell with an amber
+containment frame, reinforced corner clamps, and a high-contrast padlock badge.
+The approved renderer and pacing release shipped from app commit `e4590d7` as
+Cloudflare Worker version `9571cfdb-00d8-4afa-a2ff-61074046aff9`; production serves
+`assets/index-DTqt8yiP.js`.
+
+- The treatment is renderer-only and keyed to the existing `debugDesignLocked` state.
+  Match rules, unlock behavior, level JSON, engine determinism, and input are unchanged.
+- The frame disappears automatically when the existing clear path unlocks the cell.
+- The same treatment applies to every design-locked cell in every level, not only Level 7.
+- A test-mode marker inventory verifies Level 7 renders exactly two containment locks at
+  row 4, columns 4-5 and is unavailable outside exact test mode.
+
+Verification:
+
+- Red-green browser contract failed with no explicit marker on desktop and mobile, then
+  passed after the containment hardware was implemented.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 98/98 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- Manual Level 7 board captures at 1280x900 and iPhone 15 size show readable orange and
+  magenta tile identities, explicit lock silhouettes, no overlap, and no board overflow.
+- Russ approved the locked-cell appearance after testing Level 7 locally.
+- Public root, SPA deep-link, exact hashed asset, and workers.dev propagation checks
+  passed after deployment.
+- Live production desktop and mobile checks each rendered exactly two Level 7 lock
+  markers, loaded the new bundle, and reported zero runtime errors.
+
+## 2026-07-18: Ordinary match pacing deployed
+
+Russ approved the ordinary match pacing after playing the local build. It changes
+presentation timing only; engine outcomes, cascade fall duration, authored power-up
+choreography, and the accepted 2,500 ms terminal clear are unchanged. The approved
+pacing and locked-cell treatment shipped together in the 2026-07-19 production release.
+
+- Swap travel is 175 ms with a 60 ms settle, up from 160/50 ms.
+- The settled-match recognition hold is 140 ms, up from 100 ms.
+- Pop compression is 100 ms, impact is 180 ms, and centroid waves can span 150 ms,
+  up from 90/170/120 ms.
+- Cascade begins 230 ms after ordinary-match impact, up from 200 ms. The total pure
+  normal-match timing budget is 1,435 ms, roughly 105 ms longer than the accepted
+  production build, with the added time concentrated around match readability.
+
+Verification:
+
+- Red-green timing contract: the focused Vitest case failed on the old 160 ms swap
+  travel, then passed after the constant-only implementation.
+- Rebuilt desktop/mobile browser contract failed against the old 205 ms
+  settle-to-impact ceiling at the expected new 240 ms beat, then passed with the new
+  required range.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 96/96 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- The required warm-preview drag gate passed 20/20 iterations, covering 40 successful
+  desktop/mobile test instances with no input race.
+- Manual 1280x720 and 393x852 inspection showed ordered settle, recognition, pop,
+  cascade, and refill with no ghost trails, overlap, or horizontal overflow.
+- Live production desktop and mobile traces both measured 240 ms from swap settle to
+  match impact, 230 ms from impact to cascade, and 1,100 ms from action receipt through
+  resolution completion.
+
+## 2026-07-18: Power-up completion and cascade-integrity follow-up deployed
+
+After physical-mobile testing exposed the last winning power-up being skipped, Russ
+approved the all-level animation-completion fix for production. The follow-up is now
+deployed from app commit `213945e` as Cloudflare Worker version
+`41d5c91f-e1fa-4de4-8d36-0ce3823d905d`.
+
+- The bottom-to-top terminal clear is now 2,500 ms: 150 ms lead-in, 300 ms row
+  cadence, 250 ms row burst, and 300 ms final hold.
+- Single power-up choreography holds the resolved board for another 200 ms before
+  cascade, making the power-up result readable before refill begins.
+- Winning actions now wait for the exact Phaser resolution-complete callback before
+  starting the terminal row clear. A bounded watchdog remains as recovery only. This
+  fixes winning rocket combinations skipping directly to `Grid secured` before their
+  combo animation finishes.
+- Cascade presentation now compares persistent tile IDs in the before/after snapshots.
+  Surviving occupants move their real Phaser sprite to the final cell; only genuinely
+  new IDs enter through the spawn path. This fixes the Level 6 report where lower-board
+  clears appeared to replace stationary tiles with new pieces instead of dropping the
+  pieces above them. The planner is level-independent and applies to every board.
+- Power-up creation destinations are reserved for the existing hero-reveal animation,
+  and intermediate creations that do not survive to the final snapshot are not rendered
+  as ordinary refill tiles.
+
+Verification:
+
+- `npm run test`: 238/238 passed.
+- Focused Level 6 cascade regression: passed on Chromium and mobile.
+- Production-level identity audit: 1,350 deterministic actions across all 100 levels,
+  9,097 surviving-tile moves, 8,762 true spawns, and zero missing sprites, identity
+  mismatches, existing-as-spawn errors, or non-gravity moves.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- Full Playwright run: 95/96 passed; the sole mobile terminal-duration measurement was
+  2,905 ms against a 2,900 ms wall-clock ceiling. Its immediate isolated rerun passed
+  without code or assertion changes, confirming runner jitter rather than a gameplay
+  regression. The complete desktop run and all other mobile gameplay, single-power-up,
+  combo, cleanup, reduced-motion, and audio-ordering cases passed.
+- Manual localhost Level 6 inspection confirmed the lower-board refill with no pop-in
+  replacement or missing destination tile.
+- Release build passed with only the existing Phaser bundle-size warning, and
+  `npm audit --audit-level=high` reported zero vulnerabilities.
+- The public root, SPA deep link, and workers.dev fallback serve
+  `assets/index-c-pro_nY.js`.
+- Live production checks passed on desktop and iPhone 15 emulation. The winning
+  rocket-combo trace was `combo-charge` -> `combo-impact` -> `resolution-complete` ->
+  `win-sequence-start` in both viewports, and `Grid secured` appeared only after that
+  ordering completed.
+- Russ completed the final physical-mobile production check successfully. Winning
+  power-up choreography, the terminal clear sequence, and cascade behavior are accepted
+  on real mobile hardware; this presentation and gameplay-fix cycle is complete.
+
+## 2026-07-18: Production validation complete; game-feel timing retuned
+
+Russ completed the remaining human production gates on physical mobile hardware:
+
+- Account login works on the public site.
+- A real signed-in level win submits successfully and the leaderboard updates.
+- Mobile touch gameplay, board reachability, and booster interaction are verified.
+- Campaign progress remains on the phone/browser where it was earned, as designed by
+  the current local save system.
+
+Persistence is intentionally split today. Supabase leaderboard rows are keyed to the
+authenticated user and therefore follow that account across devices. Campaign progress,
+level stars, coins, boosters, selected agent, intel state, and settings are stored in
+IndexedDB with a localStorage fallback and therefore remain device/browser-local. There
+is no account save-sync implementation.
+
+The 2026-07-18 feel pass keeps deterministic engine results unchanged while slowing the
+presentation layer. After playing Level 13 on production, Russ reported that the first
+deployed pass still read too quickly. The follow-up therefore makes a substantial timing
+change rather than another incremental adjustment:
+
+- Ordinary resolved matches take roughly 35% longer than the first deployed feel pass.
+  Recognition is 100 ms, pop compression is 90 ms, impact is 170 ms, and centroid pop
+  waves can spread across 120 ms while the existing swap movement remains unchanged.
+- One-cell cascade falls are now 260 ms and the long-fall cap is 540 ms, with 95 ms
+  landing squash and settle phases. Power-up-specific choreography retains its own
+  authored timing instead of inheriting an unintended extra cascade delay.
+- The seven-row level-clear presentation is now 4,650 ms: a 500 ms charge-in, 450 ms
+  bottom-to-top row cadence, 700 ms tile bursts, and a 750 ms final hold before the
+  result modal. Level 13 measured 4.75 seconds in the scene clock with 2.75 seconds from
+  the first destroyed row to the last on both desktop and mobile.
+- Each destroyed row now receives a synchronized escalating impact cue. The final row
+  adds a stronger impact cue, shake, shockwave, and larger bounded particle burst.
+- `BoardScene` now owns the terminal presentation until completion so routine React
+  snapshot sync or resize work cannot dispose its row audio and VFX mid-sequence.
+
+Red-green verification is complete: both earlier timing sets failed the new unit timing
+contracts and browser row-span assertions. The implementation passes 236/236 Vitest cases,
+92/92 Playwright cases across desktop Chromium and the mobile project, all 100 level
+validations, the production build, `git diff --check`, and a high-severity dependency
+audit with zero vulnerabilities. Manual 1280x720 and 393x852 captures confirm the board
+clears progressively without overlap before the result modal. Peak level-clear resources
+were 132 desktop particles and 110 mobile particles, two simultaneous board-audio slots,
+and all tracked timers, tweens, emitters, particles, and audio returned to zero. Deployment
+for the first pass is complete: app commit `c61ed98` was pushed to
+`origin/codex/gridwatch-presentation-overhaul` and deployed as Cloudflare Worker version
+`53e82193-2bb1-4087-99d6-a1c3b7ac2621`. Public root and SPA deep-link requests serve the
+new `index-B08Ht4Yz.js` bundle. Live desktop and mobile animated-clear smoke checks each
+reported seven ordered row impacts, seven synchronized row cues, the completion event,
+no runtime errors, and zero resources remaining after the modal appeared.
+The slower Level 13 follow-up shipped as app commit `ac8e5af` and Cloudflare Worker
+version `aa392aa0-11fa-4395-8849-d270396c1ab0`; production serves bundle
+`index-Dumx3sC1.js` from both the root and Level 13 SPA deep link. Live Level 13 smoke
+checks measured 4.74 seconds on desktop and 4.80 seconds on mobile, with approximately
+2.8 seconds between the first and last row, seven synchronized row cues, no runtime
+errors, and zero tracked resources remaining at completion.
+
+## 2026-07-17: GridWatch presentation overhaul complete
+
+Tasks 0-18 from `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
+are complete on local branch `codex/gridwatch-presentation-overhaul`. The implementation
+commits run from `7fa1c67 Add project skills guide` through
+`eab2cfc Enforce light ball combo overlay budget`; `d8ecbe7` is the final Task 18
+documentation commit and the application revision deployed on 2026-07-17.
+
+The branch was pushed to `origin/codex/gridwatch-presentation-overhaul`. Production was
+deployed with Wrangler as Worker version `f9699373-caf5-4046-a16f-7621ff0b133d` to
+`https://gridwatchmatchweb.warsignallabs.net` and the workers.dev fallback. Live checks
+passed for the root, SPA deep-link fallback, exact hashed JS/CSS assets, desktop and
+iPhone 15 board rendering, unauthenticated score protection, and unknown API routing.
+
+### Delivered presentation system
+
+- Approved art is Candidate B, the bright tactical die-cast hardware set: five tile
+  images, five board power-up images, and five booster-tray variants. Web-owned files
+  live under `public/assets/images/web-overrides/` and asset sync preserves them.
+- The presentation contract and approval record are in
+  `docs/art/gridwatch-match-presentation-bible.md`. The audio source and license record
+  are in `docs/art/gridwatch-match-audio-provenance.md`.
+- Twenty CC0 Tactical Glass board cues live under `public/assets/audio/web-overrides/`.
+  Board audio is driven from Phaser scene beats, not from the already-resolved engine
+  delta. Normal clears vary pop samples; cascades, creation reveals, all four singles,
+  and all ten combos have authored cues.
+- Normal clears now read as recognition, compression, centroid-staggered impact, and
+  refill landing. Cascades use distance-scaled drops and bounded squash/settle timing.
+- Rocket, TNT, propeller, and light-ball creation and single activation have distinct
+  causal choreography. All ten unordered power-up combinations have bespoke charge,
+  impact, affected-position, and reduced-motion plans.
+- Reduced motion removes travel, particles, shake, and full-screen flashes while
+  preserving immediate final state and a low-gain impact cue. Central resource budgets,
+  deterministic downsampling, and shutdown cleanup bound all transient Phaser objects.
+- The final performance correction applies the authored 12-arc cap to dense Light Ball
+  combo overlays. A 49-cell Light Ball + Light Ball clear now samples 12 evenly spread
+  overlay cells while retaining its board-wide dimmer, charge, impact ring, and clear.
+
+### Final verification
+
+- `npm run test`: 235/235 passed across seven files. This reconciles to the 170-test
+  baseline plus 65 presentation tests, including the final dense-overlay regression.
+- `npm run test:e2e`: 90/90 passed across Chromium and mobile. This reconciles to the
+  36-test baseline plus 54 presentation cases. The known pre-existing
+  `tests/e2e/app.spec.ts:22` race did not occur and required no rerun.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed. The existing non-blocking Vite warning for the Phaser-heavy
+  bundle remaining above 500 kB is unchanged.
+- `npm audit --audit-level=high`: 0 vulnerabilities.
+- `git diff --check`: passed.
+- Base audit from `821728bde9d3c05af7500c4884fb0345a2499f65` found no changes to
+  `src/engine/**`, `public/levels/**`, Worker, auth, Supabase, score APIs, database,
+  leaderboard, wrangler, environment, or validation code. `src/App.tsx` is limited to
+  booster artwork and removal of three early delta-timed board SFX calls.
+- Task 17's warm-preview drag loop passed 20/20 iterations across both Chromium and
+  mobile, for 40/40 successful browser runs with no drag, swap, cascade, or cleanup
+  failure.
+
+### Manual presentation and performance matrix
+
+The warm production preview was exercised with SFX and music enabled and real headed
+browser audio at desktop 1280x720 and iPhone 15 393x852. The matrix covered idle board
+and tray, live valid drag, invalid return, short and long cascades, all four creation
+families, all four singles, all ten combos, animated win, and reduced-motion normal/TNT/
+Light Ball/Light Ball + Light Ball. Fifty-six diagnostic captures were kept outside the
+repo under `/tmp/gridwatch-task18-settled/`; direct canvas captures avoided fixed-header
+stitching artifacts.
+
+The matrix passed causal ordering, tile readability, settled refill, power hierarchy,
+seven-row reachability, reduced-motion flash limits, and cleanup. No destination pop-in,
+ghost trail, hard overshoot, duplicate sprite, board-waiting tail, page overlap, runtime
+console error, emitter leak, or audio pile-up was observed. The approved audio pack was
+exercised in a real browser; scene traces place cue dispatch on the authored impact beat,
+and the asset audit confirms the files are peak-limited to -1.1 dBFS with no clipping.
+
+After the final overlay cap, five fresh headed runs per viewport measured the heaviest
+Light Ball + Light Ball combo at desktop p95 9.1-9.8 ms and iPhone-emulation p95
+9.6-9.8 ms, with no JS long tasks and all FX resources returning to zero. Peak bounded
+resources were 12 emitters, 48 live particles, and at most two active board-audio slots.
+
+Accepted residual risks:
+
+- Software-rendered headless Chromium can report a cold native WebGL task at 97-101 ms;
+  the required real headed-browser gate produced no long tasks in ten fresh runs.
+- The app requests an unconfigured `favicon.ico`, producing a benign 404 in generic
+  browser logging; no Phaser, React, audio, or gameplay console error occurred.
+- Physical-device speaker latency was not measured after deployment; the live browser
+  audio path and scene-timed cue dispatch were verified before release.
 
 ## 2026-07-15: input-freeze bug reported live, root-caused, fixed, deployed
 
@@ -278,8 +564,6 @@ Previously flaky drag-test loop from supervisor verification:
 
 ## Open Priorities
 
-- Playtest the public URL on real mobile touch hardware after the live-drag deploy cache has settled.
-- Continue tuning swap/match timing if the player still perceives the settle/pause/pop sequence as too fast.
 - Keep improving animation feel for cascades, power-up effects, and match pops without changing engine determinism.
 - Add regression coverage for any future row reachability, viewport overlap, or booster-targeting issue.
 - Keep README challenge-ready with a public link, short description, and controls.

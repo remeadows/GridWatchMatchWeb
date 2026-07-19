@@ -2,90 +2,90 @@
   "generatedBy": "scripts/sync-ios-assets.mjs",
   "images": {
     "tiles": {
-      "packet": "assets/images/tiles/tile_packet.png",
-      "firewall": "assets/images/tiles/tile_firewall.png",
-      "key": "assets/images/tiles/tile_key.png",
-      "threat": "assets/images/tiles/tile_threat.png",
-      "zeroDay": "assets/images/tiles/tile_zeroday.png"
+      "packet": "assets/images/web-overrides/tiles/tile_packet.png",
+      "firewall": "assets/images/web-overrides/tiles/tile_firewall.png",
+      "key": "assets/images/web-overrides/tiles/tile_key.png",
+      "threat": "assets/images/web-overrides/tiles/tile_threat.png",
+      "zeroDay": "assets/images/web-overrides/tiles/tile_zeroday.png"
     },
     "powerUps": {
-      "rocketH": "assets/images/powerups/powerup_rocket_h.png",
-      "rocketV": "assets/images/powerups/powerup_rocket_v.png",
-      "propeller": "assets/images/powerups/powerup_propeller.png",
-      "tnt": "assets/images/powerups/powerup_tnt.png",
-      "lightBall": "assets/images/powerups/powerup_lightball.png"
+      "rocketH": "assets/images/web-overrides/powerups/powerup_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/powerups/powerup_rocket_v.png",
+      "propeller": "assets/images/web-overrides/powerups/powerup_propeller.png",
+      "tnt": "assets/images/web-overrides/powerups/powerup_tnt.png",
+      "lightBall": "assets/images/web-overrides/powerups/powerup_lightball.png"
     },
     "boosters": {
-      "rocketH": "assets/images/boosters/booster_rocket_h.png",
-      "rocketV": "assets/images/boosters/booster_rocket_v.png",
-      "propeller": "assets/images/boosters/booster_propeller.png",
-      "tnt": "assets/images/boosters/booster_tnt.png",
-      "lightBall": "assets/images/boosters/booster_lightball.png"
+      "rocketH": "assets/images/web-overrides/boosters/booster_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/boosters/booster_rocket_v.png",
+      "propeller": "assets/images/web-overrides/boosters/booster_propeller.png",
+      "tnt": "assets/images/web-overrides/boosters/booster_tnt.png",
+      "lightBall": "assets/images/web-overrides/boosters/booster_lightball.png"
     },
     "backgrounds": {
       "home": "assets/images/backgrounds/home_background.png",
       "gamePanel": "assets/images/backgrounds/game_panel.png"
     },
     "villains": {
-      "vexis": "assets/images/villains/VEXIS.jpg",
-      "kron": "assets/images/villains/KRON.jpg",
-      "zero": "assets/images/villains/ZERO.jpg",
-      "ax10m": "assets/images/villains/AX10M.jpg",
-      "ax10m2": "assets/images/villains/AX10M2.jpg",
-      "aurora6": "assets/images/villains/AURORA-6.jpg",
+      "vexis": "assets/images/villains/VEXIS.png",
+      "kron": "assets/images/villains/KRON.png",
+      "zero": "assets/images/villains/ZERO.png",
+      "ax10m": "assets/images/villains/AX10M.png",
+      "ax10m2": "assets/images/villains/AX10M2.png",
+      "aurora6": "assets/images/villains/AURORA-6.png",
       "rusty": "assets/images/villains/Rusty.png",
       "tee": "assets/images/villains/Tee_v1.png",
       "tish": "assets/images/villains/Tish3.jpg",
-      "helix": "assets/images/villains/Helix.png"
+      "helix": "assets/images/villains/Helix.jpg"
     },
     "heroes": {
       "rusty": "assets/images/heroes/Rusty.png",
       "tee": "assets/images/heroes/Tee_v1.png",
       "tish": "assets/images/heroes/Tish3.jpg",
-      "helix": "assets/images/heroes/Helix.png"
+      "helix": "assets/images/heroes/Helix.jpg"
     },
     "appIcon": "assets/images/app/AppIcon_1024.png"
   },
   "checksums": {
     "assets/images/tiles/tile_packet.png": {
       "source": "Assets.xcassets/Tiles/tile_packet.imageset/tile_packet.png",
-      "sha256": "33c8066ebfca2d2481202e2a8889aabc22ab7d5106c24f6712d87258ae5e8506"
+      "sha256": "26423201e50c1a8fb4d5ee74a701a9cf07c0d968ce5bfd2bcb20cee37c7d7737"
     },
     "assets/images/tiles/tile_firewall.png": {
       "source": "Assets.xcassets/Tiles/tile_firewall.imageset/tile_firewall.png",
-      "sha256": "5588332d9196ff039a0e6d21209e98a211818c50716328170436a0402adabf44"
+      "sha256": "5dfffa8ba924811569a57969576f10eaccd3c70522311ed38a2694c2871f805e"
     },
     "assets/images/tiles/tile_key.png": {
       "source": "Assets.xcassets/Tiles/tile_key.imageset/tile_key.png",
-      "sha256": "897ecb0bc7718824487519fe51d064606c9f15528e0d5d1653eee1947eecd792"
+      "sha256": "17b153c2de0ff927ec9d168884b9453d75eba0a9a780d1b6d4eb9bb1ad33d238"
     },
     "assets/images/tiles/tile_threat.png": {
       "source": "Assets.xcassets/Tiles/tile_threat.imageset/tile_threat.png",
-      "sha256": "7b7c9634fbd9377d053df4bd05b28af96c4f2c1db85f3fcfe4403ff2f5b44f15"
+      "sha256": "4605114ef3b6bd99fca38ffbd06c2d801a467bccd0b6f6e9679804812b86f515"
     },
     "assets/images/tiles/tile_zeroday.png": {
       "source": "Assets.xcassets/Tiles/tile_zeroday.imageset/tile_zeroday.png",
-      "sha256": "6517f6c74fe02983798ab0ba76e46a4d7b5b25b783aaac014e63a0865797c35e"
+      "sha256": "b31d6d8eed16ff014d3a822fb157a8a38fc7cf86942f0afb48edf882d82016a6"
     },
     "assets/images/powerups/powerup_rocket_h.png": {
       "source": "Assets.xcassets/PowerUps/powerup_rocket_h.imageset/powerup_rocket_h.png",
-      "sha256": "5f3d9c6516d4e1a287d3a03b7730e2551753267ace70fc8004b22cacc4f74603"
+      "sha256": "5ad59c48ae2fe6fd439bae1e6c7189282034190e635304fe1a202ea06ec6f138"
     },
     "assets/images/powerups/powerup_rocket_v.png": {
       "source": "Assets.xcassets/PowerUps/powerup_rocket_v.imageset/powerup_rocket_v.png",
-      "sha256": "a87c557342f546d84e1c15a0f050c89a91495b53a69b356d2b15e88e7e3d51ae"
+      "sha256": "e7db742b94ca12239f202cc9e12359dd0a854242fc7c13e4c94f07c6d4a14786"
     },
     "assets/images/powerups/powerup_propeller.png": {
       "source": "Assets.xcassets/PowerUps/powerup_propeller.imageset/powerup_propeller.png",
-      "sha256": "907e0f81cc1fe70bf888638f9378423c4486411fb1604cf115b90ff2275fa60d"
+      "sha256": "b0ab258271230cd1fffa0a1c39157f8f8a5d30763ccb9236f50aef22b4204e89"
     },
     "assets/images/powerups/powerup_tnt.png": {
       "source": "Assets.xcassets/PowerUps/powerup_tnt.imageset/powerup_tnt.png",
-      "sha256": "fecb7165922cda7be09f7977804a6967f71f60b836ef534d3fbeb4f86a1138e0"
+      "sha256": "57215665b137d311bedb1b277820205a816163b82877a14334476dd54ff245e2"
     },
     "assets/images/powerups/powerup_lightball.png": {
       "source": "Assets.xcassets/PowerUps/powerup_lightball.imageset/powerup_lightball.png",
-      "sha256": "7b0ac9db8a46772bc6e56046a9c18217cc879743d6c4e9586abc2cde313d62e2"
+      "sha256": "cca5d89fd463dd72f03f96bbe501a7437e3369a8e6b206028cb089e41a179d4a"
     },
     "assets/images/boosters/booster_rocket_h.png": {
       "source": "Assets.xcassets/PowerUps/booster_rocket_h.imageset/booster_rocket_h@3x.png",
@@ -119,28 +119,28 @@
       "source": "Assets.xcassets/AppIcon.appiconset/AppIcon_1024.png",
       "sha256": "56a3afd8141b172f7bbf542396b078b9676729d6ee13a18384690ad5fa298d9b"
     },
-    "assets/images/villains/VEXIS.jpg": {
-      "source": "Assets.xcassets/Vexis.imageset/VEXIS.jpg",
+    "assets/images/villains/VEXIS.png": {
+      "source": "Assets.xcassets/Vexis.imageset/VEXIS.png",
       "sha256": "7008b411bc1f52a14d28385bf6fe12bcd13a38bbab68ef0336856c153cd5439c"
     },
-    "assets/images/villains/KRON.jpg": {
-      "source": "Assets.xcassets/Kron.imageset/KRON.jpg",
+    "assets/images/villains/KRON.png": {
+      "source": "Assets.xcassets/Kron.imageset/KRON.png",
       "sha256": "0d5d87807c2ca123d81a08e584eb7552e150b605779333e3c715d4f752ab1d23"
     },
-    "assets/images/villains/ZERO.jpg": {
-      "source": "Assets.xcassets/Zero.imageset/ZERO.jpg",
+    "assets/images/villains/ZERO.png": {
+      "source": "Assets.xcassets/Zero.imageset/ZERO.png",
       "sha256": "a439ca31a4024e9b22048a5de8305c115f6334d9d3eeefe10ca958544d2858bd"
     },
-    "assets/images/villains/AX10M.jpg": {
-      "source": "Assets.xcassets/Ax10m.imageset/AX10M.jpg",
+    "assets/images/villains/AX10M.png": {
+      "source": "Assets.xcassets/Ax10m.imageset/AX10M.png",
       "sha256": "9fa7bbd2ec30d2c776567c200856dbb5d0b393df224fd02a44b4dffcf9d85d33"
     },
-    "assets/images/villains/AX10M2.jpg": {
-      "source": "Assets.xcassets/Ax10m2.imageset/AX10M2.jpg",
+    "assets/images/villains/AX10M2.png": {
+      "source": "Assets.xcassets/Ax10m2.imageset/AX10M2.png",
       "sha256": "e809418e2a38e2d3d396ca7f82ce11910fdcb82cca7bf804da67ccf54e83c68f"
     },
-    "assets/images/villains/AURORA-6.jpg": {
-      "source": "Assets.xcassets/area6_villain.imageset/AURORA-6.jpg",
+    "assets/images/villains/AURORA-6.png": {
+      "source": "Assets.xcassets/area6_villain.imageset/AURORA-6.png",
       "sha256": "f57f3ce2a5d1d074c4e329b4b9c4efe23c646ad5529e231f9bcc05600eb4fc12"
     },
     "assets/images/villains/Rusty.png": {
@@ -155,8 +155,8 @@
       "source": "Assets.xcassets/Tish.imageset/Tish3.jpg",
       "sha256": "7b77562e60ef5c3c921c944edc492f4f9a106e4624aa7c720f034ec60a5da56f"
     },
-    "assets/images/villains/Helix.png": {
-      "source": "Assets.xcassets/Helix.imageset/Helix.png",
+    "assets/images/villains/Helix.jpg": {
+      "source": "Assets.xcassets/Helix.imageset/Helix.jpg",
       "sha256": "193e826cad9b26290fecad7aa6a8e64b0e2d72360fa09fc10a02ac775de71ab7"
     },
     "assets/images/heroes/Rusty.png": {
@@ -171,8 +171,8 @@
       "source": "Assets.xcassets/Tish.imageset/Tish3.jpg",
       "sha256": "7b77562e60ef5c3c921c944edc492f4f9a106e4624aa7c720f034ec60a5da56f"
     },
-    "assets/images/heroes/Helix.png": {
-      "source": "Assets.xcassets/Helix.imageset/Helix.png",
+    "assets/images/heroes/Helix.jpg": {
+      "source": "Assets.xcassets/Helix.imageset/Helix.jpg",
       "sha256": "193e826cad9b26290fecad7aa6a8e64b0e2d72360fa09fc10a02ac775de71ab7"
     }
   }

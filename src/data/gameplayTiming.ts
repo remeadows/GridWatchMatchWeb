@@ -4,5 +4,7 @@
 // failures (which never increment) pay the full wait.
 export const GAMEPLAY_POLL_TIMEOUT_MS: number = 5_000;
 export const BOARD_READY_TIMEOUT_MS: number = 5_000;
-export const WIN_ROW_DESTRUCTION_STAGGER_MS: number = 90;
-export const WIN_ROW_DESTRUCTION_POP_MS: number = 260;
+export const WIN_SEQUENCE_LEAD_IN_MS: number = 150;
+export const WIN_ROW_DESTRUCTION_STAGGER_MS: number = 300;
+export const WIN_ROW_DESTRUCTION_POP_MS: number = 250;
+export const WIN_SEQUENCE_FINAL_HOLD_MS: number = 300;

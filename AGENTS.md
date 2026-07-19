@@ -4,7 +4,7 @@ GridWatch Match Web is the browser port of the iOS GridWatchMatch game.
 
 Challenge context is recorded in `CHALLENGE_CONTEXT.md`. Treat "public link, immediately playable" as a release requirement for this repo.
 
-Read `MEMORY.md` and `HANDOFF.md` before making changes. `MEMORY.md` holds durable project facts and user preferences; `HANDOFF.md` holds the latest implementation state, verification, and next work.
+Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.md` summarizes the project capabilities and guardrails; `MEMORY.md` holds durable project facts and user preferences; `HANDOFF.md` holds the latest implementation state, verification, and next work.
 
 ## Stack
 

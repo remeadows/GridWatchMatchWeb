@@ -3,47 +3,47 @@
 export const assetManifest = {
   "images": {
     "tiles": {
-      "packet": "assets/images/tiles/tile_packet.png",
-      "firewall": "assets/images/tiles/tile_firewall.png",
-      "key": "assets/images/tiles/tile_key.png",
-      "threat": "assets/images/tiles/tile_threat.png",
-      "zeroDay": "assets/images/tiles/tile_zeroday.png"
+      "packet": "assets/images/web-overrides/tiles/tile_packet.png",
+      "firewall": "assets/images/web-overrides/tiles/tile_firewall.png",
+      "key": "assets/images/web-overrides/tiles/tile_key.png",
+      "threat": "assets/images/web-overrides/tiles/tile_threat.png",
+      "zeroDay": "assets/images/web-overrides/tiles/tile_zeroday.png"
     },
     "powerUps": {
-      "rocketH": "assets/images/powerups/powerup_rocket_h.png",
-      "rocketV": "assets/images/powerups/powerup_rocket_v.png",
-      "propeller": "assets/images/powerups/powerup_propeller.png",
-      "tnt": "assets/images/powerups/powerup_tnt.png",
-      "lightBall": "assets/images/powerups/powerup_lightball.png"
+      "rocketH": "assets/images/web-overrides/powerups/powerup_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/powerups/powerup_rocket_v.png",
+      "propeller": "assets/images/web-overrides/powerups/powerup_propeller.png",
+      "tnt": "assets/images/web-overrides/powerups/powerup_tnt.png",
+      "lightBall": "assets/images/web-overrides/powerups/powerup_lightball.png"
     },
     "boosters": {
-      "rocketH": "assets/images/boosters/booster_rocket_h.png",
-      "rocketV": "assets/images/boosters/booster_rocket_v.png",
-      "propeller": "assets/images/boosters/booster_propeller.png",
-      "tnt": "assets/images/boosters/booster_tnt.png",
-      "lightBall": "assets/images/boosters/booster_lightball.png"
+      "rocketH": "assets/images/web-overrides/boosters/booster_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/boosters/booster_rocket_v.png",
+      "propeller": "assets/images/web-overrides/boosters/booster_propeller.png",
+      "tnt": "assets/images/web-overrides/boosters/booster_tnt.png",
+      "lightBall": "assets/images/web-overrides/boosters/booster_lightball.png"
     },
     "backgrounds": {
       "home": "assets/images/backgrounds/home_background.png",
       "gamePanel": "assets/images/backgrounds/game_panel.png"
     },
     "villains": {
-      "vexis": "assets/images/villains/VEXIS.jpg",
-      "kron": "assets/images/villains/KRON.jpg",
-      "zero": "assets/images/villains/ZERO.jpg",
-      "ax10m": "assets/images/villains/AX10M.jpg",
-      "ax10m2": "assets/images/villains/AX10M2.jpg",
-      "aurora6": "assets/images/villains/AURORA-6.jpg",
+      "vexis": "assets/images/villains/VEXIS.png",
+      "kron": "assets/images/villains/KRON.png",
+      "zero": "assets/images/villains/ZERO.png",
+      "ax10m": "assets/images/villains/AX10M.png",
+      "ax10m2": "assets/images/villains/AX10M2.png",
+      "aurora6": "assets/images/villains/AURORA-6.png",
       "rusty": "assets/images/villains/Rusty.png",
       "tee": "assets/images/villains/Tee_v1.png",
       "tish": "assets/images/villains/Tish3.jpg",
-      "helix": "assets/images/villains/Helix.png"
+      "helix": "assets/images/villains/Helix.jpg"
     },
     "heroes": {
       "rusty": "assets/images/heroes/Rusty.png",
       "tee": "assets/images/heroes/Tee_v1.png",
       "tish": "assets/images/heroes/Tish3.jpg",
-      "helix": "assets/images/heroes/Helix.png"
+      "helix": "assets/images/heroes/Helix.jpg"
     },
     "appIcon": "assets/images/app/AppIcon_1024.png"
   }
