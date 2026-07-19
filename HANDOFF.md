@@ -2,12 +2,15 @@
 
 Last updated: 2026-07-19
 
-## 2026-07-19: Locked-cell containment treatment accepted locally
+## 2026-07-19: Locked-cell containment and match pacing deployed
 
 Level 7's two design-locked tiles previously differed from normal cells only through a
-darker background, which made them look incorrectly rendered. The local build now keeps
+darker background, which made them look incorrectly rendered. The game now keeps
 their tile art at normal readability and identifies each locked cell with an amber
 containment frame, reinforced corner clamps, and a high-contrast padlock badge.
+The approved renderer and pacing release shipped from app commit `e4590d7` as
+Cloudflare Worker version `9571cfdb-00d8-4afa-a2ff-61074046aff9`; production serves
+`assets/index-DTqt8yiP.js`.
 
 - The treatment is renderer-only and keyed to the existing `debugDesignLocked` state.
   Match rules, unlock behavior, level JSON, engine determinism, and input are unchanged.
@@ -27,17 +30,18 @@ Verification:
 - `npm audit --audit-level=high`: zero vulnerabilities.
 - Manual Level 7 board captures at 1280x900 and iPhone 15 size show readable orange and
   magenta tile identities, explicit lock silhouettes, no overlap, and no board overflow.
-- Russ approved the locked-cell appearance after testing Level 7 locally. The change
-  remains undeployed only so it can ship together with the pending ordinary-match
-  pacing decision.
+- Russ approved the locked-cell appearance after testing Level 7 locally.
+- Public root, SPA deep-link, exact hashed asset, and workers.dev propagation checks
+  passed after deployment.
+- Live production desktop and mobile checks each rendered exactly two Level 7 lock
+  markers, loaded the new bundle, and reported zero runtime errors.
 
-## 2026-07-18: Ordinary match pacing candidate accepted locally
+## 2026-07-18: Ordinary match pacing deployed
 
 Russ approved the ordinary match pacing after playing the local build. It changes
 presentation timing only; engine outcomes, cascade fall duration, authored power-up
 choreography, and the accepted 2,500 ms terminal clear are unchanged. The approved
-pacing and locked-cell treatment are pushed together but remain undeployed pending the
-next production release step.
+pacing and locked-cell treatment shipped together in the 2026-07-19 production release.
 
 - Swap travel is 175 ms with a 60 ms settle, up from 160/50 ms.
 - The settled-match recognition hold is 140 ms, up from 100 ms.
@@ -62,6 +66,9 @@ Verification:
   desktop/mobile test instances with no input race.
 - Manual 1280x720 and 393x852 inspection showed ordered settle, recognition, pop,
   cascade, and refill with no ghost trails, overlap, or horizontal overflow.
+- Live production desktop and mobile traces both measured 240 ms from swap settle to
+  match impact, 230 ms from impact to cascade, and 1,100 ms from action receipt through
+  resolution completion.
 
 ## 2026-07-18: Power-up completion and cascade-integrity follow-up deployed
 
@@ -536,7 +543,6 @@ Previously flaky drag-test loop from supervisor verification:
 
 ## Open Priorities
 
-- Deploy the approved ordinary-match pacing and locked-cell containment release.
 - Keep improving animation feel for cascades, power-up effects, and match pops without changing engine determinism.
 - Add regression coverage for any future row reachability, viewport overlap, or booster-targeting issue.
 - Keep README challenge-ready with a public link, short description, and controls.
