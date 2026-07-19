@@ -23,6 +23,7 @@ export const TNT_CASCADE_AFTER_DETONATION_MS = 170;
 export const TNT_SEQUENCE_BUDGET_MS = 800;
 export const ROCKET_IGNITION_MS = 75;
 export const ROCKET_LANE_FLIGHT_MS = 360;
+export const ROCKET_EFFECT_TAIL_MS = 280;
 export const ROCKET_TRAIL_LIFESPAN_MS = 180;
 export const ROCKET_TRAIL_CLEANUP_MS = 80;
 export const ROCKET_EDGE_BURST_LIFESPAN_MS = 190;
@@ -37,6 +38,8 @@ export const LIGHTBALL_DIM_MS = 120;
 export const LIGHTBALL_CHARGE_MS = 120;
 export const LIGHTBALL_WAVE_STAGGER_MS = 100;
 export const LIGHTBALL_RELEASE_DELAY_MS = 120;
+export const LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT = 4;
+export const LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT = 2;
 export const COMBO_CHOREOGRAPHY_TIMING = {
   "rocket+rocket": { chargeMs: 220, impactMs: 500, cascadeMs: 900, batchCount: 4 },
   "propeller+rocket": { chargeMs: 240, impactMs: 650, cascadeMs: 1_050, batchCount: 3 },
@@ -53,6 +56,7 @@ export const COMBO_BATCH_PARTICLE_CAP = 120;
 export const COMBO_ARC_CAP = 16;
 export const COMBO_PROJECTILE_CAP = 12;
 export const COMBO_CHOREOGRAPHY_MAX_MS = 1_150;
+export const COMBO_BATCH_TAIL_MS = 150;
 export const POWERUP_CASCADE_HOLD_MS = 200;
 export const MATCH_WAVE_PER_GRID_MS = 35;
 export const MATCH_WAVE_MAX_MS = 150;

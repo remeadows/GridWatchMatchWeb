@@ -132,12 +132,12 @@ export class AudioService {
     this.playBoardCue("cascadeLand", { gain: 0.34 });
   }
 
-  playChain(depth: number): void {
-    this.playBoardCue("chainRise", { gain: 0.48, playbackRate: chainPlaybackRate(depth) });
+  playChain(depth: number): boolean {
+    return this.playBoardCue("chainRise", { gain: 0.48, playbackRate: chainPlaybackRate(depth) });
   }
 
-  playBoardCue(key: PresentationAudioKey, overrides: Partial<BoardAudioPlayback> = {}): void {
-    if (!this.settings?.sfxEnabled) return;
+  playBoardCue(key: PresentationAudioKey, overrides: Partial<BoardAudioPlayback> = {}): boolean {
+    if (!this.settings?.sfxEnabled) return false;
     const playback: BoardAudioPlayback = {
       gain: overrides.gain ?? boardCueGain(key),
       playbackRate: overrides.playbackRate ?? 1
@@ -146,7 +146,7 @@ export class AudioService {
     const backend = this.resolveBoardBackend();
     if (!backend) {
       this.playFallback(url, playback.gain);
-      return;
+      return true;
     }
 
     this.dropSourceForCapacity();
@@ -156,10 +156,11 @@ export class AudioService {
     });
     if (!source) {
       this.playFallback(url, playback.gain);
-      return;
+      return true;
     }
     active = { source, gain: playback.gain, order: this.boardSourceOrder++ };
     this.activeBoardSources.push(active);
+    return true;
   }
 
   vibrate(pattern: number | number[]): void {

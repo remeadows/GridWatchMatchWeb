@@ -155,7 +155,8 @@ test.describe("normal presentation timeline", () => {
 
     const trace = await presentationTrace(page);
     const complete = traceEntry(trace, "resolution-complete");
-    expect(trace.map((entry) => entry.kind)).toEqual(["action-received", "resolution-complete"]);
+    expect(trace.map((entry) => entry.kind)).toEqual(["action-received", "audio-cue", "resolution-complete"]);
+    expect(traceEntry(trace, "audio-cue").detail).toBe("tileClusterBody");
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(180);
   });
 });
@@ -573,6 +574,34 @@ test.describe("audio cue ordering", () => {
     expect(tileImpactCues.length).toBeGreaterThan(1);
     expect(tileImpactCues.every((entry) => tileImpactTimes.has(entry.atMs))).toBe(true);
     expect(landingCue?.atMs).toBe(landing.atMs);
+  });
+
+  test("cues cascade chain escalation when the next cascade starts", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=6");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await dragBoardCells(page, { row: 0, col: 5 }, { row: 0, col: 6 });
+    await page.waitForFunction(() => (
+      (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+        ?.some((entry) => entry.kind === "resolution-complete") ?? false
+    ));
+    const firstSequenceId = (await presentationTrace(page)).at(-1)?.sequenceId;
+
+    await dragBoardCells(page, { row: 3, col: 5 }, { row: 3, col: 6 });
+    await page.waitForFunction((previousSequenceId) => (
+      (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+        ?.some((entry) => entry.kind === "resolution-complete" && entry.sequenceId !== previousSequenceId) ?? false
+    ), firstSequenceId);
+
+    const trace = await presentationTrace(page);
+    const sequenceId = trace.at(-1)?.sequenceId;
+    const cascadeTrace = trace.filter((entry) => entry.sequenceId === sequenceId);
+    const cascadeStart = traceEntry(cascadeTrace, "cascade-start");
+    const chainCue = cascadeTrace.find((entry) => entry.kind === "audio-cue" && entry.detail === "chainRise");
+
+    expect(chainCue).toBeDefined();
+    expect(chainCue?.atMs).toBe(cascadeStart.atMs);
   });
 });
 

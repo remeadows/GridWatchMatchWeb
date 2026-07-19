@@ -10,6 +10,7 @@ import {
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
   CHAIN_PLAYBACK_RATE_STEP,
   COMBO_ARC_CAP,
+  COMBO_BATCH_TAIL_MS,
   COMBO_BATCH_PARTICLE_CAP,
   COMBO_CHOREOGRAPHY_TIMING,
   COMBO_PROJECTILE_CAP,
@@ -19,6 +20,8 @@ import {
   MATCH_WAVE_MAX_MS,
   POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
+  LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT,
+  LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT,
   LIGHTBALL_RELEASE_DELAY_MS,
   LIGHTBALL_WAVE_CONCURRENCY_CAP,
   LIGHTBALL_WAVE_COUNT,
@@ -29,6 +32,7 @@ import {
   PROPELLER_SECONDARY_STAGGER_MS,
   PROPELLER_SEQUENCE_BUDGET_MS,
   ROCKET_IGNITION_MS,
+  ROCKET_EFFECT_TAIL_MS,
   ROCKET_LANE_FLIGHT_MS,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
@@ -290,10 +294,9 @@ export function groupPowerUpEvents(events: ReadonlyArray<PowerUpEvent>): PowerUp
 }
 
 function comboKeyForEvent(event: PowerUpEvent): CanonicalComboKey {
-  const key = event.trigger.kind === "combo"
-    ? canonicalComboKey(event.powerUpType, event.trigger.with)
-    : null;
-  if (key !== "tnt+tnt") return key!;
+  if (event.trigger.kind !== "combo") throw new Error("comboKeyForEvent requires a combo event");
+  const key = canonicalComboKey(event.powerUpType, event.trigger.with);
+  if (key !== "tnt+tnt") return key;
   const hasDistantEndpoint = event.affectedPositions.some((position) => (
     Math.max(Math.abs(position.row - event.origin.row), Math.abs(position.col - event.origin.col)) > 2
   ));
@@ -420,13 +423,14 @@ export function rocketLanePlan(
           atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * step / Math.max(1, distance))
         };
       });
-      const destination = passTimes.at(-1)!.position;
+      const finalPass = passTimes.at(-1);
+      if (!finalPass) throw new Error("Rocket lane plan requires at least one pass");
 
       return {
-        destination,
+        destination: finalPass.position,
         direction,
         flightMs: ROCKET_LANE_FLIGHT_MS,
-        impactAtMs: passTimes.at(-1)!.atMs,
+        impactAtMs: finalPass.atMs,
         passTimes
       };
     })
@@ -554,9 +558,12 @@ function isPresentationComboKey(effect: PresentationEffectKey): effect is Canoni
 
 function singleEffectDurationMs(effect: SinglePowerUpEffectKey): number {
   if (effect === "tnt") return TNT_SEQUENCE_BUDGET_MS + POWERUP_CASCADE_HOLD_MS;
-  if (effect === "rocket") return ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS + 280 + POWERUP_CASCADE_HOLD_MS;
+  if (effect === "rocket") return ROCKET_IGNITION_MS + ROCKET_LANE_FLIGHT_MS + ROCKET_EFFECT_TAIL_MS + POWERUP_CASCADE_HOLD_MS;
   if (effect === "propeller") return PROPELLER_SEQUENCE_BUDGET_MS + POWERUP_CASCADE_HOLD_MS;
-  return LIGHTBALL_CHARGE_MS + LIGHTBALL_WAVE_STAGGER_MS * 4 + LIGHTBALL_RELEASE_DELAY_MS * 2 + POWERUP_CASCADE_HOLD_MS;
+  return LIGHTBALL_CHARGE_MS
+    + LIGHTBALL_WAVE_STAGGER_MS * LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT
+    + LIGHTBALL_RELEASE_DELAY_MS * LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT
+    + POWERUP_CASCADE_HOLD_MS;
 }
 
 function comboVisualKind(key: CanonicalComboKey): ComboVisualKind {
@@ -620,7 +627,7 @@ function spatialComboBatches(
     return stableHash(`${seed}|${left.row},${left.col}`) - stableHash(`${seed}|${right.row},${right.col}`);
   });
   const batches = Array.from({ length: count }, (_, index) => ({
-    atMs: impactAtMs + Math.round((cascadeAtMs - impactAtMs - 150) * index / Math.max(1, count - 1)),
+    atMs: impactAtMs + Math.round((cascadeAtMs - impactAtMs - COMBO_BATCH_TAIL_MS) * index / Math.max(1, count - 1)),
     kind,
     affectedPositions: [] as GridPosition[]
   }));

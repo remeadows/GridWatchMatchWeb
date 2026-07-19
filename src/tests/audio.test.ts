@@ -138,9 +138,9 @@ describe("board audio service", () => {
     const { service } = createService(backend);
 
     service.configure({ ...enabledSettings, voiceEnabled: false });
-    service.playBoardCue("tntArm");
+    expect(service.playBoardCue("tntArm")).toBe(true);
     service.configure({ ...enabledSettings, sfxEnabled: false });
-    service.playBoardCue("tntBlast");
+    expect(service.playBoardCue("tntBlast")).toBe(false);
 
     expect(backend.plays.map((entry) => entry.url)).toEqual([presentationAudioUrl("tntArm")]);
   });

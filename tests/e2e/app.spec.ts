@@ -63,7 +63,8 @@ test("level 6 cascades preserve surviving tile sprites across automatic matches"
   await dragBoardCells(page, { row: 0, col: 5 }, { row: 0, col: 6 });
   const firstSequenceId = await waitForResolutionComplete(page);
   await dragBoardCells(page, { row: 3, col: 5 }, { row: 3, col: 6 });
-  await waitForResolutionComplete(page, firstSequenceId);
+  const secondSequenceId = await waitForResolutionComplete(page, firstSequenceId);
+  expect(secondSequenceId).toBeGreaterThan(firstSequenceId);
 
   const audit = await page.evaluate(() => (
     (window as Window & {
@@ -423,10 +424,10 @@ async function waitForResolutionComplete(page: Page, afterSequenceId = 0): Promi
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
       ?.some((entry) => entry.kind === "resolution-complete" && entry.sequenceId > minimumSequenceId) ?? false
   ), afterSequenceId, { timeout: GAMEPLAY_POLL_TIMEOUT_MS });
-  return page.evaluate(() => (
+  return page.evaluate((minimumSequenceId) => (
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
-      ?.find((entry) => entry.kind === "resolution-complete")?.sequenceId ?? 0
-  ));
+      ?.find((entry) => entry.kind === "resolution-complete" && entry.sequenceId > minimumSequenceId)?.sequenceId ?? 0
+  ), afterSequenceId);
 }
 
 async function clickBoardPoint(page: Page, point: { x: number; y: number }): Promise<void> {

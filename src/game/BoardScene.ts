@@ -538,12 +538,17 @@ export class BoardScene extends Phaser.Scene {
 
   private cueBoardAudio(key: PresentationAudioKey, playback?: Partial<BoardAudioPlayback>): void {
     if (!this.vfxCleanup.allocateAudio(this)) return;
-    audioService.playBoardCue(key, playback);
+    if (!audioService.playBoardCue(key, playback)) return;
     this.recordPresentation("audio-cue", key);
   }
 
   private cueReducedMotionAudio(key: PresentationAudioKey): void {
-    audioService.playBoardCue(key, { gain: 0.28 });
+    if (audioService.playBoardCue(key, { gain: 0.28 })) this.recordPresentation("audio-cue", key);
+  }
+
+  private cueChainAudio(depth: number, reducedMotion = false): void {
+    if (depth <= 1 || (!reducedMotion && !this.vfxCleanup.allocateAudio(this))) return;
+    if (audioService.playChain(depth)) this.recordPresentation("audio-cue", "chainRise");
   }
 
   private presentationViewportProfile(): "desktop" | "mobile" {
@@ -823,6 +828,9 @@ export class BoardScene extends Phaser.Scene {
     this.activeResolvedSnapshot = nextSnapshot;
 
     if (this.reducedMotion) {
+      if (animation.delta.powerUpEvents.length > 0) this.playPowerUpEffects(animation.delta);
+      else if (animation.delta.clears.length > 0) this.cueReducedMotionAudio("tileClusterBody");
+      this.cueChainAudio(animation.delta.chainDepth, true);
       this.hardClearDrag();
       this.snapshot = nextSnapshot;
       this.renderSnapshot();
@@ -1467,7 +1475,8 @@ export class BoardScene extends Phaser.Scene {
     batchIndex: number,
     center: { x: number; y: number }
   ): void {
-    if (!this.fxLayer) return;
+    const layer = this.fxLayer;
+    if (!layer) return;
     const tint = comboTint(plan.key);
     const particlePerBurst = Math.max(2, Math.floor(plan.particleCount / Math.max(1, plan.batches.length * COMBO_BATCH_BURST_CAP)));
     batch.affectedPositions.forEach((position, index) => {
@@ -1476,7 +1485,7 @@ export class BoardScene extends Phaser.Scene {
       core.setTint(tint);
       core.setBlendMode(Phaser.BlendModes.ADD);
       core.setScale(Math.max(0.34, this.tileSize / 110));
-      this.fxLayer!.add(core);
+      layer.add(core);
       this.vfxCleanup.trackObject(core);
       this.vfxCleanup.trackTween(this.tweens.add({
         targets: core,
@@ -1488,7 +1497,7 @@ export class BoardScene extends Phaser.Scene {
         onComplete: () => core.destroy()
       }));
       if (index < COMBO_BATCH_BURST_CAP) {
-        burst(this, this.fxLayer!, target.x, target.y, {
+        burst(this, layer, target.x, target.y, {
           texture: batch.kind === "blast" ? vfxTextureKeys.shard : vfxTextureKeys.spark,
           count: particlePerBurst,
           speed: this.tileSize * 1.8,
@@ -1501,7 +1510,7 @@ export class BoardScene extends Phaser.Scene {
 
     const representative = batch.affectedPositions.slice(0, batch.kind === "drone-strike" ? 2 : 3);
     if (batch.kind === "lane-pass" || batch.kind === "conversion") {
-      representative.forEach((position) => laneBlast(this, this.fxLayer!, center, this.cellCenter(position), {
+      representative.forEach((position) => laneBlast(this, layer, center, this.cellCenter(position), {
         durationMs: 170,
         scale: Math.max(0.34, this.tileSize / 130),
         tint
@@ -1509,7 +1518,7 @@ export class BoardScene extends Phaser.Scene {
     } else if (batch.kind === "blast") {
       representative.slice(0, 2).forEach((position) => {
         const target = this.cellCenter(position);
-        shockwave(this, this.fxLayer!, target.x, target.y, {
+        shockwave(this, layer, target.x, target.y, {
           radiusPx: this.tileSize * (plan.key === "tnt+tnt" ? 0.82 : 0.62),
           durationMs: 210,
           tint
@@ -1518,7 +1527,7 @@ export class BoardScene extends Phaser.Scene {
     } else if (batch.kind === "drone-strike") {
       representative.forEach((position, index) => {
         const target = this.cellCenter(position);
-        laneBlast(this, this.fxLayer!, {
+        laneBlast(this, layer, {
           x: target.x + (index === 0 ? -1 : 1) * this.tileSize * 0.6,
           y: target.y - this.tileSize * 0.8
         }, target, { durationMs: 150, scale: 0.38, tint }, this.vfxCleanup);
@@ -1833,6 +1842,7 @@ export class BoardScene extends Phaser.Scene {
 
     const plannedCascadeLeadMs = hasSequencedPowerUp(delta) ? 0 : CASCADE_START_AFTER_IMPACT_MS;
     this.recordPresentation("cascade-start", "occupants-unique", plannedCascadeLeadMs);
+    this.cueChainAudio(delta.chainDepth);
 
     this.snapshot = postClearSnapshot;
     // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty

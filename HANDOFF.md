@@ -2,6 +2,27 @@
 
 Last updated: 2026-07-19
 
+## 2026-07-19: Main-integration review corrections awaiting deployment
+
+PR #29 integrates `codex/gridwatch-presentation-overhaul` into `main`. Automated
+review identified and the branch now fixes two board-audio gaps: reduced-motion
+resolutions retain one low-gain impact cue, and multi-stage cascades emit the authored
+`chainRise` cue at cascade start. Review cleanup also centralizes existing timing
+values, removes unsafe non-null assertions from the reviewed paths, and fixes the
+Playwright resolution helper so repeated actions return the newly completed sequence.
+
+- Engine outcomes, level data, Worker APIs, authentication, scores, leaderboards,
+  Supabase, and database behavior are unchanged.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 100/100 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning; the
+  reviewed local build is `assets/index-CkuvoXQS.js`.
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- These post-deployment review corrections are not deployed yet. Production remains on
+  Cloudflare Worker version `9571cfdb-00d8-4afa-a2ff-61074046aff9`, serving
+  `assets/index-DTqt8yiP.js`, until a separate deployment is explicitly authorized.
+
 ## 2026-07-19: Locked-cell containment and match pacing deployed
 
 Level 7's two design-locked tiles previously differed from normal cells only through a
