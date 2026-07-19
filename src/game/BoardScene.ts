@@ -159,7 +159,10 @@ const boardChrome = {
   movableStroke: 0x5aa3c8,
   movableStrokeAlpha: 0.4,
   blockedStroke: 0x556877,
-  blockedStrokeAlpha: 0.65
+  blockedStrokeAlpha: 0.65,
+  lockedFrame: 0xffc94a,
+  lockedFrameHighlight: 0xfff0a3,
+  lockedBadgeFill: 0x071018
 } as const;
 
 const powerUpImageKeys = {
@@ -582,6 +585,7 @@ export class BoardScene extends Phaser.Scene {
     if (!this.layer || !this.snapshot) return;
     this.layer.removeAll(true);
     this.occupantNodes.clear();
+    this.clearLockedCellVisuals();
     if (clearFx) this.fxLayer?.removeAll(true);
     this.updateGeometry();
 
@@ -605,14 +609,23 @@ export class BoardScene extends Phaser.Scene {
     const positionId = positionKey(position);
     const topLeft = this.cellTopLeft(position);
     const radius = Math.max(6, this.tileSize * 0.1);
-    const cellFill = cell.generator ? boardChrome.generatorCell : cell.isMovable ? boardChrome.movableCell : boardChrome.blockedCell;
+    const isDesignLocked = cell.debugDesignLocked && !cell.generator;
+    const cellFill = cell.generator
+      ? boardChrome.generatorCell
+      : cell.isMovable || isDesignLocked
+        ? boardChrome.movableCell
+        : boardChrome.blockedCell;
     const cellAlpha = cell.generator
       ? boardChrome.generatorCellAlpha
-      : cell.isMovable
+      : cell.isMovable || isDesignLocked
         ? boardChrome.movableCellAlpha
         : boardChrome.blockedCellAlpha;
-    const cellStroke = cell.isMovable ? boardChrome.movableStroke : boardChrome.blockedStroke;
-    const cellStrokeAlpha = cell.isMovable ? boardChrome.movableStrokeAlpha : boardChrome.blockedStrokeAlpha;
+    const cellStroke = isDesignLocked
+      ? boardChrome.lockedFrame
+      : cell.isMovable
+        ? boardChrome.movableStroke
+        : boardChrome.blockedStroke;
+    const cellStrokeAlpha = isDesignLocked ? 0.85 : cell.isMovable ? boardChrome.movableStrokeAlpha : boardChrome.blockedStrokeAlpha;
 
     const graphics = this.add.graphics();
     graphics.fillStyle(cellFill, cellAlpha);
@@ -647,6 +660,82 @@ export class BoardScene extends Phaser.Scene {
     if (cell.underlay) {
       this.addLabel(String(cell.underlay.hp), topLeft.x + 16, topLeft.y + this.tileSize - 16, "#ff9ab4", Math.floor(this.tileSize * 0.2), this.layer);
     }
+
+    if (isDesignLocked) this.renderLockedCellHardware(position, topLeft, radius);
+  }
+
+  private renderLockedCellHardware(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
+    if (!this.layer) return;
+    const hardware = this.add.graphics();
+    const inset = Math.max(4, this.tileSize * 0.07);
+    const frameSize = this.tileSize - inset * 2;
+    const frameWidth = Math.max(2, this.tileSize * 0.035);
+    const cornerLength = Math.max(8, this.tileSize * 0.17);
+    const left = topLeft.x + inset;
+    const top = topLeft.y + inset;
+    const right = left + frameSize;
+    const bottom = top + frameSize;
+
+    hardware.lineStyle(frameWidth, boardChrome.lockedFrame, 0.96);
+    hardware.strokeRoundedRect(left, top, frameSize, frameSize, Math.max(5, radius * 0.8));
+
+    // Bright corner clamps and a padlock silhouette make the state readable
+    // without relying on a darker cell color or obscuring the tile artwork.
+    hardware.lineStyle(frameWidth + 1, boardChrome.lockedFrameHighlight, 0.98);
+    const clamp = (x: number, y: number, horizontalDirection: number, verticalDirection: number) => {
+      hardware.beginPath();
+      hardware.moveTo(x + horizontalDirection * cornerLength, y);
+      hardware.lineTo(x, y);
+      hardware.lineTo(x, y + verticalDirection * cornerLength);
+      hardware.strokePath();
+    };
+    clamp(left, top, 1, 1);
+    clamp(right, top, -1, 1);
+    clamp(left, bottom, 1, -1);
+    clamp(right, bottom, -1, -1);
+
+    const badgeRadius = Math.max(8, this.tileSize * 0.17);
+    const badgeX = right - badgeRadius * 0.72;
+    const badgeY = top + badgeRadius * 0.72;
+    hardware.fillStyle(boardChrome.lockedBadgeFill, 0.94);
+    hardware.fillCircle(badgeX, badgeY, badgeRadius);
+    hardware.lineStyle(Math.max(2, frameWidth), boardChrome.lockedFrameHighlight, 1);
+    hardware.strokeCircle(badgeX, badgeY, badgeRadius);
+
+    const bodyWidth = badgeRadius * 1.08;
+    const bodyHeight = badgeRadius * 0.78;
+    const bodyTop = badgeY - badgeRadius * 0.02;
+    hardware.beginPath();
+    hardware.arc(badgeX, bodyTop, badgeRadius * 0.36, Math.PI, Math.PI * 2, false);
+    hardware.strokePath();
+    hardware.fillStyle(boardChrome.lockedFrame, 1);
+    hardware.fillRoundedRect(badgeX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight, Math.max(2, bodyHeight * 0.18));
+    hardware.fillStyle(boardChrome.lockedBadgeFill, 1);
+    hardware.fillCircle(badgeX, bodyTop + bodyHeight * 0.42, Math.max(1.5, badgeRadius * 0.11));
+    hardware.fillRect(
+      badgeX - Math.max(1, badgeRadius * 0.055),
+      bodyTop + bodyHeight * 0.42,
+      Math.max(2, badgeRadius * 0.11),
+      bodyHeight * 0.27
+    );
+
+    this.layer.add(hardware);
+    this.recordLockedCellVisual(position);
+  }
+
+  private clearLockedCellVisuals(): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }> };
+    target.__gwLockedCellVisuals = [];
+  }
+
+  private recordLockedCellVisual(position: GridPosition): void {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
+    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }> };
+    target.__gwLockedCellVisuals ??= [];
+    target.__gwLockedCellVisuals.push({ row: position.row, col: position.col, kind: "containment-lock" });
   }
 
   activateBoosterAtClientPoint(booster: BoosterType, clientX: number, clientY: number): boolean {
@@ -2660,6 +2749,7 @@ export class BoardScene extends Phaser.Scene {
       this.setBoardReadyFlag(false);
       this.clearDragWatchdog();
       this.clearPresentationTrace();
+      this.clearLockedCellVisuals();
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);

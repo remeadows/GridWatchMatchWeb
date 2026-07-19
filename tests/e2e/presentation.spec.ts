@@ -68,6 +68,25 @@ test.describe("piece rendering and board scale", () => {
   });
 });
 
+test.describe("locked cell readability", () => {
+  test("marks Level 7 design locks with explicit containment hardware", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=7");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    const visuals = await page.evaluate(() => (
+      (window as Window & {
+        __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }>;
+      }).__gwLockedCellVisuals ?? []
+    ));
+
+    expect(visuals).toEqual([
+      { row: 3, col: 3, kind: "containment-lock" },
+      { row: 3, col: 4, kind: "containment-lock" }
+    ]);
+  });
+});
+
 test.describe("normal presentation timeline", () => {
   test("records a paced scene-clock swap, impact, cascade, and completion sequence", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -89,14 +108,14 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(185);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(205);
-    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(190);
-    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(230);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(230);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(250);
+    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(220);
+    expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(260);
     expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(250);
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(980);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_150);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(1_080);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_300);
     expect(cascadeStart.detail).toBe("occupants-unique");
   });
 

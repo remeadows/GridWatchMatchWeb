@@ -376,23 +376,23 @@ describe("lightBallWavePlan", () => {
 
 describe("matchTimeline", () => {
   it("uses named phases and gives an ordinary match readable impact and settle time", () => {
-    const timeline = matchTimeline(120);
+    const timeline = matchTimeline(200);
 
-    expect(timeline.swapTravelMs).toBeGreaterThanOrEqual(150);
-    expect(timeline.swapTravelMs).toBeLessThanOrEqual(175);
-    expect(timeline.swapSettleMs).toBeGreaterThanOrEqual(45);
-    expect(timeline.swapSettleMs).toBeLessThanOrEqual(60);
-    expect(timeline.recognitionHoldMs).toBeGreaterThanOrEqual(95);
-    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(110);
-    expect(timeline.popCompressionMs).toBeGreaterThanOrEqual(85);
-    expect(timeline.popCompressionMs).toBeLessThanOrEqual(100);
-    expect(timeline.impactMs).toBeGreaterThanOrEqual(165);
+    expect(timeline.swapTravelMs).toBeGreaterThanOrEqual(170);
+    expect(timeline.swapTravelMs).toBeLessThanOrEqual(180);
+    expect(timeline.swapSettleMs).toBeGreaterThanOrEqual(55);
+    expect(timeline.swapSettleMs).toBeLessThanOrEqual(65);
+    expect(timeline.recognitionHoldMs).toBeGreaterThanOrEqual(130);
+    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(145);
+    expect(timeline.popCompressionMs).toBeGreaterThanOrEqual(95);
+    expect(timeline.popCompressionMs).toBeLessThanOrEqual(105);
+    expect(timeline.impactMs).toBeGreaterThanOrEqual(175);
     expect(timeline.impactMs).toBeLessThanOrEqual(185);
-    expect(timeline.maxStaggerMs).toBe(120);
-    expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(190);
-    expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(220);
-    expect(timeline.totalMs).toBeGreaterThanOrEqual(1_300);
-    expect(timeline.totalMs).toBeLessThanOrEqual(1_400);
+    expect(timeline.maxStaggerMs).toBe(150);
+    expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(225);
+    expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(240);
+    expect(timeline.totalMs).toBeGreaterThanOrEqual(1_425);
+    expect(timeline.totalMs).toBeLessThanOrEqual(1_475);
   });
 });
 

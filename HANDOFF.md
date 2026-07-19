@@ -1,6 +1,67 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-18
+Last updated: 2026-07-19
+
+## 2026-07-19: Locked-cell containment treatment accepted locally
+
+Level 7's two design-locked tiles previously differed from normal cells only through a
+darker background, which made them look incorrectly rendered. The local build now keeps
+their tile art at normal readability and identifies each locked cell with an amber
+containment frame, reinforced corner clamps, and a high-contrast padlock badge.
+
+- The treatment is renderer-only and keyed to the existing `debugDesignLocked` state.
+  Match rules, unlock behavior, level JSON, engine determinism, and input are unchanged.
+- The frame disappears automatically when the existing clear path unlocks the cell.
+- The same treatment applies to every design-locked cell in every level, not only Level 7.
+- A test-mode marker inventory verifies Level 7 renders exactly two containment locks at
+  row 4, columns 4-5 and is unavailable outside exact test mode.
+
+Verification:
+
+- Red-green browser contract failed with no explicit marker on desktop and mobile, then
+  passed after the containment hardware was implemented.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 98/98 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- Manual Level 7 board captures at 1280x900 and iPhone 15 size show readable orange and
+  magenta tile identities, explicit lock silhouettes, no overlap, and no board overflow.
+- Russ approved the locked-cell appearance after testing Level 7 locally. The change
+  remains undeployed only so it can ship together with the pending ordinary-match
+  pacing decision.
+
+## 2026-07-18: Ordinary match pacing candidate accepted locally
+
+Russ approved the ordinary match pacing after playing the local build. It changes
+presentation timing only; engine outcomes, cascade fall duration, authored power-up
+choreography, and the accepted 2,500 ms terminal clear are unchanged. The approved
+pacing and locked-cell treatment are pushed together but remain undeployed pending the
+next production release step.
+
+- Swap travel is 175 ms with a 60 ms settle, up from 160/50 ms.
+- The settled-match recognition hold is 140 ms, up from 100 ms.
+- Pop compression is 100 ms, impact is 180 ms, and centroid waves can span 150 ms,
+  up from 90/170/120 ms.
+- Cascade begins 230 ms after ordinary-match impact, up from 200 ms. The total pure
+  normal-match timing budget is 1,435 ms, roughly 105 ms longer than the accepted
+  production build, with the added time concentrated around match readability.
+
+Verification:
+
+- Red-green timing contract: the focused Vitest case failed on the old 160 ms swap
+  travel, then passed after the constant-only implementation.
+- Rebuilt desktop/mobile browser contract failed against the old 205 ms
+  settle-to-impact ceiling at the expected new 240 ms beat, then passed with the new
+  required range.
+- `npm run test`: 238/238 passed.
+- `npm run test:e2e`: 96/96 passed across desktop Chromium and mobile.
+- `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
+- `npm run build`: passed with only the existing Phaser bundle-size warning.
+- The required warm-preview drag gate passed 20/20 iterations, covering 40 successful
+  desktop/mobile test instances with no input race.
+- Manual 1280x720 and 393x852 inspection showed ordered settle, recognition, pop,
+  cascade, and refill with no ghost trails, overlap, or horizontal overflow.
 
 ## 2026-07-18: Power-up completion and cascade-integrity follow-up deployed
 
@@ -475,7 +536,7 @@ Previously flaky drag-test loop from supervisor verification:
 
 ## Open Priorities
 
-- Continue tuning swap/match timing if the player still perceives the settle/pause/pop sequence as too fast.
+- Deploy the approved ordinary-match pacing and locked-cell containment release.
 - Keep improving animation feel for cascades, power-up effects, and match pops without changing engine determinism.
 - Add regression coverage for any future row reachability, viewport overlap, or booster-targeting issue.
 - Keep README challenge-ready with a public link, short description, and controls.
