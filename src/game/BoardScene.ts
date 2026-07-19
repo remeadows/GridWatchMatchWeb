@@ -546,8 +546,8 @@ export class BoardScene extends Phaser.Scene {
     if (audioService.playBoardCue(key, { gain: 0.28 })) this.recordPresentation("audio-cue", key);
   }
 
-  private cueChainAudio(depth: number, reducedMotion = false): void {
-    if (depth <= 1 || (!reducedMotion && !this.vfxCleanup.allocateAudio(this))) return;
+  private cueChainAudio(depth: number): void {
+    if (depth <= 1 || !this.vfxCleanup.allocateAudio(this)) return;
     if (audioService.playChain(depth)) this.recordPresentation("audio-cue", "chainRise");
   }
 
@@ -830,7 +830,7 @@ export class BoardScene extends Phaser.Scene {
     if (this.reducedMotion) {
       if (animation.delta.powerUpEvents.length > 0) this.playPowerUpEffects(animation.delta);
       else if (animation.delta.clears.length > 0) this.cueReducedMotionAudio("tileClusterBody");
-      this.cueChainAudio(animation.delta.chainDepth, true);
+      else if (animation.delta.chainDepth > 1) this.cueReducedMotionAudio("chainRise");
       this.hardClearDrag();
       this.snapshot = nextSnapshot;
       this.renderSnapshot();

@@ -159,6 +159,33 @@ test.describe("normal presentation timeline", () => {
     expect(traceEntry(trace, "audio-cue").detail).toBe("tileClusterBody");
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(180);
   });
+
+  test("reduced motion emits one impact cue for a chained cascade", async ({ page }) => {
+    await page.goto("/?gwTestMode=1");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByLabel("Reduced Motion").check();
+    await page.goto("/?gwTestMode=1&level=6");
+    await page.getByTestId("board-canvas").waitFor({ state: "visible" });
+    await waitForBoardReady(page);
+
+    await dragBoardCells(page, { row: 0, col: 5 }, { row: 0, col: 6 });
+    await page.waitForFunction(() => (
+      (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+        ?.some((entry) => entry.kind === "resolution-complete") ?? false
+    ));
+    const firstSequenceId = (await presentationTrace(page)).at(-1)?.sequenceId;
+
+    await dragBoardCells(page, { row: 3, col: 5 }, { row: 3, col: 6 });
+    await page.waitForFunction((previousSequenceId) => (
+      (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace
+        ?.some((entry) => entry.kind === "resolution-complete" && entry.sequenceId !== previousSequenceId) ?? false
+    ), firstSequenceId);
+
+    const trace = await presentationTrace(page);
+    const sequenceId = trace.at(-1)?.sequenceId;
+    const audioCues = trace.filter((entry) => entry.sequenceId === sequenceId && entry.kind === "audio-cue");
+    expect(audioCues.map((entry) => entry.detail)).toEqual(["tileClusterBody"]);
+  });
 });
 
 test.describe("standard match impact", () => {

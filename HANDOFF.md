@@ -14,10 +14,10 @@ Playwright resolution helper so repeated actions return the newly completed sequ
 - Engine outcomes, level data, Worker APIs, authentication, scores, leaderboards,
   Supabase, and database behavior are unchanged.
 - `npm run test`: 238/238 passed.
-- `npm run test:e2e`: 100/100 passed across desktop Chromium and mobile.
+- `npm run test:e2e`: 102/102 passed across desktop Chromium and mobile.
 - `npm run validate:levels`: 100 passed, 0 failed, 0 warnings.
 - `npm run build`: passed with only the existing Phaser bundle-size warning; the
-  reviewed local build is `assets/index-CkuvoXQS.js`.
+  reviewed local build is `assets/index-tBNyYWXV.js`.
 - `npm audit --audit-level=high`: zero vulnerabilities.
 - These post-deployment review corrections are not deployed yet. Production remains on
   Cloudflare Worker version `9571cfdb-00d8-4afa-a2ff-61074046aff9`, serving
