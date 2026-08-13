@@ -22,7 +22,7 @@
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260804.1",
+    "@cloudflare/workers-types": "^5.20260810.1",
     "@playwright/test": "^1.61.1",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
