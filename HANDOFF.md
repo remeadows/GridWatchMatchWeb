@@ -2,6 +2,74 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Task 12 Preview Automated Gates Pass; Human Pilots Open
+
+Task 11 is committed as `f07e457`; this branch integrates reviewed gameplay
+capture repairs at `aa237b5`. Task 12 implementation is committed with
+`Add isolated local balance candidates`; human pilots/content acceptance remain open.
+PR 47 remains draft, CLEAN, with all four checks green at `287db8e`. No merge or
+Worker deploy is authorized by those checks. The original dirty checkout is intact.
+
+- Added the explicit moves-only `pilot-moves-v1` hypothesis for 19/35/49/50/51/60/
+  61/70 and unchanged tutorial/neighbor controls. The development adapter requires
+  exact test mode plus a named profile; candidate and canonical-control previews
+  use cloned, in-memory saves and cannot submit scores even after query removal.
+  Production builds ignore profiles. Normal storage implementation, engine,
+  canonical levels, Worker, auth and score formulas are unchanged.
+- Seven pure regressions passed after the absent-module red. Browser integration
+  first failed for the unapplied budget, two normal-save leaks and two attempted
+  submissions; requests were intercepted before network access. All fourteen new
+  browser instances then passed unchanged. All 352 units, 100 levels, build and
+  high audit pass. Bundle: `index--KEa5xel.js`; selectors are absent from it.
+- Candidate comparison: 27,600 runs / 394,868 actions / zero errors. Six controls
+  exactly match baseline cohorts. Report SHA-256:
+  `a28ab5dbc1e7e12f8615a1e4d9255b524240549452b43c6f038c17e0633c0570`.
+  All 125 source hashes match. Level 51 still has excessive simulated slack; this
+  trial does not establish a balanced campaign. No human pilot sessions yet.
+- Six capture flows at 1280x720, explicit 393x852 WebKit and 320x740 passed 60
+  stage-identity checks with no page errors/overflow and all rows reachable.
+  Evidence: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-preview-review-GYRLUr/`.
+- Full e2e stopped at 156 passed / 1 failed / 29 not run (10.6 minutes). Mobile
+  `presentation.spec.ts:562` timed out in `page.goto` before the rocket/TNT action,
+  with a blank screenshot. Retained unchanged at
+  `/private/tmp/gridwatch-task12-first-failure-20260909/`. A separately traced
+  navigation diagnostic is not a replacement for the failed full gate. No retries,
+  longer timeouts, relaxed assertions, or gameplay fix are claimed.
+- The unchanged-build full reproduction stopped at 163 passed / 1 failed / 22
+  not run (12.4 minutes), this time in `page.goto` before propeller/Light Ball.
+  Trace: `/private/tmp/gridwatch-balance-full-diagnostic-nIszfn/artifacts/`.
+  Its page remains `about:blank` with an empty body. A minimal server/page/context
+  diagnostic passed 300 navigations, so it did not reproduce the long-run fault.
+- Upstream Playwright issue 42385 documents a matching macOS display-sleep/window
+  animation stall in the installed 1.62.1 / WebKit 2336 combination, reportedly
+  fixed in newer WebKit. This Mac is 26.6.2 and `pmset` records display sleep during
+  the long runs. This is a supported working hypothesis, not a locally sampled
+  deadlock diagnosis: https://github.com/microsoft/playwright/issues/42385.
+  A full unchanged-build gate passed under `caffeinate -diu`, which prevents
+  display sleep only for the command lifetime. Evidence parent:
+  `/private/tmp/gridwatch-task12-awake-gate-dLiTUG/`. No global preferences,
+  dependency versions, browser config, tests or assertions changed.
+- The display-awake run passed 186/186 in 13.8 minutes, including both formerly
+  stalled cases, with zero retries. This validates the temporary test-environment
+  workaround on this build; it does not claim a local WebKit fix or prove the
+  precise deadlock without a process sample. Keep the earlier failures as evidence.
+  Compared with Task 0's 238 units / 102 browsers, this branch has 352 / 186;
+  the separate audio branch is not included. All 125 candidate source hashes
+  reverified, and protected engine/levels/backend/dependency/config diffs are empty.
+- All eight production budget migrations need separate server-limit/star review;
+  increases on 35/50 also exceed current move maxima. See `docs/balance/README.md`.
+  Do not regenerate validator limits or migrate canonical content under this plan.
+
+Independent audio worktree: `/private/tmp/gridwatch-match-audio-20260909`, branch
+`codex/staged-board-audio`, Task 10 commit `4eceb9f`, based on `287db8e`. It has
+345 passing units and ten final-build focused browser instances; its 174-case
+full pass predates only the final shared board-bus compressor. Seventeen headed
+recordings measured at most -1.2 dBFS / 12 active sources, with complete cleanup;
+three muted flows preserve the same stage identities. Listening is unaccepted.
+Art branch is `4e2d9c3`, with the
+two finishes still awaiting Russ's selection; Tasks 8/9 remain gated. Headed final
+performance, listening, human pilot sessions and physical-device acceptance remain.
+
 ## 2026-09-09: Task 11 Balance Regression Tool Complete
 
 Independent balance work runs on `codex/campaign-balance-analysis` in

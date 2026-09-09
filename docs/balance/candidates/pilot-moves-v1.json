@@ -1,0 +1,18 @@
+{
+  "id": "pilot-moves-v1",
+  "label": "Pilot moves v1",
+  "status": "local-hypothesis-not-accepted",
+  "baselineSha256": "49355e1905ba629b089200ddf53bcafc112afb0f0306a98766f5aca761611731",
+  "outlierSha256": "99e53bc4f8777b5daadf44bab016f9f99f0fc941b1a273d5e27534c57c27647e",
+  "controls": [1, 2, 3, 34, 48, 62],
+  "changes": [
+    { "levelId": 19, "from": 19, "to": 17, "hypothesis": "Trim two spare moves at the production-random p90 while retaining substantial visible-policy headroom." },
+    { "levelId": 35, "from": 18, "to": 19, "hypothesis": "Soften the 70.6% production-random spike by one move; do not tighten an already constrained level." },
+    { "levelId": 49, "from": 24, "to": 21, "hypothesis": "Use the production-random p90 as a modest pre-five-color challenge trial, retaining eight moves beyond the objective policy path." },
+    { "levelId": 50, "from": 27, "to": 29, "hypothesis": "Offer two more moves for the first five-color boss; its 90-second controllable-time clock remains an independent constraint." },
+    { "levelId": 51, "from": 44, "to": 28, "hypothesis": "Reduce the large post-boss slack while retaining headroom over the 23.1-move sensitivity-random p90 and all sampled visible-policy wins." },
+    { "levelId": 60, "from": 38, "to": 32, "hypothesis": "Trim six spare moves while remaining above the 30-move sensitivity-random p90; retain the authored 90-second timer." },
+    { "levelId": 61, "from": 48, "to": 25, "hypothesis": "Remove the second large unused-move discontinuity while retaining two moves above the sensitivity-random p90." },
+    { "levelId": 70, "from": 39, "to": 35, "hypothesis": "Trim four moves above the 34-move sensitivity-random p90 without changing the tighter 75-second clock." }
+  ]
+}

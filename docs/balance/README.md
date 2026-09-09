@@ -179,3 +179,199 @@ Production-random median used moves are 13, 16, 15.5, 25, 15, 21, 16, and 24
 respectively. The direction of the initial pilot hypotheses is unchanged. Large
 differences between policy results, including deterministic single-path cohorts,
 are a reason to retain human playtests, not to claim highly precise player rates.
+
+## Isolated Local Pilot
+
+`candidates/pilot-moves-v1.json` is the explicit content hypothesis, not accepted
+canonical content. It changes only these move limits:
+
+| Level | Canonical | Local trial | Reason |
+|---|---:|---:|---|
+| 19 | 19 | 17 | Modest two-move trim near production-random p90 |
+| 35 | 18 | 19 | One-move relief at a demonstrated difficulty spike |
+| 49 | 24 | 21 | Modest pre-five-color challenge near random p90 |
+| 50 | 27 | 29 | Two-move relief for the first five-color boss |
+| 51 | 44 | 28 | Remove excessive slack while retaining sensitivity headroom |
+| 60 | 38 | 32 | Six-move trim above sensitivity-random p90 |
+| 61 | 48 | 25 | Remove the second large unused-move discontinuity |
+| 70 | 39 | 35 | Four-move trim above sensitivity-random p90 |
+
+Controls are Levels 1, 2, 3, 34, 48, and 62. They cover tutorials, untuned neighbors,
+and a later five-color board. Objectives, cell maps, seed functions, spawn weights,
+mechanics, score formulas and boss durations are unchanged in every trial.
+
+Run the development server on an unused local port:
+
+```bash
+npm run dev -- --host 127.0.0.1 --port 4175 --strictPort
+```
+
+Candidate: `http://127.0.0.1:4175/?gwTestMode=1&gwBalanceProfile=pilot-moves-v1&level=51`
+
+Control: `http://127.0.0.1:4175/?gwTestMode=1&gwBalanceProfile=canonical-control-v1&level=51`
+
+Change only `level` to review another pilot/control. Both named profiles isolate
+all campaign save load/persist/reset operations in memory and suppress score
+submission, even with an authenticated session. Reloading starts a fresh preview
+save. The active profile is captured at application load: deleting the query
+mid-run cannot release either fence. Normal saves are neither loaded nor changed.
+
+Activation requires development mode, one exact `gwTestMode=1`, and one known
+profile name. Missing, duplicate, unknown, or nonexact selectors use canonical
+behavior. A stale `from` budget fails closed to that level's authored budget.
+Production builds ignore candidate requests; the profile selectors and candidate
+IDs are absent from the generated production bundle. No production balance menu,
+alternate framework, backend endpoint, or dependency was added.
+
+### Acceptance Protocol
+
+The current implementation has **no human pilot sessions or content acceptance**.
+For each pilot, alternate which profile is tried first across levels and record
+order/replay count: retries reuse the same board seed, so familiarity is a bias.
+Record first-attempt win/loss, moves unused, boss time remaining, boosters/Play On
+used, actual session time, frustration points, and a short fairness judgment.
+Start with no-booster/no-Play-On attempts to match the screening cohorts; record
+assisted runs separately. The QA Win button verifies isolation only and is never
+a playtest win. Compare controls before drawing a campaign-wide conclusion.
+
+Manual goals: 35/50 should feel less abruptly restrictive; 51/61 should stop feeling
+like near-unlimited retries; 19/49/60/70 should gain modest tension without unclear
+failure causes. The shorter move budgets need not reduce actual winning session
+time, since winning paths often terminate earlier already. Nominal presentation
+estimates are not a replacement for a stopwatch or player feedback.
+
+### Production Migration Boundary
+
+Canonical content migration is not authorized by this preview. `worker/validation.ts`
+uses `worker/level-limits.json` both for unassisted maximum moves and recomputed
+stars. All eight accepted budget changes would therefore require a separately
+reviewed validator-limit update. Specifically, 35 at 19 moves and 50 at 28-29 moves
+exceed today's server maxima; reductions can produce different star counts even
+when move counts remain below the old maximum (for example, Level 51 at 15 moves
+is two stars out of 28 but three stars out of 44). Do not regenerate limits, change
+validation/scoring, submit synthetic runs, or deploy canonical candidates here.
+
+### Candidate Report Reproduction
+
+`candidate-analysis.json` compares 500 seeds/policy/cohort for the eight pilots and
+100 for the six unchanged controls. Each control's complete cohort metrics must
+equal its committed baseline row. The report records human sessions as an empty
+list and acceptance as false until real results exist. It pins the adapter, App,
+loader, candidate data, and baseline sources. To reproduce, use a fresh output
+path or temporarily move an existing report aside; the write is exclusive.
+
+Run the 500-seed command above, then use its printed full report path:
+
+```bash
+OUTLIERS=/absolute/path/from/the/500-seed/command/report.json
+node --experimental-transform-types --input-type=module - "$OUTLIERS" <<'NODE'
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+const read = path => JSON.parse(readFileSync(path, 'utf8'));
+const sha = path => createHash('sha256').update(readFileSync(path)).digest('hex');
+const { analyzeCampaign, sourceHashes } = await import('./scripts/analyze-balance.mjs');
+const { selectBalanceProfile, applyBalanceProfile } = await import('./src/dev/balancePreview.ts');
+const spec = read('docs/balance/candidates/pilot-moves-v1.json');
+const baseline = read('docs/balance/baseline.json');
+assert.equal(sha(process.argv[2]), spec.outlierSha256);
+const outliers = read(process.argv[2]), before = sourceHashes();
+assert.deepEqual(before, baseline.sources);
+const extra = Object.fromEntries(['src/App.tsx', 'src/data/levels.ts', 'src/dev/balancePreview.ts',
+  'docs/balance/candidates/pilot-moves-v1.json'].map(path => [path, sha(path)]));
+const profile = selectBalanceProfile({ isDevelopment: true, search: '?gwTestMode=1&gwBalanceProfile=pilot-moves-v1' });
+const load = id => applyBalanceProfile(read(`public/levels/level_${String(id).padStart(3, '0')}.json`), profile);
+const analyze = (ids, samples) => analyzeCampaign(ids.map(load), {
+  seeds: Array.from({ length: samples }, (_, i) => i + 1),
+  onLevel: (level, totals) => console.log(`Candidate level ${level.id}: ${totals.runs} runs, ${totals.actions} actions`)
+});
+const candidatePilots = analyze(spec.changes.map(change => change.levelId), 500);
+const controls = analyze(spec.controls, 100);
+for (const control of controls.levels) {
+  assert.deepEqual(control.cohorts, baseline.levels.find(level => level.id === control.id).cohorts);
+}
+assert.deepEqual(sourceHashes(), before);
+for (const [path, hash] of Object.entries(extra)) assert.equal(sha(path), hash);
+const report = { schemaVersion: 1, profile: spec, baselineOutliers: outliers,
+  candidatePilots, controls, sources: { ...before, ...extra },
+  acceptance: { humanSessions: [], contentAccepted: false, canonicalLevelsChanged: false } };
+writeFileSync('docs/balance/candidate-analysis.json', JSON.stringify(report, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+NODE
+```
+
+### First Candidate Results
+
+The comparison completed 27,600 new runs / 394,868 actions with zero errors or
+rejections in 306.58 seconds: 24,000 pilot runs and 3,600 control runs. All six
+controls exactly match their baseline cohort metrics. The 125 source hashes still
+match. Report SHA-256:
+`a28ab5dbc1e7e12f8615a1e4d9255b524240549452b43c6f038c17e0633c0570`.
+
+| Level | Production random before -> trial | Sensitivity random before -> trial | Trial sensitivity Wilson 95% | Production median unused | Nominal mean session seconds, random / visible / objective |
+|---|---|---|---|---:|---|
+| 19 | 96.2 -> 91.0% | 98.8 -> 95.2% | 93.0-96.8% | 4 | 87 / 53 / 56 |
+| 35 | 70.6 -> 78.6% | 75.8 -> 83.8% | 80.3-86.8% | 3 | 108 / 92 / 90 |
+| 49 | 99.0 -> 92.2% | 96.6 -> 89.6% | 86.6-92.0% | 5.5 | 108 / 79 / 92 |
+| 50 | 68.6 -> 77.8% | 72.4 -> 81.8% | 78.2-84.9% | 4 | 151 / 114 / 133 |
+| 51 | 100 -> 100% | 100 -> 99.0% | 97.7-99.6% | 13 | 94 / 74 / 80 |
+| 60 | 99.8 -> 98.2% | 100 -> 96.4% | 94.4-97.7% | 11 | 133 / 107 / 104 |
+| 61 | 100 -> 99.2% | 100 -> 95.2% | 93.0-96.8% | 9 | 102 / 84 / 78 |
+| 70 | 99.8 -> 97.6% | 97.6 -> 92.6% | 90.0-94.6% | 11 | 148 / 125 / 101 |
+
+The session column sums mean move count x 3.25 seconds, mean nominal forced
+presentation, and win fraction x 2.5-second ending. It is a counterfactual raw-move
+completion estimate, not a measured human duration or a prediction of when the
+boss clock would stop a losing player. Boss clock models remain separate in the
+report. Objective-aware trial wins remain 100% for all production pilot seeds;
+visible trial wins range 96.4-100%. Bot-policy skill bias remains substantial.
+
+Level 51 still triggers the >=95% random-win, >40% unused-move, and neighboring
+unused-move-jump flags. This first trial does not solve its difficulty curve.
+Do not tighten it again solely to hit a bot target; review the concrete current
+and candidate boards with a person before choosing another iteration.
+
+Verification so far: seven new pure adapter tests pass; all 352 unit tests and all
+100 level validations pass. Fourteen focused Chromium/iPhone WebKit instances pass
+unchanged after the five predicted integration reds (unapplied budget, two save
+leaks, two attempted score submissions). Requests were intercepted before network
+access. Development selectors are absent from production bundle `index--KEa5xel.js`.
+No Worker, canonical level, engine, auth, normal-save implementation or score
+formula changed. High audit gate passes with the two pre-existing moderate Vitest
+advisories reported separately.
+
+Six local capture flows at 1280x720, explicit 393x852 WebKit, and 320x740 pass all
+60 stage-identity comparisons, with zero page errors/overflow and every row center
+reachable. Inspected desktop/mobile/narrow screenshots show readable profile
+labels, intact boards and reachable trays. Evidence:
+`/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-preview-review-GYRLUr/`.
+An additional six-flow capture at the actual preset's 393x659 viewport passed at
+`/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-preview-review-rygCGo/`.
+These are automated browser checks, not physical devices, human playtests, or
+acceptance. The full regression stopped at 156 passed / 1 failed / 29 not run:
+mobile `presentation.spec.ts:562` timed out on `page.goto` with a blank screenshot,
+before the rocket/TNT action. Evidence is retained at
+`/private/tmp/gridwatch-task12-first-failure-20260909/`. The full gate is not green;
+navigation diagnostics are separate and do not erase this failure.
+
+The traced unchanged-build full reproduction also failed before gameplay:
+163 passed / 1 failed / 22 not run, with a blank `about:blank` page in a different
+mobile combo case. A 300-navigation minimal diagnostic passed. The installed
+Playwright 1.62.1 / WebKit 2336 has a matching upstream macOS display-sleep issue,
+and this host's power logs show display sleep during the long runs. See
+[Playwright issue 42385](https://github.com/microsoft/playwright/issues/42385).
+The exact local deadlock has not been sampled; treat this as a working diagnosis.
+
+The successful full gate keeps the display awake temporarily, without test retries,
+timeout increases, assertion changes, global preferences or dependency upgrades:
+
+```bash
+caffeinate -diu npm run test:e2e -- --trace=retain-on-failure --max-failures=1
+```
+
+The assertion ends with the command. Preserve first-failure artifacts in a fresh
+private directory before another diagnostic run. The evidence parent is
+`/private/tmp/gridwatch-task12-awake-gate-dLiTUG/`: 186/186 passed in 13.8 minutes,
+including both formerly stalled cases, zero retries. This validates the temporary
+environment workaround on the unchanged build, not a fix to WebKit or proof of
+the precise local deadlock. All 125 candidate source hashes match. Task 12's
+automated gates are green; human pilots and content acceptance are still open.

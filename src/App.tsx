@@ -29,7 +29,8 @@ import {
   levelSeed,
   starsForLevel
 } from "./state/progress";
-import { loadSaveState, persistSaveState, resetSaveState, type SaveState } from "./state/save";
+import { defaultSaveState, loadSaveState, persistSaveState, resetSaveState, type SaveState } from "./state/save";
+import { createPreviewSaveStore, maySubmitPreviewScore, selectBalanceProfile } from "./dev/balancePreview";
 
 type Screen =
   | { name: "home" }
@@ -43,6 +44,12 @@ type Screen =
   | { name: "store" };
 
 const boosterTypes: BoosterType[] = ["rocket", "rocketVertical", "tnt", "propeller", "lightBall"];
+
+// Capture the mode once: editing the URL mid-run cannot release its isolation.
+const balanceProfile = import.meta.env.DEV
+  ? selectBalanceProfile({ isDevelopment: true, search: window.location.search }) : null;
+const saveStore = balanceProfile ? createPreviewSaveStore(defaultSaveState)
+  : { load: loadSaveState, persist: persistSaveState, reset: resetSaveState };
 
 interface BoosterDragState {
   booster: BoosterType;
@@ -58,7 +65,7 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    void loadSaveState().then((loaded) => {
+    void saveStore.load().then((loaded) => {
       if (active) setSave(loaded);
     });
     return () => {
@@ -85,7 +92,7 @@ export default function App() {
 
   const commitSave = useCallback((next: SaveState) => {
     setSave(next);
-    void persistSaveState(next);
+    void saveStore.persist(next);
   }, []);
 
   if (!save) {
@@ -400,7 +407,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setQueueDepth(0);
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
     setSubmitState({ kind: "idle" });
-    void loadLevel(levelId).then((loaded) => {
+    void loadLevel(levelId, balanceProfile).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
       engineRef.current = engine;
@@ -485,7 +492,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     saveRef.current = next;
 
     const isTestMode = new URLSearchParams(window.location.search).has("gwTestMode");
-    if (!isTestMode && auth.session) {
+    if (maySubmitPreviewScore({ profile: balanceProfile, hasSession: Boolean(auth.session), isTestMode }) && auth.session) {
       const token = auth.session.access_token;
       setSubmitState({ kind: "sending" });
       submitScore(token, currentLevel.id, {
@@ -497,7 +504,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         .then((r) => setSubmitState({ kind: "done", result: r }))
         .catch((err) => setSubmitState({ kind: "error", message: err instanceof Error ? err.message : "Transmit failed." }));
     } else {
-      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : "signedOut" });
+      setSubmitState({ kind: "skipped", reason: isTestMode || balanceProfile ? "test" : "signedOut" });
     }
 
     setSnapshot(currentSnapshot);
@@ -823,6 +830,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         <div>
           <span>Level {levelId}</span>
           <strong>{level?.name ?? "Loading"}</strong>
+          {balanceProfile && <small data-testid="balance-profile">{balanceProfile.label}</small>}
         </div>
         <div>
           <span>Moves</span>
@@ -1151,7 +1159,7 @@ function SettingsScreen({ save, commitSave }: { save: SaveState; commitSave: (sa
           <input type="checkbox" checked={value} onChange={(event) => updateSetting(key as keyof SaveState["settings"], event.currentTarget.checked)} />
         </label>
       ))}
-      <button className="danger-button" onClick={() => void resetSaveState().then(commitSave)}>Reset Local Save</button>
+      <button className="danger-button" onClick={() => void saveStore.reset().then(commitSave)}>Reset Local Save</button>
     </section>
   );
 }
