@@ -8,6 +8,7 @@ import {
   WIN_SEQUENCE_LEAD_IN_MS
 } from "../../src/data/gameplayTiming";
 import { winSequenceDurationMs } from "../../src/game/motion";
+import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
 
 test.beforeEach(async ({ page }) => {
   await clearStorage(page);
@@ -66,21 +67,24 @@ test("level 6 cascades preserve surviving tile sprites across automatic matches"
   const secondSequenceId = await waitForResolutionComplete(page, firstSequenceId);
   expect(secondSequenceId).toBeGreaterThan(firstSequenceId);
 
-  const audit = await page.evaluate(() => (
+  const audits = await page.evaluate(() => (
     (window as Window & {
-      __gwCascadeAudit?: {
+      __gwCascadeAudits?: {
         beforeIds: number[];
         moveIds: number[];
         spawnIds: number[];
         missingMoveIds: number[];
-      };
-    }).__gwCascadeAudit
+      }[];
+    }).__gwCascadeAudits
   ));
-  expect(audit).toBeDefined();
-  expect(audit!.moveIds.length).toBeGreaterThan(0);
-  expect(audit!.missingMoveIds).toEqual([]);
-  expect(audit!.moveIds.every((id) => audit!.beforeIds.includes(id))).toBe(true);
-  expect(audit!.spawnIds.every((id) => !audit!.beforeIds.includes(id))).toBe(true);
+  expect(audits).toBeDefined();
+  expect(audits!.some(audit => audit.moveIds.length > 0)).toBe(true);
+  expect(audits!.some(audit => audit.spawnIds.length > 0)).toBe(true);
+  for (const audit of audits!) {
+    expect(audit.missingMoveIds).toEqual([]);
+    expect(audit.moveIds.every(id => audit.beforeIds.includes(id))).toBe(true);
+    expect(audit.spawnIds.every(id => !audit.beforeIds.includes(id))).toBe(true);
+  }
 });
 
 test("match pops burst with particles", async ({ page }) => {
@@ -157,6 +161,37 @@ test("animated win destroys the board before showing the result modal", async ({
   expect(finalTrace.filter((entry) => entry.kind === "audio-cue" && entry.detail === "tileClusterBody")).toHaveLength(7);
 });
 
+test("starts terminal rows only after the winning board reaches its settled boundary", async ({ page }) => {
+  await page.goto("/?gwTestMode=1&level=5");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-setup-winning-rocket-combo").click();
+  await expect(page.getByText("Clear 1: 0/1")).toBeVisible();
+  await page.getByTestId("qa-trigger-winning-rocket-combo").click();
+
+  const boundary = await page.waitForFunction(() => {
+    const target = window as Window & {
+      __gwResolutionFrames?: ResolutionFrameAudit[];
+      __gwPresentationTrace?: Array<{ kind: string; sequenceId: number; atMs: number }>;
+    };
+    const winStart = target.__gwPresentationTrace?.find(entry => entry.kind === "win-sequence-start");
+    if (!winStart) return null;
+    return {
+      frame: target.__gwResolutionFrames?.at(-1),
+      complete: target.__gwPresentationTrace?.find(entry => entry.kind === "resolution-complete"),
+      winStart
+    };
+  });
+  const state = (await boundary.jsonValue())!;
+  expect(state.frame?.kind).toBe("settled");
+  expect(state.complete).toBeDefined();
+  expect(state.frame!.sequenceId).toBe(state.complete!.sequenceId);
+  expect(state.winStart.sequenceId).toBeGreaterThan(state.complete!.sequenceId);
+  expect(state.winStart.atMs).toBeGreaterThanOrEqual(state.complete!.atMs);
+  expect(state.frame!.rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId })))
+    .toEqual(state.frame!.expected);
+  await expect(page.getByText("Grid secured")).toBeVisible({ timeout: 8_000 });
+});
+
 test("finishes a winning rocket combo before the terminal row sequence", async ({ page }) => {
   await page.goto("/?gwTestMode=1&level=5");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
@@ -165,6 +200,7 @@ test("finishes a winning rocket combo before the terminal row sequence", async (
   await page.getByTestId("qa-setup-winning-rocket-combo").click();
   await expect(page.getByText("Clear 1: 0/1")).toBeVisible();
   await page.getByTestId("qa-trigger-winning-rocket-combo").click();
+  await waitForResolutionComplete(page);
   await expect(page.getByText("Grid secured")).toBeVisible({ timeout: 8_000 });
 
   const trace = await page.evaluate(() => (
@@ -420,10 +456,11 @@ async function waitForBoardReady(page: Page): Promise<void> {
 }
 
 async function waitForResolutionComplete(page: Page, afterSequenceId = 0): Promise<number> {
+  // Ordered cascades can exceed the short feedback poll limit; await actual completion.
   await page.waitForFunction((minimumSequenceId) => (
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
       ?.some((entry) => entry.kind === "resolution-complete" && entry.sequenceId > minimumSequenceId) ?? false
-  ), afterSequenceId, { timeout: GAMEPLAY_POLL_TIMEOUT_MS });
+  ), afterSequenceId, { timeout: 30_000 });
   return page.evaluate((minimumSequenceId) => (
     (window as Window & { __gwPresentationTrace?: Array<{ kind: string; sequenceId: number }> }).__gwPresentationTrace
       ?.find((entry) => entry.kind === "resolution-complete" && entry.sequenceId > minimumSequenceId)?.sequenceId ?? 0

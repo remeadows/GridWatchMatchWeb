@@ -19,10 +19,15 @@ import {
   hasOccupant,
   parsePowerUp,
   positionKey,
+  powerUpKey,
   setBaseTile,
   setPowerUp,
   type BoardAction,
+  type BoardActivationSource,
   type BoardDelta,
+  type BoardPowerUpActivation,
+  type BoardResolution,
+  type BoardResolutionStep,
   type BoardSnapshot,
   type BoosterType,
   type CellDefinition,
@@ -104,19 +109,33 @@ export class BoardEngine {
   }
 
   get snapshot(): BoardSnapshot {
+    return this.snapshotAt(this.grid, this.rng.state.toString());
+  }
+
+  private snapshotAt(grid: Grid2D<CellState>, rngSeed: string): BoardSnapshot {
     return {
-      grid: this.grid.clone(cloneCell),
+      grid: grid.clone(cloneCell),
       moveCount: this.moveCountValue,
       moveLimit: this.level.moveLimit + this.moveLimitBonus,
       objectiveProgress: { ...this.objectiveProgressValue },
       objectiveTargets: { ...this.objectiveTargetsValue },
       spawnWeights: { ...this.spawnRule.weights },
-      rngSeed: this.rng.state.toString(),
+      rngSeed,
       chainDepth: this.chainDepthValue
     };
   }
 
   apply(action: BoardAction): BoardDelta {
+    return this.applyInternal(action);
+  }
+
+  applyWithResolution(action: BoardAction): BoardResolution {
+    const capture = new ResolutionCapture(this.snapshot, action, this.actionHistory.length);
+    const delta = this.applyInternal(action, capture);
+    return { delta, steps: capture.steps };
+  }
+
+  private applyInternal(action: BoardAction, capture?: ResolutionCapture): BoardDelta {
     const accumulator = emptyAccumulator();
     let initialResolution = emptyPowerUpResolution();
     let preferredPowerUpCreationPositions: GridPosition[] = [];
@@ -135,11 +154,17 @@ export class BoardEngine {
     }
 
     if (action.kind !== "activateBooster") this.moveCountValue += 1;
-    this.resolveBoard(initialResolution, preferredPowerUpCreationPositions, accumulator);
+    if (capture) {
+      capture.record("action", this.snapshot, accumulator);
+      capture.initialActivation(initialResolution, this.grid);
+      capture.recordActivations(this.snapshot, accumulator);
+    }
+    this.resolveBoard(initialResolution, preferredPowerUpCreationPositions, accumulator, capture);
 
     let shuffleAttempts = 0;
     if (this.validMovesForGrid(this.grid).length === 0) {
       shuffleAttempts = this.shuffleUntilPlayable();
+      if (capture) capture.record("shuffle", this.snapshot, accumulator);
     }
 
     const isWin = Object.entries(this.objectiveTargetsValue).every(([key, target]) => (this.objectiveProgressValue[key] ?? 0) >= target);
@@ -162,6 +187,7 @@ export class BoardEngine {
     };
     this.actionHistory.push(cloneAction(action));
     this.chainDepthValue = 0;
+    if (capture) capture.record("settled", this.snapshot, accumulator);
     return delta;
   }
 
@@ -262,7 +288,8 @@ export class BoardEngine {
   private resolveBoard(
     initialResolution: PowerUpResolution,
     preferredPowerUpCreationPositions: GridPosition[],
-    accumulator: ResolutionAccumulator
+    accumulator: ResolutionAccumulator,
+    capture?: ResolutionCapture
   ): void {
     let pendingClear = new Set(initialResolution.clears);
     let clearSources = new Map(initialResolution.clearSources);
@@ -297,6 +324,7 @@ export class BoardEngine {
         this.grid.set(creation.position, cell);
         accumulator.spawns.push({ position: creation.position, tileType: creation.tileType, asPowerUp: clonePowerUp(creation.powerUp) });
       }
+      if (capture && creations.length > 0) capture.record("creation", this.snapshot, accumulator);
 
       const clearPositions = sortedPositions(pendingClear);
       const chainedPowerUps: { origin: GridPosition; powerUp: PowerUpType; source: PowerUpType }[] = [];
@@ -327,6 +355,7 @@ export class BoardEngine {
 
         if (cell.powerUp && sourcePowerUp) {
           chainedPowerUps.push({ origin: position, powerUp: clonePowerUp(cell.powerUp)!, source: sourcePowerUp });
+          capture?.queueSecondary(position, cell);
         }
 
         const hadOccupant = hasOccupant(cell);
@@ -363,25 +392,29 @@ export class BoardEngine {
       }
 
       this.applyAdjacentUnderlayDamage(recentlyCleared, accumulator);
+      if (capture) {
+        capture.record("clear", this.snapshot, accumulator, clearPositions);
+        capture.beginActivationBatch();
+      }
       pendingClear = new Set<string>();
       clearSources = new Map<string, PowerUpType>();
 
       const chainResolution = emptyPowerUpResolution();
       for (const trigger of chainedPowerUps) {
-        mergePowerUpResolution(
-          chainResolution,
-          triggerSinglePowerUp(
-            trigger.powerUp,
-            trigger.origin,
-            this.grid,
-            this.level.objectives,
-            this.objectiveProgressValue,
-            this.rng,
-            { kind: "combo", with: clonePowerUp(trigger.source)! }
-          )
+        const secondary = triggerSinglePowerUp(
+          trigger.powerUp,
+          trigger.origin,
+          this.grid,
+          this.level.objectives,
+          this.objectiveProgressValue,
+          this.rng,
+          { kind: "combo", with: clonePowerUp(trigger.source)! }
         );
+        mergePowerUpResolution(chainResolution, secondary);
+        capture?.secondaryActivation(secondary, trigger.origin);
       }
       accumulator.powerUpEvents.push(...chainResolution.powerUpEvents);
+      if (capture) capture.recordActivations(this.snapshot, accumulator);
       if (chainResolution.clears.size > 0) {
         pendingClear = new Set(chainResolution.clears);
         clearSources = new Map(chainResolution.clearSources);
@@ -389,11 +422,16 @@ export class BoardEngine {
       }
 
       const nextDebugTileIdRef = { value: this.nextDebugTileId };
+      const beforeSpawnRng = capture ? this.rng.state.toString() : "";
       const gravity = applyGravity(this.grid, this.spawnRule, this.rng, nextDebugTileIdRef);
       this.nextDebugTileId = nextDebugTileIdRef.value;
       accumulator.moves.push(...gravity.moves);
+      // Gravity already exposes its pre-refill grid; no replay or extra RNG draw.
+      if (capture) capture.record("gravity", this.snapshotAt(gravity.afterGravityGrid, beforeSpawnRng), accumulator);
       accumulator.spawns.push(...gravity.spawns);
+      if (capture) capture.record("refill", this.snapshot, accumulator);
       this.spreadMalwareOneStep();
+      if (capture) capture.record("malware", this.snapshot, accumulator);
       cascadeDepth += 1;
     }
 
@@ -506,6 +544,147 @@ export class BoardEngine {
       this.grid.set(position, cell);
     }
   }
+}
+
+class ResolutionCapture {
+  readonly steps: BoardResolutionStep[] = [];
+  private current: BoardSnapshot;
+  private clearOffset = 0;
+  private spawnOffset = 0;
+  private eventCount = 0;
+  private activationCount = 0;
+  private activations: BoardPowerUpActivation[] = [];
+  private clearOwners = new Map<string, string>();
+  private activatedOccupants = new Map<number, string>();
+  private secondarySources = new Map<string, { source: BoardActivationSource; parent: string | null }>();
+
+  constructor(initial: BoardSnapshot, private action: BoardAction, private actionIndex: number) {
+    this.current = initial;
+    this.action = cloneAction(action);
+  }
+
+  initialActivation(resolution: PowerUpResolution, grid: Grid2D<CellState>): void {
+    if (resolution.powerUpEvents.length === 0) return;
+    const positions = this.action.kind === "swap" ? [this.action.from, this.action.to] : [this.action.at];
+    const sources = positions.flatMap(position => {
+      const cell = grid.get(position);
+      return cell.powerUp ? [{ position: { ...position }, occupantId: cell.debugTileId, powerUp: clonePowerUp(cell.powerUp)! }] : [];
+    });
+    this.addActivation(resolution, sources, sources.length === 2 ? "combo" : "single", null);
+  }
+
+  queueSecondary(position: GridPosition, cell: CellState): void {
+    this.secondarySources.set(positionKey(position), {
+      source: { position: { ...position }, occupantId: cell.debugTileId, powerUp: clonePowerUp(cell.powerUp)! },
+      parent: this.clearOwners.get(positionKey(position)) ?? null
+    });
+  }
+
+  beginActivationBatch(): void {
+    this.clearOwners.clear();
+  }
+
+  secondaryActivation(resolution: PowerUpResolution, origin: GridPosition): void {
+    const queued = this.secondarySources.get(positionKey(origin));
+    if (!queued) throw new Error("Missing captured power-up source");
+    this.secondarySources.delete(positionKey(origin));
+    this.addActivation(resolution, [queued.source], "secondary", queued.parent);
+  }
+
+  private addActivation(
+    resolution: PowerUpResolution,
+    sources: BoardActivationSource[],
+    kind: BoardPowerUpActivation["kind"],
+    parentActivationId: string | null
+  ): void {
+    const originId = sources.length === 1 ? sources[0].occupantId : null;
+    const prior = originId === null ? undefined : this.activatedOccupants.get(originId);
+    const activationId = prior ?? `${this.actionIndex}:activation:${this.activationCount++}`;
+    for (const source of sources) if (source.occupantId !== null) this.activatedOccupants.set(source.occupantId, activationId);
+    for (const key of resolution.clears) if (!this.clearOwners.has(key)) this.clearOwners.set(key, activationId);
+    for (const event of resolution.powerUpEvents) {
+      const eventIndex = this.eventCount++;
+      this.activations.push({
+        eventId: `${this.actionIndex}:event:${eventIndex}`,
+        eventIndex,
+        activationId,
+        originOccupantId: kind === "secondary" ? originId : this.current.grid.get(event.origin).debugTileId,
+        initiatingAction: cloneAction(this.action),
+        parentActivationId,
+        kind,
+        isRepeat: prior !== undefined,
+        sources: sources.map(source => ({ ...source, position: { ...source.position }, powerUp: clonePowerUp(source.powerUp)! })),
+        event: {
+          origin: { ...event.origin },
+          powerUpType: clonePowerUp(event.powerUpType)!,
+          affectedPositions: event.affectedPositions.map(position => ({ ...position })),
+          trigger: event.trigger.kind === "combo" ? { kind: "combo", with: clonePowerUp(event.trigger.with)! } : { ...event.trigger }
+        }
+      });
+    }
+  }
+
+  recordActivations(after: BoardSnapshot, accumulator: ResolutionAccumulator): void {
+    if (this.activations.length === 0) return;
+    this.record("activation", after, accumulator);
+  }
+
+  record(kind: BoardResolutionStep["kind"], after: BoardSnapshot, accumulator: ResolutionAccumulator, hitPositions: GridPosition[] = []): void {
+    const before = cloneSnapshot(this.current);
+    const clears = accumulator.clears.slice(this.clearOffset).map(clear => ({
+      ...clear, position: { ...clear.position }, occupantId: before.grid.get(clear.position).debugTileId
+    }));
+    const spawns = accumulator.spawns.slice(this.spawnOffset).map(spawn => ({
+      ...spawn, position: { ...spawn.position }, asPowerUp: clonePowerUp(spawn.asPowerUp), occupantId: after.grid.get(spawn.position).debugTileId
+    }));
+    const cellChanges: BoardResolutionStep["cellChanges"] = [];
+    const moves: BoardResolutionStep["moves"] = [];
+    const priorPositions = new Map<number, GridPosition>();
+    for (const position of before.grid.allPositions) {
+      const id = before.grid.get(position).debugTileId;
+      if (id !== null) priorPositions.set(id, position);
+    }
+    for (const position of after.grid.allPositions) {
+      const oldCell = before.grid.get(position);
+      const cell = after.grid.get(position);
+      if (!sameCell(oldCell, cell)) cellChanges.push({ position: { ...position }, before: cloneCell(oldCell), after: cloneCell(cell) });
+      const from = cell.debugTileId === null ? undefined : priorPositions.get(cell.debugTileId);
+      if (from && positionKey(from) !== positionKey(position)) {
+        moves.push({ from: { ...from }, to: { ...position }, occupantId: cell.debugTileId!, tileType: cell.baseTile, powerUp: clonePowerUp(cell.powerUp) });
+      }
+    }
+    const objectiveEvents = Object.entries(after.objectiveProgress)
+      .map(([objectiveId, value]) => ({ objectiveId, progressDelta: value - (before.objectiveProgress[objectiveId] ?? 0) }))
+      .filter(event => event.progressDelta !== 0).sort((left, right) => left.objectiveId.localeCompare(right.objectiveId));
+    const hits: BoardResolutionStep["hits"] = hitPositions.filter(position => before.grid.isValid(position)).map(position => {
+      const oldCell = before.grid.get(position);
+      const cell = after.grid.get(position);
+      return {
+        position: { ...position }, occupantId: oldCell.debugTileId,
+        activationId: this.clearOwners.get(positionKey(position)) ?? null,
+        disposition: hasOccupant(oldCell) && !hasOccupant(cell) ? "clear" : !sameCell(oldCell, cell) ? "damage" : "empty"
+      };
+    });
+    this.steps.push({ ordinal: this.steps.length, cascadeDepth: after.chainDepth, kind, before, after,
+      clears, moves, spawns, objectiveEvents, cellChanges, hits, activations: this.activations });
+    this.activations = [];
+    this.current = after;
+    this.clearOffset = accumulator.clears.length;
+    this.spawnOffset = accumulator.spawns.length;
+  }
+}
+
+function cloneSnapshot(snapshot: BoardSnapshot): BoardSnapshot {
+  return { ...snapshot, grid: snapshot.grid.clone(cloneCell), objectiveProgress: { ...snapshot.objectiveProgress },
+    objectiveTargets: { ...snapshot.objectiveTargets }, spawnWeights: { ...snapshot.spawnWeights } };
+}
+
+function sameCell(left: CellState, right: CellState): boolean {
+  return left.baseTile === right.baseTile && left.debugTileId === right.debugTileId
+    && left.debugDesignLocked === right.debugDesignLocked && left.isMovable === right.isMovable
+    && left.generator === right.generator && left.overlay?.hp === right.overlay?.hp
+    && left.underlay?.hp === right.underlay?.hp
+    && (left.powerUp ? powerUpKey(left.powerUp) : null) === (right.powerUp ? powerUpKey(right.powerUp) : null);
 }
 
 function emptyAccumulator(): ResolutionAccumulator {

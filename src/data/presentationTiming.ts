@@ -2,9 +2,11 @@ export const DRAG_LIFT_MS = 65;
 export const SWAP_TRAVEL_MS = 175;
 export const SWAP_SETTLE_MS = 60;
 export const MATCH_RECOGNITION_HOLD_MS = 140;
+export const CASCADE_RECOGNITION_HOLD_MS = 100;
 export const MATCH_POP_COMPRESSION_MS = 100;
 export const MATCH_IMPACT_MS = 180;
 export const MATCH_AFTERIMAGE_MS = 130;
+export const MATCH_OPEN_HOLD_MS = 130;
 export const MATCH_COLORED_DEBRIS_COUNT = 7;
 export const MATCH_SMOKE_PUFF_COUNT = 1;
 export const MATCH_DEBRIS_LIFESPAN_MS = 320;
@@ -22,13 +24,13 @@ export const TNT_RADIAL_IMPACT_MAX_MS = 96;
 export const TNT_CASCADE_AFTER_DETONATION_MS = 170;
 export const TNT_SEQUENCE_BUDGET_MS = 800;
 export const ROCKET_IGNITION_MS = 75;
-export const ROCKET_LANE_FLIGHT_MS = 360;
+export const ROCKET_LANE_FLIGHT_MS = 420;
 export const ROCKET_EFFECT_TAIL_MS = 280;
 export const ROCKET_TRAIL_LIFESPAN_MS = 180;
 export const ROCKET_TRAIL_CLEANUP_MS = 80;
 export const ROCKET_EDGE_BURST_LIFESPAN_MS = 190;
 export const PROPELLER_LIFT_MS = 105;
-export const PROPELLER_FLIGHT_MS = 380;
+export const PROPELLER_FLIGHT_MS = 450;
 export const PROPELLER_RETICLE_DELAY_MS = 70;
 export const PROPELLER_SECONDARY_STAGGER_MS = 32;
 export const PROPELLER_SEQUENCE_BUDGET_MS = 780;
@@ -36,7 +38,7 @@ export const LIGHTBALL_WAVE_CONCURRENCY_CAP = 3;
 export const LIGHTBALL_WAVE_COUNT = 3;
 export const LIGHTBALL_DIM_MS = 120;
 export const LIGHTBALL_CHARGE_MS = 120;
-export const LIGHTBALL_WAVE_STAGGER_MS = 100;
+export const LIGHTBALL_WAVE_STAGGER_MS = 120;
 export const LIGHTBALL_RELEASE_DELAY_MS = 120;
 export const LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT = 4;
 export const LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT = 2;
@@ -58,8 +60,8 @@ export const COMBO_PROJECTILE_CAP = 12;
 export const COMBO_CHOREOGRAPHY_MAX_MS = 1_150;
 export const COMBO_BATCH_TAIL_MS = 150;
 export const POWERUP_CASCADE_HOLD_MS = 200;
-export const MATCH_WAVE_PER_GRID_MS = 35;
-export const MATCH_WAVE_MAX_MS = 150;
+export const MATCH_WAVE_PER_GRID_MS = 25;
+export const MATCH_WAVE_MAX_MS = 80;
 export const CASCADE_START_AFTER_IMPACT_MS = 230;
 export const CASCADE_FALL_BASE_MS = 190;
 export const CASCADE_FALL_PER_CELL_MS = 70;
@@ -77,9 +79,11 @@ export const PRESENTATION_TIMING = {
   swapTravelMs: SWAP_TRAVEL_MS,
   swapSettleMs: SWAP_SETTLE_MS,
   recognitionHoldMs: MATCH_RECOGNITION_HOLD_MS,
+  cascadeRecognitionHoldMs: CASCADE_RECOGNITION_HOLD_MS,
   popCompressionMs: MATCH_POP_COMPRESSION_MS,
   impactMs: MATCH_IMPACT_MS,
   afterimageMs: MATCH_AFTERIMAGE_MS,
+  openHoldMs: MATCH_OPEN_HOLD_MS,
   debrisCleanupMs: MATCH_DEBRIS_CLEANUP_MS,
   matchWavePerGridMs: MATCH_WAVE_PER_GRID_MS,
   matchWaveMaxMs: MATCH_WAVE_MAX_MS,

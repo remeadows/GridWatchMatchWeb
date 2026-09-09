@@ -1,4 +1,5 @@
-import type { GridPosition, PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
+import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent, TileType } from "../engine";
+import { computeCentroidStagger } from "./motion";
 import {
   CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
@@ -7,6 +8,7 @@ import {
   CASCADE_LANDING_SQUASH_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_START_AFTER_IMPACT_MS,
+  CASCADE_RECOGNITION_HOLD_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
   CHAIN_PLAYBACK_RATE_STEP,
   COMBO_ARC_CAP,
@@ -17,9 +19,12 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  MATCH_OPEN_HOLD_MS,
   MATCH_WAVE_MAX_MS,
+  MATCH_WAVE_PER_GRID_MS,
   POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
+  LIGHTBALL_DIM_MS,
   LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT,
   LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT,
   LIGHTBALL_RELEASE_DELAY_MS,
@@ -146,6 +151,53 @@ export interface MatchTimeline {
   totalMs: number;
 }
 
+export interface MatchPacingPlan {
+  groups: { id: string; positions: GridPosition[] }[];
+  impacts: { position: GridPosition; groupId: string; compressionStartAtMs: number; atMs: number }[];
+  recognitionHoldMs: number;
+  compressionMs: number;
+  openHoldMs: number;
+  lastImpactAtMs: number;
+  gravityNotBeforeMs: number;
+}
+
+export function matchPacingPlan(
+  cells: readonly { position: GridPosition; tileType: TileType | null }[], cascadeDepth: number
+): MatchPacingPlan {
+  const key = (position: GridPosition) => `${position.row},${position.col}`;
+  const ordered = [...new Map(cells.map(cell => [key(cell.position), cell])).values()]
+    .sort((a, b) => a.position.row - b.position.row || a.position.col - b.position.col);
+  const pending = new Map(ordered.map(cell => [key(cell.position), cell]));
+  const groups: MatchPacingPlan["groups"] = [];
+  const impacts: MatchPacingPlan["impacts"] = [];
+  const recognitionHoldMs = cascadeDepth > 0 ? CASCADE_RECOGNITION_HOLD_MS : MATCH_RECOGNITION_HOLD_MS;
+  for (const cell of ordered) {
+    const id = key(cell.position);
+    if (!pending.delete(id)) continue;
+    const positions = [{ ...cell.position }];
+    // Orthogonal connectivity stays within one tile family, including touching matches.
+    for (let index = 0; index < positions.length; index++) {
+      const { row, col } = positions[index];
+      for (const adjacent of [{ row: row - 1, col }, { row: row + 1, col }, { row, col: col - 1 }, { row, col: col + 1 }]) {
+        const neighbor = pending.get(key(adjacent));
+        if (!neighbor || neighbor.tileType !== cell.tileType) continue;
+        pending.delete(key(adjacent));
+        positions.push(adjacent);
+      }
+    }
+    positions.sort((a, b) => a.row - b.row || a.col - b.col);
+    groups.push({ id, positions });
+    const stagger = computeCentroidStagger(positions, { perUnitMs: MATCH_WAVE_PER_GRID_MS, maxMs: MATCH_WAVE_MAX_MS });
+    for (const position of positions) {
+      const compressionStartAtMs = recognitionHoldMs + (stagger.get(key(position)) ?? 0);
+      impacts.push({ position, groupId: id, compressionStartAtMs, atMs: compressionStartAtMs + MATCH_POP_COMPRESSION_MS });
+    }
+  }
+  const lastImpactAtMs = Math.max(0, ...impacts.map(impact => impact.atMs));
+  return { groups, impacts, recognitionHoldMs, compressionMs: MATCH_POP_COMPRESSION_MS, openHoldMs: MATCH_OPEN_HOLD_MS,
+    lastImpactAtMs, gravityNotBeforeMs: impacts.length > 0 ? lastImpactAtMs + MATCH_OPEN_HOLD_MS : 0 };
+}
+
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;
@@ -156,6 +208,7 @@ export interface TntDetonationPlan {
   chargeAtMs: number;
   detonationAtMs: number;
   impactAtMs: number[];
+  impacts: RocketPassPlan[];
   cascadeStartAtMs: number;
   sequenceBudgetMs: number;
 }
@@ -208,6 +261,17 @@ export interface PresentationTraceEntry {
   plannedAtMs: number;
   kind: string;
   detail?: string;
+  visibility?: { before: boolean; after: boolean; occupantId: number | null };
+}
+
+export interface PowerUpCellImpact {
+  position: GridPosition;
+  atMs: number;
+  eventId: string;
+  cause: PresentationEffectKey;
+  disposition: "clear" | "damage";
+  compressionStartAtMs: number;
+  compressionMs: number;
 }
 
 export interface PieceDisplayProfile {
@@ -375,6 +439,31 @@ export function comboOverlayPositions(plan: ComboChoreographyPlan): GridPosition
   ));
 }
 
+export function comboPowerUpImpacts(
+  group: PowerUpPresentationGroup,
+  snapshot: BoardSnapshot,
+  clearKeys: ReadonlySet<string>,
+  eventId: string
+): PowerUpCellImpact[] {
+  const plan = comboChoreographyPlan(group, snapshot.rngSeed, false);
+  const contacts = plan.batches.flatMap(batch => batch.affectedPositions.map(position => ({ position, atMs: batch.atMs })));
+  // Some engine events omit the consumed source from their affected positions.
+  for (const event of group.events) {
+    if (!contacts.some(hit => hit.position.row === event.origin.row && hit.position.col === event.origin.col)) {
+      contacts.push({ position: event.origin, atMs: plan.impactAtMs });
+    }
+  }
+  return contacts.filter(hit => snapshot.grid.isValid(hit.position) && !snapshot.grid.get(hit.position).generator)
+    .map(({ position, atMs }) => {
+      const compressionMs = Math.min(MATCH_POP_COMPRESSION_MS, atMs);
+      return {
+        position: { ...position }, atMs, eventId, cause: plan.key,
+        disposition: clearKeys.has(`${position.row},${position.col}`) ? "clear" : "damage",
+        compressionStartAtMs: atMs - compressionMs, compressionMs
+      };
+    });
+}
+
 export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): CreatedPowerUpSpawn[] {
   return spawns.flatMap((spawn) => (
     spawn.asPowerUp ? [{ position: spawn.position, powerUp: spawn.asPowerUp }] : []
@@ -382,20 +471,63 @@ export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): Created
 }
 
 export function tntDetonationPlan(origin: GridPosition, affectedPositions: ReadonlyArray<GridPosition>): TntDetonationPlan {
-  const impactAtMs = [...affectedPositions]
+  const impacts = [...affectedPositions]
     .sort((left, right) => manhattanDistance(origin, left) - manhattanDistance(origin, right))
-    .map((position) => TNT_DETONATION_AT_MS + Math.min(
+    .map((position) => ({ position: { ...position }, atMs: TNT_DETONATION_AT_MS + Math.min(
       TNT_RADIAL_IMPACT_MAX_MS,
       manhattanDistance(origin, position) * TNT_RADIAL_IMPACT_STAGGER_MS
-    ));
+    ) }));
   return {
     armAtMs: TNT_ARM_AT_MS,
     chargeAtMs: TNT_CHARGE_AT_MS,
     detonationAtMs: TNT_DETONATION_AT_MS,
-    impactAtMs,
+    impactAtMs: impacts.map(impact => impact.atMs),
+    impacts,
     cascadeStartAtMs: TNT_DETONATION_AT_MS + TNT_CASCADE_AFTER_DETONATION_MS,
     sequenceBudgetMs: TNT_SEQUENCE_BUDGET_MS
   };
+}
+
+/** Preparation follows the contact plan; only the actual VFX callback opens a cell. */
+export function singlePowerUpImpacts(
+  event: PowerUpEvent,
+  snapshot: BoardSnapshot,
+  clearKeys: ReadonlySet<string>,
+  eventId: string
+): PowerUpCellImpact[] {
+  const contacts: RocketPassPlan[] = [];
+  const { origin, affectedPositions, powerUpType } = event;
+  if (powerUpType.kind === "tnt") {
+    contacts.push(...tntDetonationPlan(origin, [origin, ...affectedPositions]).impacts);
+  } else if (powerUpType.kind === "rocket") {
+    const affected = new Set([origin, ...affectedPositions].map(position => `${position.row},${position.col}`));
+    contacts.push(...rocketLanePlan(origin, powerUpType.orientation, snapshot.grid.rows, snapshot.grid.cols)
+      .heads.flatMap(head => head.passTimes).filter(pass => affected.has(`${pass.position.row},${pass.position.col}`)));
+  } else if (powerUpType.kind === "propeller") {
+    const plan = propellerFlightPlan(origin, affectedPositions);
+    contacts.push({ position: origin, atMs: plan.liftAtMs }, { position: plan.target, atMs: plan.impactAtMs });
+    affectedPositions.slice(1).forEach((position, index) => contacts.push({ position, atMs: plan.secondaryImpactAtMs[index] }));
+  } else {
+    const plan = lightBallWavePlan(origin, affectedPositions, snapshot.rngSeed);
+    contacts.push({ position: origin, atMs: LIGHTBALL_DIM_MS + LIGHTBALL_CHARGE_MS });
+    for (const wave of plan.waves) for (const position of wave.targets) {
+      contacts.push({ position, atMs: LIGHTBALL_DIM_MS + wave.atMs });
+    }
+  }
+  const unique = new Map<string, PowerUpCellImpact>();
+  for (const contact of contacts.sort((left, right) => left.atMs - right.atMs)) {
+    const key = `${contact.position.row},${contact.position.col}`;
+    if (!snapshot.grid.isValid(contact.position) || unique.has(key)) continue;
+    const cell = snapshot.grid.get(contact.position);
+    if (cell.generator) continue;
+    const compressionMs = Math.min(MATCH_POP_COMPRESSION_MS, contact.atMs);
+    unique.set(key, {
+      position: { ...contact.position }, atMs: contact.atMs, eventId, cause: powerUpType.kind,
+      disposition: !cell.overlay && clearKeys.has(key) ? "clear" : "damage",
+      compressionStartAtMs: contact.atMs - compressionMs, compressionMs
+    });
+  }
+  return [...unique.values()];
 }
 
 export function rocketLanePlan(

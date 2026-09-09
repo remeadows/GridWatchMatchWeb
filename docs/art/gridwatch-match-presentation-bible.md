@@ -14,11 +14,17 @@ GridWatch Match should be immediately readable, tactile, and escalatory. Royal M
 
 ## Motion
 
-- The real dragged piece lifts in 65 ms, travels in 160 ms, and gets one 50 ms controlled settle.
-- A normal match holds for 55 ms, compresses for 45 ms, impacts over 120 ms, and starts cascade 110 ms after impact.
-- Match waves use 18 ms per grid unit, capped at 64 ms. Cascades use distance-based falls and a single landing settle.
+- The real dragged piece lifts in 65 ms, travels in 175 ms, and gets one 60 ms controlled settle.
+- The September 9 local candidate recognizes the initial match for 140 ms and a later landed wave for 100 ms, then compresses for 100 ms before contact.
+- Each orthogonally connected, same-family match has its own centroid: 25 ms per grid unit, capped at 80 ms. A neighboring or distant independent match cannot change its pop order.
+- Hold open cells for 130 ms after the last required impact before gravity can start. This retains the hold already present after ordered playback; do not add a second 130 ms wait. Cosmetic debris never gates a fall.
+- Falls retain the 260-540 ms distance curve and 95 ms squash plus 95 ms settle. The next wave recognizes the fully landed board, not the first arriving piece.
+- Trial single-power-up travel is 420 ms for rocket lanes, 450 ms for propeller flight, and 120 ms between Light Ball waves. Contact and hiding share callbacks; longer travel must not leave pieces disappearing ahead of the effect.
+- Complete every winning action and chain, then play the nominal 2,500 ms bottom-up ending, then show the result. A paused page preserves these phases.
 - Read normal clears as compression, impact, open space, then falling pieces. Debris may outlive the refill; empty cells must not wait for it.
 - Never allow destination pop-in, full-tile ghost trails, hard snap-back, or a valid swapped tile returning home before it is cleared.
+
+These times are a local review candidate, not fresh player or physical-device acceptance. Baseline/candidate comparisons must replay identical actions and retain exact stage identities, score and objective outcomes.
 
 ## VFX And Hierarchy
 
@@ -39,9 +45,10 @@ GridWatch Match should be immediately readable, tactile, and escalatory. Royal M
 - Reduced motion reaches the final board state within 180 ms without travel, shake, flash, or particle emission.
 - Phaser owns presentation. The engine remains pure and deterministic; no effect may change score, moves, objectives, spawns, or action logging.
 
-## Approved Piece Set
+## Historical Piece Approval
 
 - Candidate B, the bold die-cast hardware family, was approved on 2026-07-16.
+- Gameplay/art acceptance was reopened on 2026-09-08. This historical selection does not approve the upcoming Blender candidates; new actual-size review is required.
 - The approved set supplies five tiles, five power-ups, and five tray variants as 512px PNGs with alpha under `public/assets/images/web-overrides/`.
 - Rocket variants use the same approved guided-missile object, rotated for vertical board and tray use. The tray variants use the selected clean-frame source objects.
 - The generated manifest must resolve these fifteen entries to `web-overrides`; the synced iOS images remain fallbacks only.

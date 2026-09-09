@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { BoardEngine, type BoardAction, type LevelDefinition } from "../../src/engine";
+import { levelSeed } from "../../src/state/progress";
 import type { CanonicalComboKey, PresentationTraceEntry } from "../../src/game/presentation";
+import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
 
 const powerUpCombos: CanonicalComboKey[] = [
   "rocket+rocket",
@@ -14,6 +18,9 @@ const powerUpCombos: CanonicalComboKey[] = [
   "lightBall+lightBall"
 ];
 const presentationEffects = ["rocket", "propeller", "tnt", "lightBall", ...powerUpCombos] as const;
+const resolutionSpecimens = JSON.parse(readFileSync("src/tests/fixtures/resolution/specimens.json", "utf8")) as {
+  name: string; level: LevelDefinition; actions: BoardAction[];
+}[];
 
 interface PresentationResourceSnapshot {
   current: {
@@ -84,6 +91,97 @@ test.describe("locked cell readability", () => {
       { row: 3, col: 3, kind: "containment-lock" },
       { row: 3, col: 4, kind: "containment-lock" }
     ]);
+  });
+});
+
+test.describe("ordered cascade playback", () => {
+  test("preserves an empty gravity boundary without inventing a second fall", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    const clear = frames.find(frame => frame.kind === "clear")!;
+    const gravity = frames.find(frame => frame.kind === "gravity")!;
+    const refill = frames.find(frame => frame.kind === "refill")!;
+    expect(gravity.expected).toEqual(clear.expected);
+    expect(gravity.rendered).toEqual(clear.rendered);
+    expect(gravity.ordinal).toBeLessThan(refill.ordinal);
+    expect(refill.spawnIds).toHaveLength(3);
+    expect(frames.at(-1)!.kind).toBe("settled");
+    const trace = await presentationTrace(page);
+    expect(trace.filter(entry => entry.kind === "cascade-start")).toHaveLength(1);
+    expect(trace.filter(entry => entry.kind === "cascade-land")).toHaveLength(1);
+  });
+
+  test("reveals a created rocket before the same occupant falls and is tapped", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 2, col: 3 }, { row: 3, col: 3 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    const creation = frames.find(frame => frame.kind === "creation" && frame.spawnIds.includes(12))!;
+    expect(creation).toBeDefined();
+    const atCreation = creation.rendered.find(cell => cell.occupantId === 12)!;
+    expect(atCreation.position).toEqual({ row: 2, col: 4 });
+    const landed = frames.find(frame => frame.ordinal > creation.ordinal && frame.kind === "gravity"
+      && frame.rendered.some(cell => cell.occupantId === 12 && cell.position.row === 3))!;
+    expect(landed.rendered.find(cell => cell.occupantId === 12)!.instanceId).toBe(atCreation.instanceId);
+    const priorSequence = (await presentationTrace(page)).at(-1)!.sequenceId;
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 4 }));
+    await page.waitForFunction(previous => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.sequenceId !== previous && entry.kind === "tile-impact" && entry.visibility?.occupantId === 12), priorSequence);
+  });
+
+  test("preserves all remaining stages when the viewport resizes during a cascade", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "cascade-start"));
+    await page.setViewportSize({ width: 430, height: 860 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    expect(frames.filter(frame => frame.kind === "clear")).toHaveLength(3);
+    expect(frames.at(-1)!.kind).toBe("settled");
+    expect(frames.at(-1)!.rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId }))).toEqual(frames.at(-1)!.expected);
+  });
+
+  test("renders all Level 1 waves with their actual intermediate occupant IDs", async ({ page }) => {
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    expect(frames.filter(frame => frame.kind === "clear")).toHaveLength(3);
+    expect(frames.filter(frame => frame.kind === "gravity")).toHaveLength(3);
+    expect(frames.filter(frame => frame.kind === "refill")).toHaveLength(3);
+    const instances = new Map<number, number>();
+    for (const frame of frames) {
+      expect(frame.rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId }))).toEqual(frame.expected);
+      for (const cell of frame.rendered) {
+        expect(cell.visible).toBe(true);
+        expect(cell.distanceFromCenter).toBeLessThan(0.1);
+        if (instances.has(cell.occupantId)) expect(cell.instanceId).toBe(instances.get(cell.occupantId));
+        instances.set(cell.occupantId, cell.instanceId);
+      }
+      if (frame.kind === "refill") expect(frame.spawnIds.every(id => !frame.beforeIds.includes(id))).toBe(true);
+    }
+    const finalIds = new Set(frames.at(-1)!.expected.map(cell => cell.occupantId));
+    expect(frames.filter(frame => frame.kind === "refill").flatMap(frame => frame.spawnIds).some(id => !finalIds.has(id))).toBe(true);
+    const trace = await presentationTrace(page);
+    const repeated = new Map<string, Set<number | null | undefined>>();
+    for (const entry of trace.filter(entry => entry.kind === "tile-impact")) {
+      const ids = repeated.get(entry.detail!) ?? new Set();
+      ids.add(entry.visibility?.occupantId);
+      repeated.set(entry.detail!, ids);
+    }
+    expect([...repeated.values()].filter(ids => ids.size > 1)).toHaveLength(2);
   });
 });
 
@@ -245,6 +343,54 @@ test.describe("power-up creation", () => {
   });
 });
 
+test.describe("single power-up tile contact", () => {
+  test("damage-only TNT keeps pieces visible and finishes its detonation before completion", async ({ page }) => {
+    await page.route("**/levels/level_001.json", async route => {
+      const response = await route.fetch();
+      const level = await response.json();
+      for (const row of level.cellMap) for (const cell of row) cell.overlay = "encryptedVolume_3";
+      await route.fulfill({ response, json: level });
+    });
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await page.getByTestId("booster-tnt").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    const detonation = traceEntry(trace, "tnt-detonation");
+    expect(detonation.atMs).toBeLessThan(traceEntry(trace, "resolution-complete").atMs);
+    expect(trace.filter(entry => entry.kind === "tile-impact")).toHaveLength(0);
+    const damage = trace.filter(entry => entry.kind === "tile-damage");
+    expect(damage).toHaveLength(9);
+    expect(damage.every(entry => entry.visibility?.before === true && entry.visibility.after === true)).toBe(true);
+  });
+
+  for (const [booster, contact] of [
+    ["rocket", "rocket-tile-impact"], ["tnt", "tnt-tile-impact"],
+    ["propeller", "propeller-impact"], ["lightBall", "lightBall-target-impact"]
+  ]) {
+    test(`${booster} hides each piece on its actual effect-contact frame`, async ({ page }) => {
+      await page.goto("/?gwTestMode=1&level=1");
+      await waitForBoardReady(page);
+      await page.getByTestId(`booster-${booster}`).click();
+      await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+      await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+        .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+      const trace = await presentationTrace(page);
+      const contacts = trace.filter(entry => entry.kind === contact);
+      expect(contacts.length).toBeGreaterThan(0);
+      for (const arrival of contacts) {
+        const breaks = trace.filter(entry => entry.kind === "tile-impact" && entry.detail === arrival.detail && entry.atMs === arrival.atMs);
+        expect(breaks, `${booster} at ${arrival.detail}`).toHaveLength(1);
+        expect(breaks[0].atMs, `${booster} contact/break at ${arrival.detail}`).toBe(arrival.atMs);
+        expect(breaks[0].visibility).toMatchObject({ before: true, after: false });
+        expect(breaks[0].visibility?.occupantId).toBeGreaterThan(0);
+      }
+    });
+  }
+});
+
 test.describe("single TNT", () => {
   test("arms, detonates, and drives radial tile impacts before cascade", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");
@@ -273,9 +419,22 @@ test.describe("single TNT", () => {
     expect(detonation.atMs).toBeLessThan(cascadeStart.atMs);
     expect(audio).toContain("tntArm");
     expect(audio).toContain("tntBlast");
+    expect(trace.filter((entry) => entry.kind === "tnt-detonation")).toHaveLength(1);
     expect(trace.filter((entry) => entry.kind === "screen-flash")).toHaveLength(1);
     expect(trace.filter((entry) => entry.kind === "shockwave")).toHaveLength(1);
-    expect(trace.filter((entry) => entry.kind === "shake-request")).toHaveLength(1);
+    const shakes = trace.filter(entry => entry.kind === "shake-request");
+    const activationShakes = shakes.filter(entry => entry.atMs < cascadeStart.atMs);
+    expect(activationShakes).toHaveLength(1);
+    expect(activationShakes[0].atMs).toBe(detonation.atMs);
+
+    const laterGroups = trace.filter(entry => entry.kind === "match-group-start" && entry.atMs >= cascadeStart.atMs);
+    expect(laterGroups.map(entry => Number(entry.detail))).toEqual([6, 6, 6]);
+    expect(shakes).toHaveLength(1 + laterGroups.length);
+    for (const group of laterGroups) {
+      const groupShakes = shakes.filter(entry => entry.atMs === group.atMs);
+      expect(groupShakes).toHaveLength(1);
+      expect(Number(groupShakes[0].detail)).toBeLessThan(Number(activationShakes[0].detail));
+    }
   });
 });
 
@@ -372,7 +531,24 @@ test.describe("single light ball", () => {
     expect(release.atMs).toBeLessThan(undim.atMs);
     expect(undim.atMs).toBeLessThan(cascade.atMs);
     expect(cascade.atMs - undim.atMs).toBeGreaterThanOrEqual(180);
-    expect(cascade.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_050);
+    // Task 6 adds 20 ms to each of four wave intervals; retain the same 50 ms headroom.
+    // Bound the primary effect, not the additional activation/clear before gravity.
+    expect(undim.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_130);
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    const firstGravity = frames.find(frame => frame.kind === "gravity")!;
+    const clears = frames.filter(frame => frame.kind === "clear" && frame.ordinal < firstGravity.ordinal);
+    expect(clears).toHaveLength(2);
+    expect(clears.map(frame => frame.beforeIds.length - frame.expected.length)).toEqual([14, 12]);
+    expect(undim.atMs).toBeLessThanOrEqual(clears[0].atMs);
+    expect(clears[0].atMs).toBeLessThan(clears[1].atMs);
+    expect(clears[1].atMs).toBeLessThanOrEqual(cascade.atMs);
+    const secondaryIds = clears[1].beforeIds.filter(id => !clears[1].expected.some(cell => cell.occupantId === id));
+    const secondaryImpacts = trace.filter(entry => entry.kind === "tile-impact"
+      && entry.atMs > clears[0].atMs && entry.atMs <= clears[1].atMs);
+    expect(secondaryImpacts.map(entry => entry.visibility?.occupantId).sort((a, b) => a! - b!))
+      .toEqual(secondaryIds.sort((a, b) => a - b));
+    expect(clears[1].rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId })))
+      .toEqual(clears[1].expected);
     expect(trace.some((entry) => entry.kind === "combo-charge")).toBe(false);
     expect(flashes).toHaveLength(1);
     expect(flashes[0].detail).toBe("alpha=0.22;durationMs=80");
@@ -381,6 +557,106 @@ test.describe("single light ball", () => {
     expect(longPlan!.durationMs).toBeGreaterThan(oneCellPlan!.durationMs);
   });
 });
+
+test.describe("engine-driven power-up chains", () => {
+  test("plays a secondary TNT after a tapped rocket without inventing a combo", async ({ page }) => {
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    await page.route("**/levels/level_001.json", route => route.fulfill({ json: specimen.level }));
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    expect(trace.filter(entry => entry.kind === "powerup-charge").map(entry => entry.detail)).toEqual(["rocket", "tnt"]);
+    expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(0);
+    expect(traceEntry(trace, "tnt-arm").atMs).toBeGreaterThan(trace.filter(entry => entry.kind === "rocket-tile-impact").at(-1)!.atMs);
+    expect(traceEntry(trace, "tnt-detonation").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
+  });
+
+  for (const specimen of resolutionSpecimens.filter(item => item.name.startsWith("combo-"))) {
+    test(`${specimen.name} presents each real activation once and opens pieces on combo contact`, async ({ page }) => {
+      test.setTimeout(60_000);
+      const { trace, frames, resolution } = await playRecordedPowerUpAction(page, specimen.level, specimen.actions[0]);
+      const firstClear = resolution.steps.find(step => step.kind === "clear")!;
+      const firstClearFrame = frames.find(frame => frame.ordinal === firstClear.ordinal)!;
+      const charge = traceEntry(trace, "combo-charge");
+      expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(1);
+      for (const clear of firstClear.clears) {
+        const impacts = trace.filter(entry => entry.kind === "tile-impact" && entry.visibility?.occupantId === clear.occupantId
+          && entry.atMs >= charge.atMs && entry.atMs <= firstClearFrame.atMs);
+        expect(impacts, `Cleared occupant ${clear.occupantId}`).toHaveLength(1);
+        expect(impacts[0].visibility).toMatchObject({ before: true, after: false });
+        expect(trace.some(entry => entry.kind === "combo-tile-impact" && entry.detail === impacts[0].detail
+          && entry.atMs === impacts[0].atMs)).toBe(true);
+      }
+    });
+  }
+
+  test("finishes a deliberate combo and the third Light Ball without a fictitious second combo", async ({ page }) => {
+    test.setTimeout(60_000);
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const level = structuredClone(specimen.level);
+    Object.assign(level.cellMap[3][5], { tile: null, powerUp: "lightBall" });
+    const { trace } = await playRecordedPowerUpAction(page, level, specimen.actions[0]);
+    expect(trace.filter(entry => entry.kind === "combo-charge").map(entry => entry.detail)).toEqual(["rocket+tnt"]);
+    expect(trace.filter(entry => entry.kind === "lightBall-dim")).toHaveLength(1);
+    expect(traceEntry(trace, "lightBall-dim").atMs).toBeGreaterThan(traceEntry(trace, "combo-impact").atMs);
+    expect(traceEntry(trace, "lightBall-undim").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
+  });
+
+  test("waits for both secondary effects when their durations differ", async ({ page }) => {
+    test.setTimeout(60_000);
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const level = structuredClone(specimen.level);
+    Object.assign(level.cellMap[3][5], { tile: null, powerUp: "lightBall" });
+    const { trace, resolution } = await playRecordedPowerUpAction(page, level, { kind: "tap", at: { row: 3, col: 3 } });
+    const children = resolution.steps.flatMap(step => step.activations).filter(record => record.kind === "secondary" && !record.isRepeat);
+    const childIds = [...new Set(children.map(record => record.activationId))];
+    expect(childIds).toHaveLength(2);
+    const starts = childIds.map(id => trace.find(entry => entry.kind === "powerup-activation-start" && entry.detail === id)!);
+    const ends = childIds.map(id => trace.find(entry => entry.kind === "powerup-activation-complete" && entry.detail === id)!);
+    expect(starts[0].atMs).toBe(starts[1].atMs);
+    expect(ends[0].atMs).not.toBe(ends[1].atMs);
+    expect(traceEntry(trace, "cascade-start").atMs).toBeGreaterThanOrEqual(Math.max(...ends.map(entry => entry.atMs)));
+    expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(0);
+  });
+});
+
+async function playRecordedPowerUpAction(page: Page, level: LevelDefinition, action: BoardAction) {
+  const resolution = new BoardEngine(level, levelSeed(level.id)).applyWithResolution(action);
+  await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
+  await page.goto("/?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  if (action.kind === "swap") await dragBoardCells(page, action.from, action.to);
+  else if (action.kind === "tap") await clickBoardPoint(page, await boardCellPoint(page, action.at));
+  else throw new Error("Recorded chain scenarios use real on-board power-ups");
+  await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+    .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"), null, { timeout: 45_000 });
+  const trace = await presentationTrace(page);
+  const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+  const activations = resolution.steps.flatMap(step => step.activations).filter(record => !record.isRepeat);
+  const ids = [...new Set(activations.map(record => record.activationId))];
+  expect(trace.filter(entry => entry.kind === "powerup-activation-start").map(entry => entry.detail)).toEqual(ids);
+  const ends = trace.filter(entry => entry.kind === "powerup-activation-complete");
+  expect(ends.map(entry => entry.detail).sort()).toEqual([...ids].sort());
+  expect(frames).toHaveLength(resolution.steps.length);
+  for (const step of resolution.steps) {
+    const frame = frames.find(item => item.ordinal === step.ordinal)!;
+    const expected = step.after.grid.allPositions.flatMap(position => {
+      const occupantId = step.after.grid.get(position).debugTileId;
+      return occupantId === null ? [] : [{ position, occupantId }];
+    });
+    expect(frame.rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId }))).toEqual(expected);
+    if (step.kind !== "activation") continue;
+    const nextClear = frames.find(item => item.ordinal > step.ordinal && item.kind === "clear")!;
+    for (const activation of step.activations.filter(record => !record.isRepeat)) {
+      const end = ends.find(entry => entry.detail === activation.activationId)!;
+      expect(end.atMs).toBeLessThanOrEqual(nextClear.atMs);
+    }
+  }
+  return { trace, frames, resolution };
+}
 
 test.describe("power-up combo choreography", () => {
   for (const combo of powerUpCombos) {
@@ -624,11 +900,11 @@ test.describe("audio cue ordering", () => {
     const trace = await presentationTrace(page);
     const sequenceId = trace.at(-1)?.sequenceId;
     const cascadeTrace = trace.filter((entry) => entry.sequenceId === sequenceId);
-    const cascadeStart = traceEntry(cascadeTrace, "cascade-start");
+    const cascadeStarts = cascadeTrace.filter(entry => entry.kind === "cascade-start");
     const chainCue = cascadeTrace.find((entry) => entry.kind === "audio-cue" && entry.detail === "chainRise");
 
     expect(chainCue).toBeDefined();
-    expect(chainCue?.atMs).toBe(cascadeStart.atMs);
+    expect(cascadeStarts.some(entry => entry.atMs === chainCue?.atMs)).toBe(true);
   });
 });
 

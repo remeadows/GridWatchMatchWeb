@@ -8,3 +8,4 @@ export const WIN_SEQUENCE_LEAD_IN_MS: number = 150;
 export const WIN_ROW_DESTRUCTION_STAGGER_MS: number = 300;
 export const WIN_ROW_DESTRUCTION_POP_MS: number = 250;
 export const WIN_SEQUENCE_FINAL_HOLD_MS: number = 300;
+export const PLAYBACK_RECOVERY_GRACE_MS: number = 5_000;
