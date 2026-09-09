@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest } from "../data/presentationAssets";
-import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
+import { chainPlaybackRate, createMatchAudioDispatch, type TilePopVariation } from "../game/presentation";
 import {
   AudioService,
   type BoardAudioBackend,
@@ -87,6 +87,161 @@ function createService(backend: FakeBoardAudioBackend | null, playFallback = vi.
 }
 
 describe("board audio service", () => {
+  it("routes decoded sounds through one shared compressor instead of clipping summed cue outputs", async () => {
+    const destination = {};
+    const compressor = { threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 0 },
+      attack: { value: 0 }, release: { value: 0 }, connect: vi.fn() };
+    const gains: Array<{ gain: { value: number }; connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> }> = [];
+    const makeCompressor = vi.fn(() => compressor);
+    vi.stubGlobal("AudioContext", class {
+      state = "running";
+      destination = destination;
+      createDynamicsCompressor = makeCompressor;
+      async decodeAudioData() { return {}; }
+      createGain() {
+        const node = { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() };
+        gains.push(node);
+        return node;
+      }
+      createBufferSource() { return { buffer: null, playbackRate: { value: 1 }, connect: vi.fn(), start: vi.fn(), stop: vi.fn() }; }
+    });
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) })));
+    try {
+      const service = new AudioService();
+      service.configure(enabledSettings);
+      await service.preloadBoardSounds();
+      service.playBoardCue("comboImpact");
+      service.playBoardCue("tntBlast");
+      expect(makeCompressor).toHaveBeenCalledTimes(1);
+      expect(compressor.connect).toHaveBeenCalledWith(destination);
+      expect(compressor.threshold.value).toBeLessThan(0);
+      expect(compressor.ratio.value).toBeGreaterThan(1);
+      expect(gains).toHaveLength(2);
+      expect(gains.every(node => node.connect.mock.calls[0][0] === compressor)).toBe(true);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it("an old scene stops only its own sounds and cannot delay or cancel the new scene", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    const oldScene = Symbol("old"), newScene = Symbol("new");
+    service.playBoardCue("tntBlast", {}, oldScene);
+    service.playBoardCue("comboImpact", {}, newScene);
+    const oldDone = vi.fn(), newDone = vi.fn();
+    service.whenBoardSilent(oldDone, oldScene);
+    service.whenBoardSilent(newDone, newScene);
+    service.stopBoardSounds(oldScene);
+    expect(oldDone).toHaveBeenCalledTimes(1);
+    expect(newDone).not.toHaveBeenCalled();
+    expect(backend.plays[1].source.stopped).toBe(false);
+    backend.plays[1].source.stop();
+    expect(newDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks default HTML fallback completion and releases rejected playback", async () => {
+    const element = {
+      volume: 1, onended: null as (() => void) | null, onerror: null as (() => void) | null,
+      play: vi.fn().mockResolvedValue(undefined), pause: vi.fn()
+    };
+    const service = new AudioService({ createBoardBackend: () => null,
+      createAudio: () => element as unknown as HTMLAudioElement });
+    service.configure(enabledSettings);
+    service.playBoardCue("tntBlast");
+    const done = vi.fn();
+    service.whenBoardSilent(done);
+    expect(done).not.toHaveBeenCalled();
+    element.onended?.();
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(element.onended).toBeNull();
+    expect(element.onerror).toBeNull();
+    element.play.mockRejectedValueOnce(new Error("Autoplay denied"));
+    service.playBoardCue("comboImpact");
+    service.whenBoardSilent(done);
+    await Promise.resolve();
+    expect(done).toHaveBeenCalledTimes(2);
+    expect(element.pause).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds a large clear to one body and three pop variations", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.playMatchClear(Array.from({ length: 49 }, (_, index) => ({
+      sample: index % 2 ? "tile_pop_b" : "tile_pop_a", playbackRate: 1
+    })));
+    expect(backend.plays.map(entry => entry.url)).toEqual([
+      "tileClusterBody", "tilePopA", "tilePopB", "tilePopA"
+    ].map(key => presentationAudioUrl(key as keyof typeof presentationAudioManifest)));
+  });
+
+  it("coalesces simultaneous group bodies and bounds every clear wave without losing later variations", () => {
+    const dispatch = createMatchAudioDispatch();
+    const variation: TilePopVariation = { sample: "tile_pop_b", playbackRate: 1.04 };
+    const first = dispatch("left", 0, variation);
+    const simultaneous = dispatch("right", 0, variation);
+    expect(first.map(cue => cue.key)).toEqual(["tileClusterBody", "tilePopB"]);
+    expect(simultaneous.map(cue => cue.key)).toEqual(["tilePopB"]);
+    expect(simultaneous[0].playback.playbackRate).toBe(1.04);
+    const cues = [...first, ...simultaneous];
+    for (let index = 1; index <= 49; index++) cues.push(...dispatch(String(index), index * 50, variation));
+    expect(cues.filter(cue => cue.key === "tileClusterBody")).toHaveLength(4);
+    expect(cues.filter(cue => cue.key === "tilePopB")).toHaveLength(8);
+    const nextWave = createMatchAudioDispatch();
+    expect(nextWave("left", 0, variation).map(cue => cue.key)).toEqual(["tileClusterBody", "tilePopB"]);
+  });
+
+  it("reclaims a stopped slot immediately even when WebAudio delivers ended asynchronously", () => {
+    const backend = new FakeBoardAudioBackend();
+    backend.play = (url, playback, _onEnded) => {
+      const source = new FakeBoardAudioSource(() => undefined);
+      backend.plays.push({ url, playback, source });
+      return source;
+    };
+    const { service } = createService(backend);
+    for (let index = 0; index < 40; index++) service.playBoardCue("tilePopA");
+    expect(backend.plays.filter(entry => !entry.source.stopped)).toHaveLength(16);
+    expect(backend.plays.slice(0, 24).every(entry => entry.source.stopped)).toBe(true);
+  });
+
+  it("waits for the final power-up source and notifies completion exactly once", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.playBoardCue("tntBlast");
+    service.playBoardCue("tilePopA");
+    const complete = vi.fn();
+    service.whenBoardSilent(complete);
+    backend.plays[1].source.stop();
+    expect(complete).not.toHaveBeenCalled();
+    backend.plays[0].source.stop();
+    backend.plays[0].source.stop();
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels an old scene completion before releasing every board sound on teardown", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.playBoardCue("comboImpact");
+    const complete = vi.fn();
+    const cancel = service.whenBoardSilent(complete);
+    cancel();
+    service.stopBoardSounds();
+    expect(backend.plays.every(entry => entry.source.stopped)).toBe(true);
+    expect(complete).not.toHaveBeenCalled();
+    service.whenBoardSilent(complete);
+    expect(complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("muting SFX stops board tails without disabling voice or music", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.playBoardCue("lightBallRelease");
+    const complete = vi.fn();
+    service.whenBoardSilent(complete);
+    service.configure({ ...enabledSettings, sfxEnabled: false });
+    expect(backend.plays[0].source.stopped).toBe(true);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(service.playBoardCue("tntBlast")).toBe(false);
+  });
+
   it("preloads every approved board sample once", async () => {
     const backend = new FakeBoardAudioBackend();
     const { service } = createService(backend);

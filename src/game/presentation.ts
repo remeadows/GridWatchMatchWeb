@@ -203,6 +203,34 @@ export interface TilePopVariation {
   playbackRate: number;
 }
 
+interface MatchAudioCue {
+  key: "tileClusterBody" | "tilePopA" | "tilePopB";
+  playback: { gain: number; playbackRate: number };
+}
+
+export function createMatchAudioDispatch(): (groupId: string, atMs: number, variation: TilePopVariation) => MatchAudioCue[] {
+  const groups = new Map<string, number>();
+  let bodies = 0;
+  let pops = 0;
+  let lastBodyAtMs = Number.NEGATIVE_INFINITY;
+  return (groupId, atMs, variation) => {
+    const groupPops = groups.get(groupId) ?? 0;
+    groups.set(groupId, groupPops + 1);
+    const cues: MatchAudioCue[] = [];
+    if (groupPops === 0 && bodies < 4 && atMs - lastBodyAtMs >= 45) {
+      bodies++;
+      lastBodyAtMs = atMs;
+      cues.push({ key: "tileClusterBody", playback: { gain: 0.62, playbackRate: 1 } });
+    }
+    if (groupPops < 3 && pops < 8) {
+      pops++;
+      cues.push({ key: variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB",
+        playback: { gain: 0.42, playbackRate: variation.playbackRate } });
+    }
+    return cues;
+  };
+}
+
 export interface TntDetonationPlan {
   armAtMs: number;
   chargeAtMs: number;

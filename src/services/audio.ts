@@ -1,6 +1,6 @@
 import { audioUrl, presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest, type PresentationAudioKey } from "../data/presentationAssets";
-import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
+import { chainPlaybackRate, createMatchAudioDispatch, type TilePopVariation } from "../game/presentation";
 import type { SettingsState } from "../state/save";
 
 type MusicTrack = "bgm_menu.mp3" | "bgm_gameplay.mp3" | "bgm_boss.mp3";
@@ -44,9 +44,10 @@ interface AudioServiceOptions {
 }
 
 interface ActiveBoardSource {
-  source: BoardAudioSource;
+  source: BoardAudioSource | null;
   gain: number;
   order: number;
+  owner?: symbol;
 }
 
 export class AudioService {
@@ -57,22 +58,26 @@ export class AudioService {
   private boardPreload: Promise<void> | null = null;
   private activeBoardSources: ActiveBoardSource[] = [];
   private boardSourceOrder = 0;
+  private readonly silenceListeners = new Set<{ callback: () => void; owner?: symbol }>();
   private lastCascadeLandingMs = Number.NEGATIVE_INFINITY;
   private readonly createBoardBackend: () => BoardAudioBackend | null;
   private readonly createAudio: (url: string) => HTMLAudioElement | null;
   private readonly now: () => number;
-  private readonly playFallback: (url: string, volume: number) => void;
+  private readonly playFallback: (url: string, volume: number, onEnded: () => void) => BoardAudioSource | null;
 
   constructor(options: AudioServiceOptions = {}) {
     this.createBoardBackend = options.createBoardBackend ?? createDefaultBoardBackend;
     this.createAudio = options.createAudio ?? createHtmlAudio;
     this.now = options.now ?? (() => performance.now());
-    this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
+    this.playFallback = options.playFallback
+      ? (url, volume) => { options.playFallback!(url, volume); return null; }
+      : (url, volume, onEnded) => this.playHtmlBoardAudio(url, volume, onEnded);
   }
 
   configure(settings: SettingsState): void {
     this.settings = settings;
     if (this.music) this.music.muted = !settings.musicEnabled;
+    if (!settings.sfxEnabled) this.stopBoardSounds();
   }
 
   playMusic(track: MusicTrack): void {
@@ -116,12 +121,9 @@ export class AudioService {
   }
 
   playMatchClear(variations: ReadonlyArray<TilePopVariation>): void {
-    this.playBoardCue("tileClusterBody", { gain: 0.62 });
+    const dispatch = createMatchAudioDispatch();
     for (const variation of variations) {
-      this.playBoardCue(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
-        gain: 0.42,
-        playbackRate: variation.playbackRate
-      });
+      for (const cue of dispatch("match", this.now(), variation)) this.playBoardCue(cue.key, cue.playback);
     }
   }
 
@@ -132,11 +134,11 @@ export class AudioService {
     this.playBoardCue("cascadeLand", { gain: 0.34 });
   }
 
-  playChain(depth: number): boolean {
-    return this.playBoardCue("chainRise", { gain: 0.48, playbackRate: chainPlaybackRate(depth) });
+  playChain(depth: number, owner?: symbol): boolean {
+    return this.playBoardCue("chainRise", { gain: 0.48, playbackRate: chainPlaybackRate(depth) }, owner);
   }
 
-  playBoardCue(key: PresentationAudioKey, overrides: Partial<BoardAudioPlayback> = {}): boolean {
+  playBoardCue(key: PresentationAudioKey, overrides: Partial<BoardAudioPlayback> = {}, owner?: symbol): boolean {
     if (!this.settings?.sfxEnabled) return false;
     const playback: BoardAudioPlayback = {
       gain: overrides.gain ?? boardCueGain(key),
@@ -144,23 +146,39 @@ export class AudioService {
     };
     const url = presentationAudioUrl(key);
     const backend = this.resolveBoardBackend();
-    if (!backend) {
-      this.playFallback(url, playback.gain);
-      return true;
-    }
-
     this.dropSourceForCapacity();
-    let active: ActiveBoardSource | null = null;
-    const source = backend.play(url, playback, () => {
-      if (active) this.activeBoardSources = this.activeBoardSources.filter((entry) => entry !== active);
-    });
-    if (!source) {
-      this.playFallback(url, playback.gain);
-      return true;
-    }
-    active = { source, gain: playback.gain, order: this.boardSourceOrder++ };
+    const active: ActiveBoardSource = { source: null, gain: playback.gain, order: this.boardSourceOrder++, owner };
     this.activeBoardSources.push(active);
+    const ended = () => {
+      this.activeBoardSources = this.activeBoardSources.filter(entry => entry !== active);
+      this.notifyBoardSilence();
+    };
+    active.source = backend?.play(url, playback, ended) ?? this.playFallback(url, playback.gain, ended) ?? null;
+    if (!active.source) ended();
     return true;
+  }
+
+  whenBoardSilent(onSilent: () => void, owner?: symbol): () => void {
+    const listener = { callback: onSilent, owner };
+    if (!this.activeBoardSources.some(entry => owner === undefined || entry.owner === owner)) onSilent();
+    else this.silenceListeners.add(listener);
+    return () => { this.silenceListeners.delete(listener); };
+  }
+
+  stopBoardSounds(owner?: symbol): void {
+    const active = this.activeBoardSources.filter(entry => owner === undefined || entry.owner === owner);
+    this.activeBoardSources = this.activeBoardSources.filter(entry => !active.includes(entry));
+    for (const entry of active) entry.source?.stop();
+    this.lastCascadeLandingMs = Number.NEGATIVE_INFINITY;
+    this.notifyBoardSilence();
+  }
+
+  private notifyBoardSilence(): void {
+    for (const listener of [...this.silenceListeners]) {
+      if (this.activeBoardSources.some(entry => listener.owner === undefined || entry.owner === listener.owner)) continue;
+      this.silenceListeners.delete(listener);
+      listener.callback();
+    }
   }
 
   vibrate(pattern: number | number[]): void {
@@ -179,7 +197,28 @@ export class AudioService {
   private dropSourceForCapacity(): void {
     if (this.activeBoardSources.length < MAX_ACTIVE_BOARD_SOURCES) return;
     const [candidate] = [...this.activeBoardSources].sort((left, right) => left.gain - right.gain || left.order - right.order);
-    candidate?.source.stop();
+    // WebAudio's ended event is asynchronous; reclaim ownership before replacement.
+    this.activeBoardSources = this.activeBoardSources.filter(entry => entry !== candidate);
+    candidate?.source?.stop();
+  }
+
+  private playHtmlBoardAudio(url: string, volume: number, onEnded: () => void): BoardAudioSource | null {
+    const audio = this.createAudio(url);
+    if (!audio) return null;
+    audio.volume = volume;
+    let ended = false;
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.pause();
+      onEnded();
+    };
+    audio.onended = finish;
+    audio.onerror = finish;
+    void audio.play().catch(finish);
+    return { stop: finish };
   }
 
   private playHtmlAudio(url: string, volume: number): void {
@@ -193,8 +232,17 @@ export class AudioService {
 class WebAudioBoardBackend implements BoardAudioBackend {
   private readonly cache = new Map<string, AudioBuffer>();
   private readonly pending = new Map<string, Promise<void>>();
+  private readonly output: DynamicsCompressorNode;
 
-  constructor(private readonly context: AudioContext) {}
+  constructor(private readonly context: AudioContext) {
+    this.output = context.createDynamicsCompressor();
+    this.output.threshold.value = -8;
+    this.output.knee.value = 6;
+    this.output.ratio.value = 12;
+    this.output.attack.value = 0;
+    this.output.release.value = 0.12;
+    this.output.connect(context.destination);
+  }
 
   async resume(): Promise<void> {
     if (this.context.state !== "running") await this.context.resume();
@@ -219,6 +267,7 @@ class WebAudioBoardBackend implements BoardAudioBackend {
   }
 
   play(url: string, playback: BoardAudioPlayback, onEnded: () => void): BoardAudioSource | null {
+    if (this.context.state !== "running") return null;
     const buffer = this.cache.get(url);
     if (!buffer) {
       void this.preload(url).catch(() => undefined);
@@ -230,8 +279,12 @@ class WebAudioBoardBackend implements BoardAudioBackend {
     source.playbackRate.value = playback.playbackRate;
     gain.gain.value = playback.gain;
     source.connect(gain);
-    gain.connect(this.context.destination);
-    source.onended = onEnded;
+    gain.connect(this.output);
+    source.onended = () => {
+      source.disconnect();
+      gain.disconnect();
+      onEnded();
+    };
     source.start();
     return { stop: () => source.stop() };
   }

@@ -879,7 +879,7 @@ test.describe("audio cue ordering", () => {
     expect(landingCue?.atMs).toBe(landing.atMs);
   });
 
-  test("cues cascade chain escalation when the next cascade starts", async ({ page }) => {
+  test("cues cascade chain escalation once when each landed match is recognized", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=6");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
@@ -900,11 +900,10 @@ test.describe("audio cue ordering", () => {
     const trace = await presentationTrace(page);
     const sequenceId = trace.at(-1)?.sequenceId;
     const cascadeTrace = trace.filter((entry) => entry.sequenceId === sequenceId);
-    const cascadeStarts = cascadeTrace.filter(entry => entry.kind === "cascade-start");
-    const chainCue = cascadeTrace.find((entry) => entry.kind === "audio-cue" && entry.detail === "chainRise");
-
-    expect(chainCue).toBeDefined();
-    expect(cascadeStarts.some(entry => entry.atMs === chainCue?.atMs)).toBe(true);
+    const recognized = cascadeTrace.filter(entry => entry.kind === "match-recognition-start").slice(1);
+    const chainCues = cascadeTrace.filter(entry => entry.kind === "audio-cue" && entry.detail === "chainRise");
+    expect(recognized.length).toBeGreaterThan(0);
+    expect(chainCues.map(entry => entry.atMs)).toEqual(recognized.map(entry => entry.atMs));
   });
 });
 
