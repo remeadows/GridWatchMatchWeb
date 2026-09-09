@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
+import { Grid2D, emptyCell, type BoardSnapshot, type PowerUpEvent, type PowerUpType, type SpawnEvent } from "../engine";
 import {
   canonicalComboKey,
   cascadeFallDurationMs,
@@ -16,6 +16,7 @@ import {
   pieceDisplayProfile,
   propellerFlightPlan,
   rocketLanePlan,
+  singlePowerUpImpacts,
   tntDetonationPlan,
   tilePopVariation,
   type CanonicalComboKey,
@@ -27,6 +28,71 @@ const rocketVertical: PowerUpType = { kind: "rocket", orientation: "vertical" };
 const propeller: PowerUpType = { kind: "propeller" };
 const tnt: PowerUpType = { kind: "tnt" };
 const lightBall: PowerUpType = { kind: "lightBall" };
+
+describe("single power-up contact contract", () => {
+  const snapshot: BoardSnapshot = {
+    grid: new Grid2D(7, 7, ({ row, col }) => ({ ...emptyCell(), baseTile: "packet", debugTileId: row * 7 + col + 1 })),
+    moveCount: 0, moveLimit: 20, objectiveProgress: {}, objectiveTargets: {},
+    spawnWeights: { packet: 1, firewall: 0, key: 0, threat: 0, zeroDay: 0 }, rngSeed: "41", chainDepth: 0
+  };
+  const origin = { row: 3, col: 3 };
+  const event = (powerUpType: PowerUpType, affectedPositions: PowerUpEvent["affectedPositions"]): PowerUpEvent => ({
+    powerUpType, origin, affectedPositions, trigger: { kind: "tap" }
+  });
+  const clearKeys = new Set(snapshot.grid.allPositions.map(position => `${position.row},${position.col}`));
+
+  it("retains TNT target/time pairing even when targets arrive in shuffled order", () => {
+    const far = { row: 4, col: 4 };
+    const near = { row: 3, col: 4 };
+    const plan = tntDetonationPlan(origin, [far, origin, near]);
+    expect(plan.impacts.map(hit => hit.position)).toEqual([origin, near, far]);
+    const hits = singlePowerUpImpacts(event(tnt, [far, origin, near]), snapshot, clearKeys, "tnt-1");
+    expect(hits.map(hit => [hit.position, hit.atMs])).toEqual(plan.impacts.map(hit => [hit.position, hit.atMs]));
+    expect(hits.every(hit => hit.eventId === "tnt-1" && hit.disposition === "clear")).toBe(true);
+  });
+
+  it("ends propeller target compression at arrival rather than appending it", () => {
+    const targets = [{ row: 0, col: 2 }, { row: 6, col: 5 }];
+    const plan = propellerFlightPlan(origin, targets);
+    const hits = singlePowerUpImpacts(event(propeller, targets), snapshot, clearKeys, "drone-1");
+    const primary = hits.find(hit => hit.position.row === 0)!;
+    const secondary = hits.find(hit => hit.position.row === 6)!;
+    expect(primary.atMs).toBe(plan.impactAtMs);
+    expect(primary.compressionStartAtMs + primary.compressionMs).toBe(primary.atMs);
+    expect(secondary.atMs).toBe(plan.secondaryImpactAtMs[0]);
+  });
+
+  it("deduplicates rocket origin and shortens preparation for early lane contact", () => {
+    const lane = snapshot.grid.allPositions.filter(position => position.row === 3);
+    const hits = singlePowerUpImpacts(event(rocketHorizontal, lane), snapshot, clearKeys, "rocket-1");
+    const plan = rocketLanePlan(origin, "horizontal", 7, 7);
+    expect(hits).toHaveLength(7);
+    for (const head of plan.heads) for (const pass of head.passTimes) {
+      const hit = hits.find(hit => hit.position.col === pass.position.col)!;
+      expect(hit.atMs).toBe(pass.atMs);
+      expect(hit.compressionStartAtMs + hit.compressionMs).toBe(hit.atMs);
+      expect(hit.compressionStartAtMs).toBeGreaterThanOrEqual(0);
+    }
+    expect(hits.find(hit => hit.position.col === 3)!.compressionMs).toBeLessThan(100);
+  });
+
+  it("uses the same seeded Light Ball batches for contacts and tile breaks", () => {
+    const targets = snapshot.grid.allPositions.filter(position => position.col % 2 === 0);
+    const waves = lightBallWavePlan(origin, targets, snapshot.rngSeed).waves;
+    const hits = singlePowerUpImpacts(event(lightBall, targets), snapshot, clearKeys, "ball-1");
+    const byCell = new Map(hits.map(hit => [`${hit.position.row},${hit.position.col}`, hit]));
+    const offsets = waves.flatMap(wave => wave.targets.map(position => byCell.get(`${position.row},${position.col}`)!.atMs - wave.atMs));
+    expect(new Set(offsets).size).toBe(1);
+    expect(offsets[0]).toBeGreaterThan(0);
+  });
+
+  it("classifies a protected tile hit as damage even when a later clear reuses its cell", () => {
+    const protectedSnapshot = { ...snapshot, grid: snapshot.grid.clone(cell => ({ ...cell })) };
+    protectedSnapshot.grid.get(origin).overlay = { kind: "encryptedVolume", hp: 2 };
+    const hit = singlePowerUpImpacts(event(tnt, [origin]), protectedSnapshot, clearKeys, "damage-1")[0];
+    expect(hit.disposition).toBe("damage");
+  });
+});
 const presentationEffects: PresentationEffectKey[] = [
   "rocket",
   "propeller",

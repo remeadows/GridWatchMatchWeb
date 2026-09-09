@@ -1,4 +1,4 @@
-import type { GridPosition, PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
+import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
 import {
   CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
@@ -20,6 +20,7 @@ import {
   MATCH_WAVE_MAX_MS,
   POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
+  LIGHTBALL_DIM_MS,
   LIGHTBALL_EFFECT_RELEASE_DELAY_COUNT,
   LIGHTBALL_EFFECT_WAVE_STAGGER_COUNT,
   LIGHTBALL_RELEASE_DELAY_MS,
@@ -156,6 +157,7 @@ export interface TntDetonationPlan {
   chargeAtMs: number;
   detonationAtMs: number;
   impactAtMs: number[];
+  impacts: RocketPassPlan[];
   cascadeStartAtMs: number;
   sequenceBudgetMs: number;
 }
@@ -208,6 +210,17 @@ export interface PresentationTraceEntry {
   plannedAtMs: number;
   kind: string;
   detail?: string;
+  visibility?: { before: boolean; after: boolean; occupantId: number | null };
+}
+
+export interface PowerUpCellImpact {
+  position: GridPosition;
+  atMs: number;
+  eventId: string;
+  cause: SinglePowerUpEffectKey;
+  disposition: "clear" | "damage";
+  compressionStartAtMs: number;
+  compressionMs: number;
 }
 
 export interface PieceDisplayProfile {
@@ -382,20 +395,63 @@ export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): Created
 }
 
 export function tntDetonationPlan(origin: GridPosition, affectedPositions: ReadonlyArray<GridPosition>): TntDetonationPlan {
-  const impactAtMs = [...affectedPositions]
+  const impacts = [...affectedPositions]
     .sort((left, right) => manhattanDistance(origin, left) - manhattanDistance(origin, right))
-    .map((position) => TNT_DETONATION_AT_MS + Math.min(
+    .map((position) => ({ position: { ...position }, atMs: TNT_DETONATION_AT_MS + Math.min(
       TNT_RADIAL_IMPACT_MAX_MS,
       manhattanDistance(origin, position) * TNT_RADIAL_IMPACT_STAGGER_MS
-    ));
+    ) }));
   return {
     armAtMs: TNT_ARM_AT_MS,
     chargeAtMs: TNT_CHARGE_AT_MS,
     detonationAtMs: TNT_DETONATION_AT_MS,
-    impactAtMs,
+    impactAtMs: impacts.map(impact => impact.atMs),
+    impacts,
     cascadeStartAtMs: TNT_DETONATION_AT_MS + TNT_CASCADE_AFTER_DETONATION_MS,
     sequenceBudgetMs: TNT_SEQUENCE_BUDGET_MS
   };
+}
+
+/** Preparation follows the contact plan; only the actual VFX callback opens a cell. */
+export function singlePowerUpImpacts(
+  event: PowerUpEvent,
+  snapshot: BoardSnapshot,
+  clearKeys: ReadonlySet<string>,
+  eventId: string
+): PowerUpCellImpact[] {
+  const contacts: RocketPassPlan[] = [];
+  const { origin, affectedPositions, powerUpType } = event;
+  if (powerUpType.kind === "tnt") {
+    contacts.push(...tntDetonationPlan(origin, [origin, ...affectedPositions]).impacts);
+  } else if (powerUpType.kind === "rocket") {
+    const affected = new Set([origin, ...affectedPositions].map(position => `${position.row},${position.col}`));
+    contacts.push(...rocketLanePlan(origin, powerUpType.orientation, snapshot.grid.rows, snapshot.grid.cols)
+      .heads.flatMap(head => head.passTimes).filter(pass => affected.has(`${pass.position.row},${pass.position.col}`)));
+  } else if (powerUpType.kind === "propeller") {
+    const plan = propellerFlightPlan(origin, affectedPositions);
+    contacts.push({ position: origin, atMs: plan.liftAtMs }, { position: plan.target, atMs: plan.impactAtMs });
+    affectedPositions.slice(1).forEach((position, index) => contacts.push({ position, atMs: plan.secondaryImpactAtMs[index] }));
+  } else {
+    const plan = lightBallWavePlan(origin, affectedPositions, snapshot.rngSeed);
+    contacts.push({ position: origin, atMs: LIGHTBALL_DIM_MS + LIGHTBALL_CHARGE_MS });
+    for (const wave of plan.waves) for (const position of wave.targets) {
+      contacts.push({ position, atMs: LIGHTBALL_DIM_MS + wave.atMs });
+    }
+  }
+  const unique = new Map<string, PowerUpCellImpact>();
+  for (const contact of contacts.sort((left, right) => left.atMs - right.atMs)) {
+    const key = `${contact.position.row},${contact.position.col}`;
+    if (!snapshot.grid.isValid(contact.position) || unique.has(key)) continue;
+    const cell = snapshot.grid.get(contact.position);
+    if (cell.generator) continue;
+    const compressionMs = Math.min(MATCH_POP_COMPRESSION_MS, contact.atMs);
+    unique.set(key, {
+      position: { ...contact.position }, atMs: contact.atMs, eventId, cause: powerUpType.kind,
+      disposition: !cell.overlay && clearKeys.has(key) ? "clear" : "damage",
+      compressionStartAtMs: contact.atMs - compressionMs, compressionMs
+    });
+  }
+  return [...unique.values()];
 }
 
 export function rocketLanePlan(

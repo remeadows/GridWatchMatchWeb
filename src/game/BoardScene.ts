@@ -62,7 +62,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, clearedKeysFromDelta, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, tilePopVariation, tntDetonationPlan, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -77,6 +77,7 @@ export type BoardAnimationEvent =
   | { id: number; kind: "invalid"; action: BoardAction };
 
 type DragAxis = "horizontal" | "vertical";
+type PowerUpContact = (event: PowerUpEvent, position: GridPosition) => void;
 
 interface DragNeighbor {
   position: GridPosition;
@@ -521,7 +522,7 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("action-received", action.kind);
   }
 
-  private recordPresentation(kind: string, detail?: string, plannedElapsedMs = 0): void {
+  private recordPresentation(kind: string, detail?: string, plannedElapsedMs = 0, visibility?: PresentationTraceEntry["visibility"]): void {
     if (!this.isPresentationTestMode()) return;
     this.presentationPlannedAtMs += plannedElapsedMs;
     const target = window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] };
@@ -531,6 +532,7 @@ export class BoardScene extends Phaser.Scene {
       atMs: this.time.now,
       plannedAtMs: this.presentationPlannedAtMs,
       kind,
+      ...(visibility ? { visibility } : {}),
       ...(detail ? { detail } : {})
     });
     target.__gwPresentationTrace = trace;
@@ -906,9 +908,10 @@ export class BoardScene extends Phaser.Scene {
         this.finishAnimation();
       });
     };
-    const startPowerUpEffectsAfterPopRender = () => {
+    const singleEvents = delta.powerUpEvents.filter(event => event.trigger.kind !== "combo");
+    const startPowerUpEffectsAfterPopRender = (onContact: PowerUpContact) => {
       if (delta.powerUpEvents.length === 0) return;
-      this.playPowerUpEffects(delta, runCascade);
+      this.playPowerUpEffects(delta, runCascade, onContact);
       this.recordPowerUpFxAfterPopRender();
     };
     if (delta.moves.length === 0 && delta.spawns.length === 0) {
@@ -918,10 +921,23 @@ export class BoardScene extends Phaser.Scene {
         this.playDeltaEffects(delta, clearedKeys);
         this.finishAnimation();
       };
-      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors, popStagger, startPowerUpEffectsAfterPopRender);
+      if (clearedKeys.size > 0) this.playTilePops(baseline, clearedKeys, finish, flashColors, popStagger, startPowerUpEffectsAfterPopRender, undefined, true, singleEvents);
       else {
-        if (delta.powerUpEvents.length > 0) this.playPowerUpEffects(delta);
-        finish();
+        if (delta.powerUpEvents.length > 0) {
+          const contacted = new Set<string>();
+          this.playPowerUpEffects(delta, finish, (_event, position) => {
+            const key = positionKey(position);
+            if (contacted.has(key)) return;
+            contacted.add(key);
+            const piece = this.occupantNodes.get(key)?.getByName("piece") as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null;
+            const visible = Boolean(piece?.active && piece.visible);
+            this.recordPresentation("tile-damage", key, 0, {
+              before: visible,
+              after: visible,
+              occupantId: baseline.grid.get(position).debugTileId ?? null
+            });
+          });
+        } else finish();
       }
       return;
     }
@@ -934,7 +950,8 @@ export class BoardScene extends Phaser.Scene {
         popStagger,
         startPowerUpEffectsAfterPopRender,
         hasSequencedPowerUp(delta) ? undefined : runCascade,
-        delta.powerUpEvents.length === 0
+        delta.powerUpEvents.length === 0,
+        singleEvents
       );
     }
     else {
@@ -971,11 +988,12 @@ export class BoardScene extends Phaser.Scene {
       this.playTilePops(postSwapSnapshot, popKeys, () => {
         // Tile debris is allowed to finish independently after the empty cells
         // open. Cascade owns the board-state handoff from this point forward.
-      }, flashColors, popStagger, () => {
+      }, flashColors, popStagger, (onContact) => {
         if (delta.powerUpEvents.length === 0) return;
-        this.playPowerUpEffects(delta, runCascade);
+        this.playPowerUpEffects(delta, runCascade, onContact);
         this.recordPowerUpFxAfterPopRender();
-      }, hasSequencedPowerUp(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0);
+      }, hasSequencedPowerUp(delta) ? undefined : runCascade, delta.powerUpEvents.length === 0,
+      delta.powerUpEvents.filter(event => event.trigger.kind !== "combo"));
     });
   }
 
@@ -1164,7 +1182,7 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  private playPowerUpEffects(delta: BoardDelta, onSingleSequencedPowerUpCascade?: () => void): void {
+  private playPowerUpEffects(delta: BoardDelta, onSingleSequencedPowerUpCascade?: () => void, onContact?: PowerUpContact): void {
     const groups = groupPowerUpEvents(delta.powerUpEvents);
     if (this.reducedMotion) {
       const combo = groups.find((group) => group.kind === "combo");
@@ -1197,7 +1215,8 @@ export class BoardScene extends Phaser.Scene {
             (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") &&
             event.trigger.kind !== "combo"
               ? finishSingle
-              : undefined
+              : undefined,
+            onContact ? position => onContact(event, position) : undefined
           );
         }
         continue;
@@ -1578,9 +1597,10 @@ export class BoardScene extends Phaser.Scene {
     onComplete: () => void,
     flashColors = new Map<string, number>(),
     delayOverrides = new Map<string, number>(),
-    afterRender?: () => void,
+    afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
-    allowMatchShake = true
+    allowMatchShake = true,
+    singleEvents: readonly PowerUpEvent[] = []
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -1590,7 +1610,6 @@ export class BoardScene extends Phaser.Scene {
 
     this.snapshot = sourceSnapshot;
     this.renderSnapshot(popKeys);
-    afterRender?.();
     this.recordTilePopAnimation(popKeys.size);
     const positions: GridPosition[] = [];
     for (const position of sourceSnapshot.grid.allPositions) {
@@ -1601,6 +1620,24 @@ export class BoardScene extends Phaser.Scene {
       perUnitMs: MATCH_WAVE_PER_GRID_MS,
       maxMs: MATCH_WAVE_MAX_MS
     });
+    const controlled = new Map<string, { event: PowerUpEvent; impact: PowerUpCellImpact }>();
+    singleEvents.forEach((event, index) => {
+      for (const impact of singlePowerUpImpacts(event, sourceSnapshot, popKeys, String(index))) {
+        const key = positionKey(impact.position);
+        const previous = controlled.get(key);
+        if (!previous || impact.atMs < previous.impact.atMs) controlled.set(key, { event, impact });
+      }
+    });
+    const openCells = new Map<string, () => void>();
+    const contacted = new Set<string>();
+    const dispatchContact: PowerUpContact = (event, position) => {
+      const key = positionKey(position);
+      const owner = controlled.get(key);
+      if (!owner || owner.event !== event || contacted.has(key)) return;
+      contacted.add(key);
+      if (owner.impact.disposition === "damage") this.recordPresentation("tile-damage", key);
+      else openCells.get(key)?.();
+    };
     const popObjects: { object: Phaser.GameObjects.Container; delay: number; position: GridPosition; tint: number }[] = [];
     for (const position of positions) {
       const cell = sourceSnapshot.grid.get(position);
@@ -1613,6 +1650,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     if (popObjects.length === 0) {
+      afterRender?.(dispatchContact);
       onCascadeStart?.();
       onComplete();
       return;
@@ -1637,62 +1675,76 @@ export class BoardScene extends Phaser.Scene {
       );
     }
     for (const entry of popObjects) {
+      const key = positionKey(entry.position);
+      const controlledImpact = controlled.get(key)?.impact;
+      const piece = entry.object.getByName("piece") as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null;
+      const popTarget = piece ?? entry.object;
+      let opened = false;
+      const impact = () => {
+        if (opened || !entry.object.active) return;
+        opened = true;
+        this.tweens.killTweensOf(popTarget);
+        const visibleBefore = popTarget.visible;
+        popTarget.setVisible(false);
+        if (!this.hasPlannedMatchImpact) {
+          this.hasPlannedMatchImpact = true;
+          this.recordPresentation("match-impact", String(popObjects.length), MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS);
+        }
+        this.recordPresentation("tile-impact", key, 0, {
+          before: visibleBefore, after: popTarget.visible, occupantId: sourceSnapshot.grid.get(entry.position).debugTileId
+        });
+        if (!playedClusterBody) {
+          playedClusterBody = true;
+          this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
+        }
+        const variation = tilePopVariation(entry.position, seed);
+        this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
+          gain: 0.42,
+          playbackRate: variation.playbackRate
+        });
+        this.playMatchBurst(entry.object, entry.tint);
+        if (!cleanupScheduled) {
+          cleanupScheduled = true;
+          this.recordPresentation("debris-cleanup-pending");
+          this.time.delayedCall(MATCH_DEBRIS_CLEANUP_MS, () => {
+            if (this.sys.isActive()) this.recordPresentation("debris-cleanup-complete");
+          });
+        }
+        this.tweens.add({
+          targets: entry.object,
+          alpha: 0,
+          duration: MATCH_AFTERIMAGE_MS,
+          ease: "Quad.easeOut",
+          onComplete: () => {
+            entry.object.destroy();
+            if (!cascadeScheduled && onCascadeStart) {
+              cascadeScheduled = true;
+              this.time.delayedCall(Math.max(0, CASCADE_START_AFTER_IMPACT_MS - MATCH_AFTERIMAGE_MS), onCascadeStart);
+            }
+            remaining -= 1;
+            if (remaining === 0) onComplete();
+          }
+        });
+      };
+      openCells.set(key, impact);
       const startPop = () => {
-        const piece = entry.object.getByName("piece") as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null;
-        const popTarget = piece ?? entry.object;
+        if (opened || !entry.object.active || controlledImpact?.disposition === "damage") return;
         const baseScaleX = piece?.scaleX ?? entry.object.scaleX;
         const baseScaleY = piece?.scaleY ?? entry.object.scaleY;
         this.tweens.add({
           targets: popTarget,
           scaleX: baseScaleX * 1.05,
           scaleY: baseScaleY * 0.91,
-          duration: MATCH_POP_COMPRESSION_MS,
+          duration: controlledImpact?.compressionMs ?? MATCH_POP_COMPRESSION_MS,
           ease: "Sine.easeOut",
-          onComplete: () => {
-            if (!this.hasPlannedMatchImpact) {
-              this.hasPlannedMatchImpact = true;
-              this.recordPresentation("match-impact", String(popObjects.length), MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS);
-            }
-            this.recordPresentation("tile-impact", positionKey(entry.position));
-            if (!playedClusterBody) {
-              playedClusterBody = true;
-              this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
-            }
-            const variation = tilePopVariation(entry.position, seed);
-            this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
-              gain: 0.42,
-              playbackRate: variation.playbackRate
-            });
-            this.playMatchBurst(entry.object, entry.tint);
-            if (!cleanupScheduled) {
-              cleanupScheduled = true;
-              this.recordPresentation("debris-cleanup-pending");
-              this.time.delayedCall(MATCH_DEBRIS_CLEANUP_MS, () => {
-                if (this.sys.isActive()) this.recordPresentation("debris-cleanup-complete");
-              });
-            }
-            piece?.setVisible(false);
-            this.tweens.add({
-              targets: entry.object,
-              alpha: 0,
-              duration: MATCH_AFTERIMAGE_MS,
-              ease: "Quad.easeOut",
-              onComplete: () => {
-                entry.object.destroy();
-                if (!cascadeScheduled && onCascadeStart) {
-                  cascadeScheduled = true;
-                  this.time.delayedCall(Math.max(0, CASCADE_START_AFTER_IMPACT_MS - MATCH_AFTERIMAGE_MS), onCascadeStart);
-                }
-                remaining -= 1;
-                if (remaining === 0) onComplete();
-              }
-            });
-          }
+          onComplete: controlledImpact ? undefined : impact
         });
       };
-      if (entry.delay > 0) this.time.delayedCall(entry.delay, startPop);
+      const delay = controlledImpact?.compressionStartAtMs ?? entry.delay;
+      if (delay > 0) this.time.delayedCall(delay, startPop);
       else startPop();
     }
+    afterRender?.(dispatchContact);
   }
 
   private playMatchBurst(object: Phaser.GameObjects.Container, tint: number): void {
@@ -2069,24 +2121,24 @@ export class BoardScene extends Phaser.Scene {
     }
   }
 
-  private playPowerUpEffect(event: PowerUpEvent, onImpact?: () => void): void {
+  private playPowerUpEffect(event: PowerUpEvent, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.fxLayer) return;
     this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
     if (event.powerUpType.kind === "tnt") {
-      this.playTntPowerUpEffect(event, origin, onImpact);
+      this.playTntPowerUpEffect(event, origin, onImpact, onContact);
       return;
     }
     if (event.powerUpType.kind === "rocket") {
-      this.playRocketPowerUpEffect(event, origin, onImpact);
+      this.playRocketPowerUpEffect(event, origin, onImpact, onContact);
       return;
     }
     if (event.powerUpType.kind === "propeller") {
-      this.playPropellerPowerUpEffect(event, origin, onImpact);
+      this.playPropellerPowerUpEffect(event, origin, onImpact, onContact);
       return;
     }
     if (event.powerUpType.kind === "lightBall") {
-      this.playLightBallPowerUpEffect(event, origin, onImpact);
+      this.playLightBallPowerUpEffect(event, origin, onImpact, onContact);
       return;
     }
 
@@ -2106,7 +2158,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playTntPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
+  private playTntPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.fxLayer) return;
     const plan = tntDetonationPlan(event.origin, event.affectedPositions);
     this.recordPresentation("tnt-arm");
@@ -2149,6 +2201,7 @@ export class BoardScene extends Phaser.Scene {
       const activeFxLayer = this.fxLayer;
       if (fuse.active) fuse.destroy();
       this.recordPresentation("tnt-detonation");
+      onContact?.(event.origin);
       this.recordPresentation("powerup-impact", "tnt");
       this.cueBoardAudio("tntBlast");
       audioService.vibrate([18, 35, 28]);
@@ -2193,12 +2246,12 @@ export class BoardScene extends Phaser.Scene {
       }, this.vfxCleanup);
       this.recordPresentation("shake-request", String(TNT_SHAKE_INTENSITY));
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
-      event.affectedPositions.forEach((position, index) => {
-        const atMs = plan.impactAtMs[index] ?? plan.detonationAtMs;
+      plan.impacts.forEach(({ position, atMs }) => {
         const impact = () => {
           if (!this.sys.isActive() || !this.fxLayer) return;
           const target = this.cellCenter(position);
           this.recordPresentation("tnt-tile-impact", positionKey(position));
+          onContact?.(position);
           impactBurst(this, this.fxLayer, target.x, target.y, {
             intensity: 0.78,
             lifespanMs: 260,
@@ -2216,7 +2269,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
+  private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
     const layer = this.fxLayer;
     const texture = event.powerUpType.orientation === "horizontal"
@@ -2309,6 +2362,7 @@ export class BoardScene extends Phaser.Scene {
           const target = this.cellCenter(pass.position);
           this.recordPresentation("rocket-pass", positionKey(pass.position));
           this.recordPresentation("rocket-tile-impact", positionKey(pass.position));
+          onContact?.(pass.position);
           impactBurst(this, this.fxLayer, target.x, target.y, {
             intensity: 0.38,
             lifespanMs: 150,
@@ -2370,7 +2424,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
+  private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.fxLayer || !this.snapshot) return;
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
@@ -2409,6 +2463,7 @@ export class BoardScene extends Phaser.Scene {
       ease: "Sine.easeOut",
       onComplete: () => {
         this.recordPresentation("propeller-flight");
+        onContact?.(event.origin);
         this.cueBoardAudio("propellerFly");
         const reticle = this.add.image(primaryCenter.x, primaryCenter.y, vfxTextureKeys.ring);
         reticle.setTint(0x70f2ea);
@@ -2438,6 +2493,7 @@ export class BoardScene extends Phaser.Scene {
           },
           onComplete: () => {
             this.recordPresentation("propeller-impact", positionKey(plan.target));
+            onContact?.(plan.target);
             this.recordPresentation("powerup-impact", "propeller");
             this.cueBoardAudio("propellerImpact");
             audioService.vibrate(18);
@@ -2449,6 +2505,7 @@ export class BoardScene extends Phaser.Scene {
                 if (!this.sys.isActive() || !this.fxLayer) return;
                 const center = this.cellCenter(target);
                 this.recordPresentation("propeller-secondary-impact", positionKey(target));
+                onContact?.(target);
                 impactBurst(this, this.fxLayer, center.x, center.y, { intensity: 0.4, lifespanMs: 160, tint: 0x70f2ea }, this.vfxCleanup);
               });
             });
@@ -2464,7 +2521,7 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void): void {
+  private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.fxLayer || !this.snapshot) return;
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
@@ -2536,12 +2593,14 @@ export class BoardScene extends Phaser.Scene {
         return;
       }
       const previousAtMs = plan.waves[waveIndex - 1]?.atMs ?? 0;
+      if (waveIndex === 0) onContact?.(event.origin);
       this.recordPresentation("lightBall-arc-wave", String(waveIndex), wave.atMs - previousAtMs);
       this.cueBoardAudio(waveIndex % 2 === 0 ? "lightBallZapA" : "lightBallZapB", { gain: 0.42 });
       wave.targets.forEach((target, index) => {
         const center = this.cellCenter(target);
         this.drawLightBallZap(origin, center, target, seed, waveIndex * 4 + index);
         this.recordPresentation("lightBall-target-impact", positionKey(target));
+        onContact?.(target);
         this.recordLightBallZap(1);
         impactBurst(this, this.fxLayer!, center.x, center.y, { intensity: 0.46, lifespanMs: LIGHTBALL_ZAP_BURST_LIFESPAN_MS, tint: 0xf15bd7 }, this.vfxCleanup);
       });

@@ -245,6 +245,54 @@ test.describe("power-up creation", () => {
   });
 });
 
+test.describe("single power-up tile contact", () => {
+  test("damage-only TNT keeps pieces visible and finishes its detonation before completion", async ({ page }) => {
+    await page.route("**/levels/level_001.json", async route => {
+      const response = await route.fetch();
+      const level = await response.json();
+      for (const row of level.cellMap) for (const cell of row) cell.overlay = "encryptedVolume_3";
+      await route.fulfill({ response, json: level });
+    });
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await page.getByTestId("booster-tnt").click();
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    const detonation = traceEntry(trace, "tnt-detonation");
+    expect(detonation.atMs).toBeLessThan(traceEntry(trace, "resolution-complete").atMs);
+    expect(trace.filter(entry => entry.kind === "tile-impact")).toHaveLength(0);
+    const damage = trace.filter(entry => entry.kind === "tile-damage");
+    expect(damage).toHaveLength(9);
+    expect(damage.every(entry => entry.visibility?.before === true && entry.visibility.after === true)).toBe(true);
+  });
+
+  for (const [booster, contact] of [
+    ["rocket", "rocket-tile-impact"], ["tnt", "tnt-tile-impact"],
+    ["propeller", "propeller-impact"], ["lightBall", "lightBall-target-impact"]
+  ]) {
+    test(`${booster} hides each piece on its actual effect-contact frame`, async ({ page }) => {
+      await page.goto("/?gwTestMode=1&level=1");
+      await waitForBoardReady(page);
+      await page.getByTestId(`booster-${booster}`).click();
+      await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+      await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+        .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+      const trace = await presentationTrace(page);
+      const contacts = trace.filter(entry => entry.kind === contact);
+      expect(contacts.length).toBeGreaterThan(0);
+      for (const arrival of contacts) {
+        const breaks = trace.filter(entry => entry.kind === "tile-impact" && entry.detail === arrival.detail);
+        expect(breaks, `${booster} at ${arrival.detail}`).toHaveLength(1);
+        expect(breaks[0].atMs, `${booster} contact/break at ${arrival.detail}`).toBe(arrival.atMs);
+        expect(breaks[0].visibility).toMatchObject({ before: true, after: false });
+        expect(breaks[0].visibility?.occupantId).toBeGreaterThan(0);
+      }
+    });
+  }
+});
+
 test.describe("single TNT", () => {
   test("arms, detonates, and drives radial tile impacts before cascade", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=1");

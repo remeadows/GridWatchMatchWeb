@@ -2,6 +2,34 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08: Task 1 Single-Power-Up Contacts Complete
+
+Branch/worktree remain `codex/gameplay-causal-playback` at
+`/private/tmp/gridwatch-match-planning-20260908`.
+Commit message: `Synchronize power-up impacts with tile breaks`.
+
+- Red-green coverage reproduced shuffled TNT target/time pairing, missing shared
+  contacts, early/late piece hides, and damage-only TNT completing before detonation.
+  Tests were not weakened. The actual effect contact now hides each affected piece
+  and cues its break once; rocket origin is deduplicated, propeller waits for arrival,
+  and Light Ball uses the same seeded target batches. Shield-only TNT retains the
+  pieces and waits for the effect before resolution completion.
+- Passed: 243/243 units, build (existing chunk warning), 112/112 full Playwright
+  tests (56 Chromium, 56 iPhone WebKit), and `git diff --check`. No browser retries.
+  The no-write frozen verifier still matches 21 specimens and all 34,054 actions.
+- Eight fresh single-power-up captures passed exact scene-frame contact/hide
+  comparisons, including 4x CPU-throttled Chromium and mobile WebKit. Captures,
+  traces, and videos: `/tmp/gridwatch-contact-20260908/`; reproduction script:
+  `/tmp/gridwatch-contact-capture.cjs`. Inspected one impact capture per family.
+  These are headless checks, not physical-device or subjective acceptance.
+- Deliberately retained the flattened final-snapshot handoff and legacy combo
+  suppression for Tasks 2-4. Subsequent-wave pieces may still appear prematurely
+  cleared; this task does not claim full cascade fidelity or finished game feel.
+- No engine, level, asset, dependency, backend, save, score, or leaderboard changes.
+  No implementation push, merge, or deployment yet. Preview remains on port 4174.
+
+Next: Task 2, observation-only ordered engine steps, checked against frozen outcomes.
+
 ## 2026-09-08: Task 0 Baseline Frozen
 
 Implementation branch: `codex/gameplay-causal-playback`, in the isolated worktree
