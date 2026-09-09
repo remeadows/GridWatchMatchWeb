@@ -152,6 +152,7 @@ test("a new scene waits for current level data instead of replaying the previous
   await page.getByTestId("qa-trigger-winning-rocket-combo").click();
   await page.getByText("Grid secured", { exact: true }).waitFor();
   const oldCanvas = await page.locator("[data-testid=board-canvas] canvas").elementHandle();
+  const oldTrace = await page.evaluateHandle(() => (window as Window & { __gwPresentationTrace?: unknown[] }).__gwPresentationTrace);
   let release = () => {};
   let requested = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -165,8 +166,12 @@ test("a new scene waits for current level data instead of replaying the previous
     await page.getByRole("button", { name: "Next Level", exact: true }).click();
     await request;
     await page.waitForFunction(old => !old.isConnected, oldCanvas!);
-    await page.waitForFunction(() => Array.isArray((window as Window & { __gwPresentationTrace?: unknown[] }).__gwPresentationTrace));
-    expect(await traceKinds(page)).not.toContain("action-received");
+    // React detaches the old canvas before Phaser's deferred teardown clears its trace.
+    const newTrace = await page.waitForFunction(old => {
+      const trace = (window as Window & { __gwPresentationTrace?: { kind: string }[] }).__gwPresentationTrace;
+      return Array.isArray(trace) && trace !== old ? trace.map(entry => entry.kind) : false;
+    }, oldTrace);
+    expect(await newTrace.jsonValue()).not.toContain("action-received");
   } finally { release(); }
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
   await page.getByTestId("qa-swap").click();

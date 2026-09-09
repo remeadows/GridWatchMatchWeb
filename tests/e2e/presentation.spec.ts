@@ -531,8 +531,9 @@ test.describe("single light ball", () => {
     expect(release.atMs).toBeLessThan(undim.atMs);
     expect(undim.atMs).toBeLessThan(cascade.atMs);
     expect(cascade.atMs - undim.atMs).toBeGreaterThanOrEqual(180);
+    // Task 6 adds 20 ms to each of four wave intervals; retain the same 50 ms headroom.
     // Bound the primary effect, not the additional activation/clear before gravity.
-    expect(undim.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_050);
+    expect(undim.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_130);
     const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
     const firstGravity = frames.find(frame => frame.kind === "gravity")!;
     const clears = frames.filter(frame => frame.kind === "clear" && frame.ordinal < firstGravity.ordinal);

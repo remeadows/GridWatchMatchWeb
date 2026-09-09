@@ -2,6 +2,67 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Task 6 Pacing Candidate Complete Locally
+
+Task 5 is `08b7c33`; planning security integration is `b837dfb`. Task 6 has passed
+its gates and is committed with `Tune readable match and cascade pacing`.
+PR 45 remains green/ready, with all review threads resolved, not merged.
+
+- Four pure regressions first failed for the missing connected-group planner.
+  The approved 80 ms cap regression failed against the old 150 ms value. Browser
+  reds then showed a group's edge opening before its center due to the distant
+  shared centroid, and no independent recognition boundaries for three cascades.
+- Added deterministic orthogonal same-family grouping, including different-family
+  matches that touch. Input order and duplicate cells do not change the plan.
+  Group stagger is 25 ms/cell capped at 80 ms; initial recognition stays 140 ms,
+  later landed waves use 100 ms. Every required pop finishes its open-cell hold
+  before gravity. The 130 ms hold already existed after ordered playback; no
+  second hold was added. Cosmetic debris still overlaps later phases.
+- Trial rocket flight is 420 ms, propeller 450 ms, Light Ball wave spacing 120 ms.
+  Swap travel/settle, fall curve/landing, and the 2,500 ms ending are unchanged.
+  The Light Ball primary-effect planned bound advances by exactly 80 ms for four
+  20 ms longer intervals, preserving its existing 50 ms headroom. Contact/hiding,
+  stage identities, secondary clears, wave counts and resource assertions remain.
+- Focused pure tests pass 51/51; all 335 units pass in 11 files, including frozen
+  engine parity. All 100 levels validate; build/typechecks and diff check pass.
+  Candidate bundle: `index-CpK1aw8K.js`. Both new browser regressions pass on
+  Chromium/iPhone WebKit (4 instances). The first full e2e stopped at 119 passed /
+  1 failed / 52 not run: Next Level's test accepted the old trace after React
+  detached its canvas but before Phaser's deferred teardown deleted it. The
+  retained trace proves the array existed at 526649 ms and was absent at 526655 ms.
+  Evidence: `/private/tmp/gridwatch-task6-first-failure-20260909/`. The probe now
+  waits for a different trace identity and snapshots its kinds atomically; the
+  no-stale-action assertion is unchanged. Temporarily restoring the old CREATE
+  closure made that corrected assertion fail on `action-received`, proving it
+  still detects the intended defect. Mutation evidence:
+  `/private/tmp/gridwatch-task6-lifecycle-mutation-red-20260909/`. The temporary
+  mutation is reverted; no GameCanvas production changes in Task 6. The corrected
+  probe passes on both browsers (2/2), and the fresh full suite passes 172/172 in
+  13.4 minutes on the unchanged `index-CpK1aw8K.js` candidate. No retries or
+  assertion relaxation. Build/typechecks and final diff check also pass.
+- Baseline captures: `/private/tmp/gridwatch-pacing-baseline-h2FQoj/`, 36 real
+  flows across desktop and mobile, including ordinary/independent groups, a
+  three-stage cascade, four singles, ten combos and a winning combo. Candidate
+  captures at `/private/tmp/gridwatch-pacing-candidate-gHtGFD/` also pass all 36.
+  `comparison.json` confirms all 660 stage boundaries, final occupants, HUD score
+  and objectives are identical. Zero capture errors, overflow or leaked tracked
+  VFX resources. Inspected desktop/mobile cascade and mobile power-up motion sheets:
+  distinct waves, open cells before fall, no observed pop-in or ghost trails.
+  Measured rocket flight increased 384->433 ms desktop / 380->439 ms mobile;
+  propeller 386->451 / 387->460 ms. Light Ball dim-to-undim increased 1330->1410 /
+  1117->1256 ms. Endings remain 2517 / 2520 ms. These single headless capture
+  samples include scheduling/capture overhead, not physical performance targets.
+  Nominal 25 ms first-wave stagger can span a roughly 90-100 ms frame gap during
+  initial recorded VFX startup; it also occurred in the baseline. Later wave
+  spreads generally track 20-40 ms. Warm headed performance remains Task 13.
+  Reproduction: `/private/tmp/gridwatch-pacing-capture.cjs baseline|candidate`;
+  comparison helper: `/private/tmp/gridwatch-pacing-compare.cjs <before> <after>`.
+  No engine, canonical level, Worker, auth, leaderboard, or scoring changes.
+
+Next: Task 7's reproducible Blender pipeline and concrete material studies.
+No new player,
+physical-device, art, audio, merge, or production-deployment acceptance claimed.
+
 ## 2026-09-09: Planning Security Repairs Integrated Locally
 
 Task 5 is committed as `08b7c33`. The gameplay branch integrates planning repairs

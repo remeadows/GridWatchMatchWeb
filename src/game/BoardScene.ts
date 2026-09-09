@@ -28,7 +28,6 @@ import {
   MATCH_SHAKE_WEAK_THRESHOLD_TILES,
   MATCH_SMOKE_PUFF_COUNT,
   MATCH_WAVE_MAX_MS,
-  MATCH_WAVE_PER_GRID_MS,
   POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
   LIGHTBALL_DIM_MS,
@@ -62,8 +61,8 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
+import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -1069,10 +1068,17 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
     this.hasPlannedMatchImpact = false;
-    const start = () => this.playTilePops(step.before, keys, () => { popsDone = true; finish(); },
-      clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
-      undefined, events.length === 0, groups);
-    if (events.length === 0) this.time.delayedCall(MATCH_RECOGNITION_HOLD_MS, start);
+    const pacing = matchPacingPlan(step.clears, step.cascadeDepth);
+    const start = () => {
+      if (events.length === 0) this.recordPresentation("match-recognition-complete", String(step.ordinal));
+      this.playTilePops(step.before, keys, pacing, () => { popsDone = true; finish(); },
+        clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
+        undefined, events.length === 0, groups);
+    };
+    if (events.length === 0) {
+      this.recordPresentation("match-recognition-start", String(step.ordinal));
+      this.time.delayedCall(pacing.recognitionHoldMs, start);
+    }
     else start();
   }
 
@@ -1710,6 +1716,7 @@ export class BoardScene extends Phaser.Scene {
   private playTilePops(
     sourceSnapshot: BoardSnapshot,
     popKeys: Set<string>,
+    pacing: MatchPacingPlan,
     onComplete: () => void,
     flashColors = new Map<string, number>(),
     delayOverrides = new Map<string, number>(),
@@ -1741,10 +1748,9 @@ export class BoardScene extends Phaser.Scene {
       if (popKeys.has(positionKey(position))) positions.push(position);
     }
 
-    const stagger = computeCentroidStagger(positions, {
-      perUnitMs: MATCH_WAVE_PER_GRID_MS,
-      maxMs: MATCH_WAVE_MAX_MS
-    });
+    const stagger = new Map(pacing.impacts.map(impact => [
+      positionKey(impact.position), impact.compressionStartAtMs - pacing.recognitionHoldMs
+    ]));
     const controlled = new Map<string, { event: PowerUpEvent; impact: PowerUpCellImpact }>();
     powerUpGroups.forEach((group, index) => {
       for (const event of group.kind === "combo" ? group.events.slice(0, 1) : group.events) {
@@ -1788,7 +1794,6 @@ export class BoardScene extends Phaser.Scene {
 
     this.recordPresentation("match-group-start", String(popObjects.length));
     let remaining = popObjects.length;
-    let cascadeScheduled = false;
     let playedClusterBody = false;
     let cleanupScheduled = false;
     const seed = this.snapshot?.rngSeed ?? "0";
@@ -1818,7 +1823,7 @@ export class BoardScene extends Phaser.Scene {
         popTarget.setVisible(false);
         if (!this.hasPlannedMatchImpact) {
           this.hasPlannedMatchImpact = true;
-          this.recordPresentation("match-impact", String(popObjects.length), MATCH_RECOGNITION_HOLD_MS + MATCH_POP_COMPRESSION_MS);
+          this.recordPresentation("match-impact", String(popObjects.length), pacing.recognitionHoldMs + pacing.compressionMs);
         }
         this.recordPresentation("tile-impact", key, 0, {
           before: visibleBefore, after: popTarget.visible, occupantId: sourceSnapshot.grid.get(entry.position).debugTileId
@@ -1847,12 +1852,17 @@ export class BoardScene extends Phaser.Scene {
           ease: "Quad.easeOut",
           onComplete: () => {
             entry.object.destroy();
-            if (!cascadeScheduled && onCascadeStart) {
-              cascadeScheduled = true;
-              this.time.delayedCall(Math.max(0, CASCADE_START_AFTER_IMPACT_MS - MATCH_AFTERIMAGE_MS), onCascadeStart);
-            }
             remaining -= 1;
-            if (remaining === 0) onComplete();
+            if (remaining === 0) {
+              const finishOpen = () => {
+                this.recordPresentation("match-open-complete");
+                onCascadeStart?.();
+                onComplete();
+              };
+              const holdRemaining = Math.max(0, pacing.openHoldMs - MATCH_AFTERIMAGE_MS);
+              if (holdRemaining > 0) this.time.delayedCall(holdRemaining, finishOpen);
+              else finishOpen();
+            }
           }
         });
       };
@@ -1865,7 +1875,7 @@ export class BoardScene extends Phaser.Scene {
           targets: popTarget,
           scaleX: baseScaleX * 1.05,
           scaleY: baseScaleY * 0.91,
-          duration: controlledImpact?.compressionMs ?? MATCH_POP_COMPRESSION_MS,
+          duration: controlledImpact?.compressionMs ?? pacing.compressionMs,
           ease: "Sine.easeOut",
           onComplete: controlledImpact ? undefined : impact
         });

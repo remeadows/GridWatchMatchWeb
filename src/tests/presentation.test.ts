@@ -454,7 +454,7 @@ describe("matchTimeline", () => {
     expect(timeline.popCompressionMs).toBeLessThanOrEqual(105);
     expect(timeline.impactMs).toBeGreaterThanOrEqual(175);
     expect(timeline.impactMs).toBeLessThanOrEqual(185);
-    expect(timeline.maxStaggerMs).toBe(150);
+    expect(timeline.maxStaggerMs).toBe(80);
     expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(225);
     expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(240);
     expect(timeline.totalMs).toBeGreaterThanOrEqual(1_425);

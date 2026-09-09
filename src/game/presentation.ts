@@ -1,4 +1,5 @@
-import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent } from "../engine";
+import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent, TileType } from "../engine";
+import { computeCentroidStagger } from "./motion";
 import {
   CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
@@ -7,6 +8,7 @@ import {
   CASCADE_LANDING_SQUASH_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_START_AFTER_IMPACT_MS,
+  CASCADE_RECOGNITION_HOLD_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
   CHAIN_PLAYBACK_RATE_STEP,
   COMBO_ARC_CAP,
@@ -17,7 +19,9 @@ import {
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
+  MATCH_OPEN_HOLD_MS,
   MATCH_WAVE_MAX_MS,
+  MATCH_WAVE_PER_GRID_MS,
   POWERUP_CASCADE_HOLD_MS,
   LIGHTBALL_CHARGE_MS,
   LIGHTBALL_DIM_MS,
@@ -145,6 +149,53 @@ export interface MatchTimeline {
   maxStaggerMs: number;
   cascadeStartAfterImpactMs: number;
   totalMs: number;
+}
+
+export interface MatchPacingPlan {
+  groups: { id: string; positions: GridPosition[] }[];
+  impacts: { position: GridPosition; groupId: string; compressionStartAtMs: number; atMs: number }[];
+  recognitionHoldMs: number;
+  compressionMs: number;
+  openHoldMs: number;
+  lastImpactAtMs: number;
+  gravityNotBeforeMs: number;
+}
+
+export function matchPacingPlan(
+  cells: readonly { position: GridPosition; tileType: TileType | null }[], cascadeDepth: number
+): MatchPacingPlan {
+  const key = (position: GridPosition) => `${position.row},${position.col}`;
+  const ordered = [...new Map(cells.map(cell => [key(cell.position), cell])).values()]
+    .sort((a, b) => a.position.row - b.position.row || a.position.col - b.position.col);
+  const pending = new Map(ordered.map(cell => [key(cell.position), cell]));
+  const groups: MatchPacingPlan["groups"] = [];
+  const impacts: MatchPacingPlan["impacts"] = [];
+  const recognitionHoldMs = cascadeDepth > 0 ? CASCADE_RECOGNITION_HOLD_MS : MATCH_RECOGNITION_HOLD_MS;
+  for (const cell of ordered) {
+    const id = key(cell.position);
+    if (!pending.delete(id)) continue;
+    const positions = [{ ...cell.position }];
+    // Orthogonal connectivity stays within one tile family, including touching matches.
+    for (let index = 0; index < positions.length; index++) {
+      const { row, col } = positions[index];
+      for (const adjacent of [{ row: row - 1, col }, { row: row + 1, col }, { row, col: col - 1 }, { row, col: col + 1 }]) {
+        const neighbor = pending.get(key(adjacent));
+        if (!neighbor || neighbor.tileType !== cell.tileType) continue;
+        pending.delete(key(adjacent));
+        positions.push(adjacent);
+      }
+    }
+    positions.sort((a, b) => a.row - b.row || a.col - b.col);
+    groups.push({ id, positions });
+    const stagger = computeCentroidStagger(positions, { perUnitMs: MATCH_WAVE_PER_GRID_MS, maxMs: MATCH_WAVE_MAX_MS });
+    for (const position of positions) {
+      const compressionStartAtMs = recognitionHoldMs + (stagger.get(key(position)) ?? 0);
+      impacts.push({ position, groupId: id, compressionStartAtMs, atMs: compressionStartAtMs + MATCH_POP_COMPRESSION_MS });
+    }
+  }
+  const lastImpactAtMs = Math.max(0, ...impacts.map(impact => impact.atMs));
+  return { groups, impacts, recognitionHoldMs, compressionMs: MATCH_POP_COMPRESSION_MS, openHoldMs: MATCH_OPEN_HOLD_MS,
+    lastImpactAtMs, gravityNotBeforeMs: impacts.length > 0 ? lastImpactAtMs + MATCH_OPEN_HOLD_MS : 0 };
 }
 
 export interface TilePopVariation {
