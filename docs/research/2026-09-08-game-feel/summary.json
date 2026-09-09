@@ -1,0 +1,512 @@
+{
+  "date": "2026-09-08",
+  "applicationCommit": "2dbea72",
+  "mainWithEquivalentApplicationSources": "328a1a7",
+  "production": {
+    "actions": 55817,
+    "multiStage": 28214,
+    "repeatedClearPositions": 21937,
+    "mixedPowerUpActions": 13045,
+    "errors": []
+  },
+  "sensitivity": {
+    "actions": 57766,
+    "multiStage": 28827,
+    "repeatedClearPositions": 22555,
+    "mixedPowerUpActions": 13433,
+    "errors": []
+  },
+  "productionExamples": {
+    "cascade": {
+      "level": 1,
+      "seed": 1,
+      "actions": [
+        {
+          "kind": "swap",
+          "from": {
+            "row": 4,
+            "col": 2
+          },
+          "to": {
+            "row": 5,
+            "col": 2
+          }
+        }
+      ],
+      "chainDepth": 2,
+      "clears": 15,
+      "repeated": 2,
+      "events": []
+    },
+    "mixed": {
+      "level": 1,
+      "seed": 1,
+      "actions": [
+        {
+          "kind": "swap",
+          "from": {
+            "row": 4,
+            "col": 2
+          },
+          "to": {
+            "row": 5,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 5
+          },
+          "to": {
+            "row": 3,
+            "col": 6
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 4,
+            "col": 3
+          },
+          "to": {
+            "row": 5,
+            "col": 3
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 2,
+            "col": 5
+          },
+          "to": {
+            "row": 2,
+            "col": 6
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 1
+          },
+          "to": {
+            "row": 4,
+            "col": 1
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 2,
+            "col": 1
+          },
+          "to": {
+            "row": 2,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 5
+          },
+          "to": {
+            "row": 4,
+            "col": 5
+          }
+        }
+      ],
+      "chainDepth": 1,
+      "clears": 10,
+      "repeated": 1,
+      "events": [
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "vertical"
+          },
+          "origin": {
+            "row": 3,
+            "col": 5
+          },
+          "affectedPositions": [
+            {
+              "row": 0,
+              "col": 5
+            },
+            {
+              "row": 1,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 3,
+              "col": 5
+            },
+            {
+              "row": 4,
+              "col": 5
+            },
+            {
+              "row": 5,
+              "col": 5
+            },
+            {
+              "row": 6,
+              "col": 5
+            }
+          ],
+          "trigger": {
+            "kind": "swap"
+          }
+        },
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "vertical"
+          },
+          "origin": {
+            "row": 3,
+            "col": 5
+          },
+          "affectedPositions": [
+            {
+              "row": 0,
+              "col": 5
+            },
+            {
+              "row": 1,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 3,
+              "col": 5
+            },
+            {
+              "row": 4,
+              "col": 5
+            },
+            {
+              "row": 5,
+              "col": 5
+            },
+            {
+              "row": 6,
+              "col": 5
+            }
+          ],
+          "trigger": {
+            "kind": "combo",
+            "with": {
+              "kind": "rocket",
+              "orientation": "vertical"
+            }
+          }
+        }
+      ]
+    }
+  },
+  "sensitivityExamples": {
+    "cascade": {
+      "level": 1,
+      "seed": 1,
+      "actions": [
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 4
+          },
+          "to": {
+            "row": 4,
+            "col": 4
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 1
+          },
+          "to": {
+            "row": 3,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 2
+          },
+          "to": {
+            "row": 4,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 2,
+            "col": 4
+          },
+          "to": {
+            "row": 3,
+            "col": 4
+          }
+        }
+      ],
+      "chainDepth": 3,
+      "clears": 23,
+      "repeated": 5,
+      "events": [
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "horizontal"
+          },
+          "origin": {
+            "row": 2,
+            "col": 4
+          },
+          "affectedPositions": [
+            {
+              "row": 2,
+              "col": 0
+            },
+            {
+              "row": 2,
+              "col": 1
+            },
+            {
+              "row": 2,
+              "col": 2
+            },
+            {
+              "row": 2,
+              "col": 3
+            },
+            {
+              "row": 2,
+              "col": 4
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 6
+            }
+          ],
+          "trigger": {
+            "kind": "swap"
+          }
+        },
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "horizontal"
+          },
+          "origin": {
+            "row": 2,
+            "col": 4
+          },
+          "affectedPositions": [
+            {
+              "row": 2,
+              "col": 0
+            },
+            {
+              "row": 2,
+              "col": 1
+            },
+            {
+              "row": 2,
+              "col": 2
+            },
+            {
+              "row": 2,
+              "col": 3
+            },
+            {
+              "row": 2,
+              "col": 4
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 6
+            }
+          ],
+          "trigger": {
+            "kind": "combo",
+            "with": {
+              "kind": "rocket",
+              "orientation": "horizontal"
+            }
+          }
+        }
+      ]
+    },
+    "mixed": {
+      "level": 1,
+      "seed": 1,
+      "actions": [
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 4
+          },
+          "to": {
+            "row": 4,
+            "col": 4
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 1
+          },
+          "to": {
+            "row": 3,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 3,
+            "col": 2
+          },
+          "to": {
+            "row": 4,
+            "col": 2
+          }
+        },
+        {
+          "kind": "swap",
+          "from": {
+            "row": 2,
+            "col": 4
+          },
+          "to": {
+            "row": 3,
+            "col": 4
+          }
+        }
+      ],
+      "chainDepth": 3,
+      "clears": 23,
+      "repeated": 5,
+      "events": [
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "horizontal"
+          },
+          "origin": {
+            "row": 2,
+            "col": 4
+          },
+          "affectedPositions": [
+            {
+              "row": 2,
+              "col": 0
+            },
+            {
+              "row": 2,
+              "col": 1
+            },
+            {
+              "row": 2,
+              "col": 2
+            },
+            {
+              "row": 2,
+              "col": 3
+            },
+            {
+              "row": 2,
+              "col": 4
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 6
+            }
+          ],
+          "trigger": {
+            "kind": "swap"
+          }
+        },
+        {
+          "powerUpType": {
+            "kind": "rocket",
+            "orientation": "horizontal"
+          },
+          "origin": {
+            "row": 2,
+            "col": 4
+          },
+          "affectedPositions": [
+            {
+              "row": 2,
+              "col": 0
+            },
+            {
+              "row": 2,
+              "col": 1
+            },
+            {
+              "row": 2,
+              "col": 2
+            },
+            {
+              "row": 2,
+              "col": 3
+            },
+            {
+              "row": 2,
+              "col": 4
+            },
+            {
+              "row": 2,
+              "col": 5
+            },
+            {
+              "row": 2,
+              "col": 6
+            }
+          ],
+          "trigger": {
+            "kind": "combo",
+            "with": {
+              "kind": "rocket",
+              "orientation": "horizontal"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

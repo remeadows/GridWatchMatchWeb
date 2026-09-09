@@ -36,6 +36,11 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 
 ## Gameplay Feel Rules
 
+- Gameplay acceptance was reopened on 2026-09-08. Historical visual approvals and
+  passing automated tests do not establish acceptance of the current iteration.
+- Active proposed work: `docs/superpowers/plans/2026-09-08-game-feel-assets-and-balance.md`.
+  Preserve deterministic outcomes when adding observation-only resolution records.
+
 - Player tile drag must move the real tile sprite under the pointer, not a ghost clone.
 - The adjacent target tile should visibly mirror the drag offset while the player crosses into a neighboring cell.
 - A valid drag swap should settle into the swapped grid before match resolution starts; never let the moved matching tile slide back before popping.
@@ -43,6 +48,15 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 - All seven board rows must remain reachable on desktop and mobile viewports.
 - Booster tray power-ups require deliberate player placement on the board. Clicking a booster selects it; it must not randomly fire without a board target.
 - When changing board input or animation, add or update Playwright coverage and manually inspect the browser feel.
+
+## Collaboration And Release
+
+- As of 2026-09-08, Russ authorizes GitHub pushes and opening PRs. This supersedes
+  the earlier local-commits-only restriction.
+- Test gameplay changes locally and provide concrete review evidence. PR creation
+  is not permission to merge or deploy unaccepted gameplay.
+- Record implementation, automated verification, player acceptance, and deployment
+  separately in HANDOFF.md. Do not claim physical-device acceptance from emulation.
 
 ## Commands
 

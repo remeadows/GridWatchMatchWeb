@@ -1,6 +1,57 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-19
+Last updated: 2026-09-08
+
+## 2026-09-08: Gameplay Acceptance Reopened; Implementation Plan Prepared
+
+Russ reports local gameplay is not fully accepted. Tile breaking still feels off,
+the art can improve, and balance needs review. All earlier acceptance statements
+below are historical. Current implementation and passing tests do not close this
+new quality gate. Pushes and opening GitHub PRs are now authorized; merge/deployment
+of unaccepted gameplay is not authorized by that change alone.
+
+The next implementation plan is
+`docs/superpowers/plans/2026-09-08-game-feel-assets-and-balance.md`.
+Evidence, limitations, and backlog reconciliation are in
+`docs/research/2026-09-08-game-feel-audit.md`. Reproducible analysis scripts and
+compact results live in `docs/research/2026-09-08-game-feel/`.
+
+Confirmed priorities:
+
+1. Unify effect arrival, actual tile break, and sound. Separate schedulers currently
+   produce roughly 0.2-0.3 second late rocket breaks and some Light Ball breaks more
+   than half a second early in headless desktop/mobile-sized captures. TNT times are
+   also assigned to the wrong cells after sorting loses their position pairing.
+2. Preserve intermediate resolution stages. The aggregate delta/final-snapshot
+   renderer currently collapses cascades and can omit intermediate creations.
+   The proposed engine change is observation-only, with frozen outcome comparisons.
+3. Distinguish genuine combos, chained pieces, and already-consumed origin records;
+   remove blanket suppression only after causal metadata exists.
+4. Make queue/result/HUD and boss timing follow the actual playback lifecycle.
+   Retain the 2,500 ms bottom-up celebration after the winning action fully finishes.
+5. Build original, reproducible Blender assets and matched fragments with clean
+   silhouettes at real mobile size. CLI 5.1.0 is available through the app path.
+6. Formalize balance tooling and test isolated hand-authored candidates. Production
+   seed screening suggests a difficulty drop after Level 50, with 29-30 unused
+   moves typically remaining in Levels 51-70 under the visible-match policy.
+
+Verification this turn: 238/238 unit tests, 100/100 levels, successful build, ten
+headless browser flows, 8,000 simulated runs / 113,583 legal actions / zero engine
+errors. Browser audit found presentation defects; this is not a passed acceptance
+gate. Full e2e and physical-device/audio acceptance remain to be rerun during
+implementation. Baseline application code matches main at `328a1a7`; dependencies
+in the original checkout differ from current main. No application, engine, level,
+asset, backend, or deployment changes were made during planning.
+
+Planning branch: `codex/game-feel-balance-plan-20260908`, isolated from the original
+checkout's existing package-lock edit and untracked July plan. Those files are
+preserved. Historical July Task 0-18 implementation is complete, but its quality
+approval is reopened. Seven dependency PRs are separate maintenance work.
+
+Next: execute Task 0, freeze current outcome fixtures, then Task 1's shared impact
+schedule. Do not start another cosmetic timing increase before fixing contact
+causality. No new user input is required for those implementation tasks once this
+plan is selected for execution.
 
 ## 2026-07-19: Main-integration review corrections awaiting deployment
 
@@ -368,7 +419,12 @@ per-task record: `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`
   workers.dev fallback: `gridwatch-match.russell-meadows.workers.dev`. Deploy is manual
   (`npm run build && npx wrangler deploy`).
 
-### Remaining to finish Phase 3
+### Historical Phase 3 Release Checklist
+
+Status correction, 2026-09-08: all three gates below were completed; Russ confirmed
+real signed-in score submission and leaderboard updates on 2026-07-18. The original
+wording is retained as release history, not an open task or authorization to change
+the database. Automatic deployment is deferred.
 1. ✅ Worker secret set. 2. ✅ Domain cutover done.
 3. **Live score E2E (human-playability gate — the one open item):** signed in on
    gridwatchmatchweb.warsignallabs.net, win a level → the won modal should show

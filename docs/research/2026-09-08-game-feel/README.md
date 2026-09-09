@@ -1,0 +1,49 @@
+# Audit Reproduction
+
+These are research scripts for the September 8 plan, not production gameplay code
+or a finished balance-testing tool. They use existing project dependencies and
+Node 24's TypeScript stripping/module hooks. Run from a checkout with dependencies
+installed. The recorded engine and level sources are equivalent on `2dbea72` and
+`328a1a7`; later behavior changes require a newly labeled audit.
+
+```bash
+node docs/research/2026-09-08-game-feel/balance-screen.mjs
+node docs/research/2026-09-08-game-feel/balance-screen.mjs --production-seed
+```
+
+Each command simulates 4,000 runs. Raw JSON is written to the operating system's
+temporary directory as `gridwatch-balance-audit.json` or
+`gridwatch-balance-production.json`. The seed field in the original saved examples
+is the chooser seed; production examples use `levelSeed(level.id)` for the board.
+The reproduction script also labels engineSeed explicitly. No application data,
+public levels, browser saves, or external APIs are modified by balance screening.
+
+`balance-summary.csv` has 100 per-level rows from the completed runs, and
+`summary.json` retains action totals and replay examples. Medians use the upper
+middle observed value for an even sample count. See the audit report for policy
+weights and limitations. This screen does not model thinking time or boss clocks.
+
+For the browser audit, build the application and start a dedicated preview:
+
+```bash
+npm run build
+npm run preview -- --host 127.0.0.1 --port 4174 --strictPort
+```
+
+In another terminal:
+
+```bash
+node docs/research/2026-09-08-game-feel/browser-screen.cjs
+```
+
+It uses isolated Playwright contexts and test mode; no signed-in account is used.
+The mobile run is a narrow Chromium viewport, not Safari or physical-device testing.
+PNG captures and actual scene-clock traces are written under
+`/tmp/gridwatch-feel-audit-20260908/`. Positive contact offsets mean the piece broke
+late; negative offsets mean early. Results vary with frame scheduling; they are
+diagnostic observations, not performance percentiles or acceptance assertions.
+
+Temporary scripts/outputs used for the original audit remain outside Git. Their
+portable equivalents are retained here so findings can be reproduced after a
+context handoff. Task 11 in the plan adds formal policy tests, confidence intervals,
+more samples, source hashes, and boss/animation-time analysis.
