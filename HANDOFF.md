@@ -2,6 +2,56 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Task 11 Balance Regression Tool Complete
+
+Independent balance work runs on `codex/campaign-balance-analysis` in
+`/private/tmp/gridwatch-match-balance-20260909`, based on Task 6 `514c04e`.
+Task 7 is separate on `codex/blender-piece-pipeline` at `73d6fa0`; Russ's finish
+selection is still pending. Do not infer approval from historical Candidate B.
+
+- Added the offline native-Node CLI `scripts/analyze-balance.mjs`, with production
+  retry-seed and sensitivity cohorts and random, visible-match, objective-aware
+  policies. No engine RNG inspection, future refills/cascades, boosters, Play On,
+  server calls or telemetry. Exceptions fail loudly, not as ordinary losses.
+- Nine focused tests first failed for the absent module. Initial implementation
+  passed eight; the remaining finite-duration assertion exposed a nonexistent
+  exported creation timing constant. The actual scene-local 310 ms creation and
+  40 ms spawn premium are explicitly modeled and BoardScene is source-hashed.
+  All nine then passed unchanged. All 344 units in 12 files, all 100 level
+  validations, build/typechecks and diff check pass. Bundle is unchanged:
+  `index-CpK1aw8K.js`. No browser rerun is claimed for this offline-only task.
+- Full baseline: 60,000 runs, 772,840 legal actions, zero errors/rejections. Full
+  repeat: same totals, byte-identical JSON by `cmp`, 591.76 seconds. SHA-256:
+  `49355e1905ba629b089200ddf53bcafc112afb0f0306a98766f5aca761611731`.
+  Repeat: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-regression-qjqzQY/report.json`.
+  All 121 source hashes reverified, including canonical levels and Worker files.
+- Production wins out of 10,000: random 9,835, visible-match 9,991, objective-aware
+  10,000; sensitivity: 9,842 / 9,989 / 9,997. Ninety post-tutorial levels trigger
+  the >=95% random flag; 73 exceed 40% median unused moves. Levels 35 and 50 are
+  materially harder than the campaign mean. These are conditional bot results,
+  not human win rates or approval of a content change.
+- Every boss reports raw move outcomes plus 1/3/5/8-second thinking models under
+  Task 5's visible-controllable-time candidate. Forced animation is separate and
+  nominally estimated, not measured per run or deducted twice. All authored boss
+  durations remain unchanged. Details/limitations: `docs/balance/README.md`.
+- The eight-pilot, 500-seed screen passed 24,000 runs / 357,507 actions / zero
+  errors/rejections in 350.22 seconds. Its full report is at
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-regression-FHkxw5/report.json`,
+  SHA-256 `99e53bc4f8777b5daadf44bab016f9f99f0fc941b1a273d5e27534c57c27647e`.
+  The larger screen confirms harder 35/50 and large move slack on 51/61. Full
+  cohort summaries, intervals, provenance and commands are in the balance README.
+  Commit message: `Add deterministic campaign balance analysis`.
+
+GitHub: PR 45 merged externally as `67e1c6b`. Verified timing/lifecycle work is
+published in draft PR 47, `https://github.com/remeadows/GridWatchMatchWeb/pull/47`,
+at `287db8e`. A separate capture-helper security regression/fix passed 336 units,
+build and the high audit gate; all four remote checks are green. Gameplay tree is
+unchanged. This balance branch has not yet integrated those documentation/test
+repairs. Integrate at the completed Task 11 boundary before its review PR.
+Next: Task 12's isolated moves-only candidate preview and save/submission fences.
+No gameplay merge, production Worker deploy, fresh player/device acceptance,
+canonical content change, or balance preview implementation yet.
+
 ## 2026-09-09: Task 6 Pacing Candidate Complete Locally
 
 Task 5 is `08b7c33`; planning security integration is `b837dfb`. Task 6 has passed
