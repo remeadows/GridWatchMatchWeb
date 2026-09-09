@@ -2,6 +2,57 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Task 4 Chained Power-Up Playback Complete
+
+Task 3 is committed locally as `687eced`. Task 4 completed on the same branch.
+
+- Red browser regression confirmed the intended defect: tapping a recorded rocket
+  played its own animation but omitted the secondary TNT. New pure tests initially
+  failed for missing activation grouping, semantic combo contacts, and completion
+  barrier APIs. Four contact cases remained red until recorded combo source cells
+  were included, since legacy event target lists omit some consumed sources.
+  Test expectations and frozen fixtures were not rewritten to obtain green.
+- Added activation-ID grouping using recorded source identities to distinguish
+  deliberate combos from secondary singles. Repeated records of consumed origins
+  no longer create extra effects. Distinct effects share a wait-for-all callback
+  barrier; combos and mixed single effects are not globally suppressed.
+- Combo batch callbacks now open their actual pieces and trigger the existing
+  local burst/audio on the contact frame. Cosmetic arc caps do not limit semantic
+  contacts. No engine, level JSON, timing constant, auth/DB/leaderboard, or score
+  changes. The 2,500 ms terminal sequence remains unchanged.
+- Focused pure suite passes 18/18; full units pass 315/315 including immutable
+  engine parity. New engine-driven browser suite passes 26/26 across Chromium and
+  iPhone WebKit: all ten combos, a rocket/TNT chain, a combo hitting a third Light
+  Ball, and two secondary effects with different durations. Checks require every
+  real activation once, exact state boundaries, and contact-frame tile hiding.
+- Final review also migrated the pre-flash stagger helper from legacy trigger
+  grouping to the same activation-metadata groups. No timing constants changed.
+  Fresh units pass 315/315; all 100 levels validate. Build/typechecks pass with
+  the existing chunk warning. Both previews serve `index-Ejpx6kKs.js`. The final
+  build passes 148/148 e2e (10.7 minutes), with no retries. The warm-preview drag
+  gate passes 20/20 iterations (40 browser instances), with no failures/retries;
+  logs are retained at `/tmp/gridwatch-drag-gate-task4-20260909/`.
+- Six real-action captures pass: rocket -> TNT, combo -> third Light Ball, and
+  rocket -> two concurrent secondaries, each in desktop Chromium and iPhone 15
+  WebKit emulation. Exact stage occupants, distinct activation completion, and
+  zero tracked VFX resources after cleanup were verified. No page exceptions,
+  console errors, Vite overlays, or horizontal overflow; Chromium capture-only
+  GPU ReadPixels warnings. Browser plugin not available; installed Playwright used.
+  Videos, before/settled screenshots, traces, and results are retained at
+  `/tmp/gridwatch-chains-20260909/`; reproduction script:
+  `/private/tmp/gridwatch-chain-capture.cjs`.
+- Inspected the complete motion sheets (including later cascade tails) on both
+  viewports. Secondary effects precede gravity and subsequent matches follow
+  landing. The single-secondary mobile capture also confirms the known Task 8
+  scale defect: TNT charges toward raw `scaleX/scaleY: 1.15` after display sizing,
+  briefly covering the board. These lines predate this work (June `5383aaf2`).
+  It remains explicitly queued for Task 8's scale correction, not accepted as
+  finished visual polish. No physical-device or new player acceptance claimed.
+
+Commit: `Play chained power-ups without skipping effects`.
+Next: Task 5, callback-driven queue/result/HUD/boss-clock lifecycle.
+No implementation push, merge, deployment, or new player acceptance.
+
 ## 2026-09-09: Task 3 Ordered Cascade Playback Complete
 
 Russ approved migrating remaining legacy timing assertions to their actual stage

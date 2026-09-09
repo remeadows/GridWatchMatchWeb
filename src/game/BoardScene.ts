@@ -53,7 +53,6 @@ import {
   serializePowerUp,
   type BoardAction,
   type BoardDelta,
-  type BoardPowerUpActivation,
   type BoardResolutionStep,
   type BoardSnapshot,
   type BoosterType,
@@ -64,11 +63,11 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
-import { ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit } from "./resolutionPlayback";
+import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -923,7 +922,8 @@ export class BoardScene extends Phaser.Scene {
 
   private playResolutionSteps(steps: readonly BoardResolutionStep[]): void {
     const animationId = this.activeAnimationId;
-    let activations: BoardPowerUpActivation[] = [];
+    const presented = new Set<string>();
+    let groups: ResolutionPowerUpGroup[] = [];
     this.playback = new ResolutionPlayback(steps, (step, done) => {
       const complete = () => {
         if (this.activeAnimationId !== animationId || !this.sys.isActive()) return;
@@ -935,13 +935,11 @@ export class BoardScene extends Phaser.Scene {
       };
       this.snapshot = step.before;
       this.renderSnapshot(new Set(), false);
-      if (step.kind === "activation") activations = step.activations;
+      if (step.kind === "activation") groups = groupResolutionPowerUps(step.activations, presented);
       if (step.kind === "clear") {
-        // Secondary activation choreography is integrated in Task 4. Keep every
-        // state transition now, while retaining the existing single/combo visuals.
-        const events = activations.filter(activation => activation.kind !== "secondary").map(activation => activation.event);
-        activations = [];
-        this.playResolutionClear(step, events, complete);
+        const activeGroups = groups;
+        groups = [];
+        this.playResolutionClear(step, activeGroups, complete);
       } else if (step.kind === "gravity" || step.kind === "refill") {
         const plan = cascadePresentationPlan(step.before, step.after);
         if (plan.moves.length === 0 && plan.spawns.length === 0) {
@@ -970,7 +968,8 @@ export class BoardScene extends Phaser.Scene {
       scoreGained: 0, isWin: false, isFail: false, shuffleAttempts: 0 };
   }
 
-  private playResolutionClear(step: BoardResolutionStep, events: PowerUpEvent[], complete: () => void): void {
+  private playResolutionClear(step: BoardResolutionStep, groups: ResolutionPowerUpGroup[], complete: () => void): void {
+    const events = groups.flatMap(group => group.events);
     const delta = this.resolutionStepDelta(step, events);
     const keys = new Set(step.clears.map(clear => positionKey(clear.position)));
     let popsDone = keys.size === 0;
@@ -983,7 +982,7 @@ export class BoardScene extends Phaser.Scene {
     };
     const effects = (contact: PowerUpContact) => {
       if (events.length === 0) return;
-      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, contact);
+      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, contact, groups);
       this.recordPowerUpFxAfterPopRender();
     };
     if (keys.size === 0) {
@@ -1001,8 +1000,8 @@ export class BoardScene extends Phaser.Scene {
     }
     this.hasPlannedMatchImpact = false;
     const start = () => this.playTilePops(step.before, keys, () => { popsDone = true; finish(); },
-      clearFlashColors(delta), powerUpPopStagger(delta, step.before, keys), effects,
-      undefined, events.length === 0, events.filter(event => event.trigger.kind !== "combo"));
+      clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
+      undefined, events.length === 0, groups);
     if (events.length === 0) this.time.delayedCall(MATCH_RECOGNITION_HOLD_MS, start);
     else start();
   }
@@ -1231,8 +1230,8 @@ export class BoardScene extends Phaser.Scene {
     });
   }
 
-  private playPowerUpEffects(delta: BoardDelta, onSingleSequencedPowerUpCascade?: () => void, onContact?: PowerUpContact): void {
-    const groups = groupPowerUpEvents(delta.powerUpEvents);
+  private playPowerUpEffects(delta: BoardDelta, onComplete?: () => void, onContact?: PowerUpContact,
+    groups: readonly PowerUpPresentationGroup[] = groupPowerUpEvents(delta.powerUpEvents)): void {
     if (this.reducedMotion) {
       const combo = groups.find((group) => group.kind === "combo");
       const event = delta.powerUpEvents[0];
@@ -1241,40 +1240,28 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
 
-    const hasSingleGroup = groups.some((group) => group.kind === "single");
-    const comboGroups = groups.filter((group) => group.kind === "combo" && !hasSingleGroup);
-    let singleCascadeScheduled = false;
-    const finishSingle = () => {
-      if (singleCascadeScheduled || !onSingleSequencedPowerUpCascade) return;
-      singleCascadeScheduled = true;
-      this.vfxCleanup.schedule(this, POWERUP_CASCADE_HOLD_MS, onSingleSequencedPowerUpCascade);
-    };
-    let remainingCombos = comboGroups.length;
-    const finishCombo = () => {
-      remainingCombos -= 1;
-      if (remainingCombos === 0) onSingleSequencedPowerUpCascade?.();
-    };
-    for (const group of groups) {
-      if (group.kind === "combo" && hasSingleGroup) continue;
-      if (group.kind !== "combo") {
-        for (const event of group.events) {
-          this.playPowerUpEffect(
-            event,
-            comboGroups.length === 0 &&
-            (event.powerUpType.kind === "tnt" || event.powerUpType.kind === "rocket" || event.powerUpType.kind === "propeller" || event.powerUpType.kind === "lightBall") &&
-            event.trigger.kind !== "combo"
-              ? finishSingle
-              : undefined,
-            onContact ? position => onContact(event, position) : undefined
-          );
-        }
-        continue;
-      }
-      this.playComboPowerUpEffect(group, finishCombo);
-    }
+    const effects = groups.flatMap(group => group.kind === "combo"
+      ? [{ group, event: null as PowerUpEvent | null }]
+      : group.events.map(event => ({ group, event })));
+    playEffectsTogether(effects, ({ group, event }, done) => {
+      const activationId = "activationId" in group ? String(group.activationId) : undefined;
+      if (activationId) this.recordPresentation("powerup-activation-start", activationId);
+      let finished = false;
+      const finish = () => {
+        if (finished) return;
+        finished = true;
+        if (activationId) this.recordPresentation("powerup-activation-complete", activationId);
+        done();
+      };
+      if (event) this.playPowerUpEffect(event,
+        () => this.vfxCleanup.schedule(this, POWERUP_CASCADE_HOLD_MS, finish),
+        onContact ? position => onContact(event, position) : undefined);
+      else this.playComboPowerUpEffect(group, finish,
+        onContact ? position => onContact(group.events[0], position) : undefined);
+    }, () => onComplete?.());
   }
 
-  private playComboPowerUpEffect(group: PowerUpPresentationGroup, onComplete?: () => void): void {
+  private playComboPowerUpEffect(group: PowerUpPresentationGroup, onComplete?: () => void, onContact?: (position: GridPosition) => void): void {
     if (!this.snapshot || !this.fxLayer || !this.fxScreen || group.kind !== "combo" || !group.key) {
       onComplete?.();
       return;
@@ -1305,6 +1292,12 @@ export class BoardScene extends Phaser.Scene {
       this.cueBoardAudio("comboImpact");
       audioService.vibrate(comboVibration(plan.key));
       this.playComboPrimaryImpact(plan, center);
+      for (const event of group.events) {
+        if (!plan.finalStatePositions.some(position => positionKey(position) === positionKey(event.origin))) {
+          this.recordPresentation("combo-tile-impact", positionKey(event.origin));
+          onContact?.(event.origin);
+        }
+      }
     });
 
     plan.batches.forEach((batch, index) => {
@@ -1312,6 +1305,10 @@ export class BoardScene extends Phaser.Scene {
         if (!this.sys.isActive() || !this.fxLayer?.active) return;
         this.recordPresentation("combo-visual-batch", `${plan.key}:${index}:${batch.affectedPositions.length}`);
         this.playComboBatchVisual(plan, batch, index, center);
+        for (const position of batch.affectedPositions) {
+          this.recordPresentation("combo-tile-impact", positionKey(position));
+          onContact?.(position);
+        }
       });
     });
 
@@ -1649,7 +1646,7 @@ export class BoardScene extends Phaser.Scene {
     afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
     allowMatchShake = true,
-    singleEvents: readonly PowerUpEvent[] = []
+    powerUpGroups: readonly PowerUpPresentationGroup[] = []
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -1679,11 +1676,16 @@ export class BoardScene extends Phaser.Scene {
       maxMs: MATCH_WAVE_MAX_MS
     });
     const controlled = new Map<string, { event: PowerUpEvent; impact: PowerUpCellImpact }>();
-    singleEvents.forEach((event, index) => {
-      for (const impact of singlePowerUpImpacts(event, sourceSnapshot, popKeys, String(index))) {
-        const key = positionKey(impact.position);
-        const previous = controlled.get(key);
-        if (!previous || impact.atMs < previous.impact.atMs) controlled.set(key, { event, impact });
+    powerUpGroups.forEach((group, index) => {
+      for (const event of group.kind === "combo" ? group.events.slice(0, 1) : group.events) {
+        const impacts = group.kind === "combo"
+          ? comboPowerUpImpacts(group, sourceSnapshot, popKeys, String(index))
+          : singlePowerUpImpacts(event, sourceSnapshot, popKeys, String(index));
+        for (const impact of impacts) {
+          const key = positionKey(impact.position);
+          const previous = controlled.get(key);
+          if (!previous || impact.atMs < previous.impact.atMs) controlled.set(key, { event, impact });
+        }
       }
     });
     const openCells = new Map<string, () => void>();
@@ -3663,13 +3665,10 @@ function clearFlashColors(delta: BoardDelta): Map<string, number> {
   return colors;
 }
 
-function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: ReadonlySet<string>): Map<string, number> {
+function powerUpPopStagger(groups: readonly PowerUpPresentationGroup[], snapshot: BoardSnapshot, popKeys: ReadonlySet<string>): Map<string, number> {
   const delays = new Map<string, number>();
   const comboEvents = new Set<PowerUpEvent>();
-  const groups = groupPowerUpEvents(delta.powerUpEvents);
-  const hasSingleGroup = groups.some((group) => group.kind === "single");
   for (const group of groups) {
-    if (hasSingleGroup) continue;
     if (group.kind !== "combo") continue;
     group.events.forEach((event) => comboEvents.add(event));
     const plan = comboChoreographyPlan(group, snapshot.rngSeed, false);
@@ -3682,7 +3681,7 @@ function powerUpPopStagger(delta: BoardDelta, snapshot: BoardSnapshot, popKeys: 
       }
     }
   }
-  for (const event of delta.powerUpEvents) {
+  for (const event of groups.flatMap(group => group.events)) {
     if (comboEvents.has(event)) continue;
     const positions = [event.origin, ...event.affectedPositions].filter((position) => {
       const key = positionKey(position);

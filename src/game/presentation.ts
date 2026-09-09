@@ -217,7 +217,7 @@ export interface PowerUpCellImpact {
   position: GridPosition;
   atMs: number;
   eventId: string;
-  cause: SinglePowerUpEffectKey;
+  cause: PresentationEffectKey;
   disposition: "clear" | "damage";
   compressionStartAtMs: number;
   compressionMs: number;
@@ -386,6 +386,31 @@ export function comboOverlayPositions(plan: ComboChoreographyPlan): GridPosition
   return Array.from({ length: count }, (_, index) => (
     plan.finalStatePositions[Math.floor(index * plan.finalStatePositions.length / count)]
   ));
+}
+
+export function comboPowerUpImpacts(
+  group: PowerUpPresentationGroup,
+  snapshot: BoardSnapshot,
+  clearKeys: ReadonlySet<string>,
+  eventId: string
+): PowerUpCellImpact[] {
+  const plan = comboChoreographyPlan(group, snapshot.rngSeed, false);
+  const contacts = plan.batches.flatMap(batch => batch.affectedPositions.map(position => ({ position, atMs: batch.atMs })));
+  // Some engine events omit the consumed source from their affected positions.
+  for (const event of group.events) {
+    if (!contacts.some(hit => hit.position.row === event.origin.row && hit.position.col === event.origin.col)) {
+      contacts.push({ position: event.origin, atMs: plan.impactAtMs });
+    }
+  }
+  return contacts.filter(hit => snapshot.grid.isValid(hit.position) && !snapshot.grid.get(hit.position).generator)
+    .map(({ position, atMs }) => {
+      const compressionMs = Math.min(MATCH_POP_COMPRESSION_MS, atMs);
+      return {
+        position: { ...position }, atMs, eventId, cause: plan.key,
+        disposition: clearKeys.has(`${position.row},${position.col}`) ? "clear" : "damage",
+        compressionStartAtMs: atMs - compressionMs, compressionMs
+      };
+    });
 }
 
 export function createdPowerUpSpawns(spawns: ReadonlyArray<SpawnEvent>): CreatedPowerUpSpawn[] {

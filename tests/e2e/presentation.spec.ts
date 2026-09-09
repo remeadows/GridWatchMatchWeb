@@ -1,4 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import { BoardEngine, type BoardAction, type LevelDefinition } from "../../src/engine";
+import { levelSeed } from "../../src/state/progress";
 import type { CanonicalComboKey, PresentationTraceEntry } from "../../src/game/presentation";
 import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
 
@@ -15,6 +18,9 @@ const powerUpCombos: CanonicalComboKey[] = [
   "lightBall+lightBall"
 ];
 const presentationEffects = ["rocket", "propeller", "tnt", "lightBall", ...powerUpCombos] as const;
+const resolutionSpecimens = JSON.parse(readFileSync("src/tests/fixtures/resolution/specimens.json", "utf8")) as {
+  name: string; level: LevelDefinition; actions: BoardAction[];
+}[];
 
 interface PresentationResourceSnapshot {
   current: {
@@ -550,6 +556,106 @@ test.describe("single light ball", () => {
     expect(longPlan!.durationMs).toBeGreaterThan(oneCellPlan!.durationMs);
   });
 });
+
+test.describe("engine-driven power-up chains", () => {
+  test("plays a secondary TNT after a tapped rocket without inventing a combo", async ({ page }) => {
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    await page.route("**/levels/level_001.json", route => route.fulfill({ json: specimen.level }));
+    await page.goto("/?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    expect(trace.filter(entry => entry.kind === "powerup-charge").map(entry => entry.detail)).toEqual(["rocket", "tnt"]);
+    expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(0);
+    expect(traceEntry(trace, "tnt-arm").atMs).toBeGreaterThan(trace.filter(entry => entry.kind === "rocket-tile-impact").at(-1)!.atMs);
+    expect(traceEntry(trace, "tnt-detonation").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
+  });
+
+  for (const specimen of resolutionSpecimens.filter(item => item.name.startsWith("combo-"))) {
+    test(`${specimen.name} presents each real activation once and opens pieces on combo contact`, async ({ page }) => {
+      test.setTimeout(60_000);
+      const { trace, frames, resolution } = await playRecordedPowerUpAction(page, specimen.level, specimen.actions[0]);
+      const firstClear = resolution.steps.find(step => step.kind === "clear")!;
+      const firstClearFrame = frames.find(frame => frame.ordinal === firstClear.ordinal)!;
+      const charge = traceEntry(trace, "combo-charge");
+      expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(1);
+      for (const clear of firstClear.clears) {
+        const impacts = trace.filter(entry => entry.kind === "tile-impact" && entry.visibility?.occupantId === clear.occupantId
+          && entry.atMs >= charge.atMs && entry.atMs <= firstClearFrame.atMs);
+        expect(impacts, `Cleared occupant ${clear.occupantId}`).toHaveLength(1);
+        expect(impacts[0].visibility).toMatchObject({ before: true, after: false });
+        expect(trace.some(entry => entry.kind === "combo-tile-impact" && entry.detail === impacts[0].detail
+          && entry.atMs === impacts[0].atMs)).toBe(true);
+      }
+    });
+  }
+
+  test("finishes a deliberate combo and the third Light Ball without a fictitious second combo", async ({ page }) => {
+    test.setTimeout(60_000);
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const level = structuredClone(specimen.level);
+    Object.assign(level.cellMap[3][5], { tile: null, powerUp: "lightBall" });
+    const { trace } = await playRecordedPowerUpAction(page, level, specimen.actions[0]);
+    expect(trace.filter(entry => entry.kind === "combo-charge").map(entry => entry.detail)).toEqual(["rocket+tnt"]);
+    expect(trace.filter(entry => entry.kind === "lightBall-dim")).toHaveLength(1);
+    expect(traceEntry(trace, "lightBall-dim").atMs).toBeGreaterThan(traceEntry(trace, "combo-impact").atMs);
+    expect(traceEntry(trace, "lightBall-undim").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
+  });
+
+  test("waits for both secondary effects when their durations differ", async ({ page }) => {
+    test.setTimeout(60_000);
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const level = structuredClone(specimen.level);
+    Object.assign(level.cellMap[3][5], { tile: null, powerUp: "lightBall" });
+    const { trace, resolution } = await playRecordedPowerUpAction(page, level, { kind: "tap", at: { row: 3, col: 3 } });
+    const children = resolution.steps.flatMap(step => step.activations).filter(record => record.kind === "secondary" && !record.isRepeat);
+    const childIds = [...new Set(children.map(record => record.activationId))];
+    expect(childIds).toHaveLength(2);
+    const starts = childIds.map(id => trace.find(entry => entry.kind === "powerup-activation-start" && entry.detail === id)!);
+    const ends = childIds.map(id => trace.find(entry => entry.kind === "powerup-activation-complete" && entry.detail === id)!);
+    expect(starts[0].atMs).toBe(starts[1].atMs);
+    expect(ends[0].atMs).not.toBe(ends[1].atMs);
+    expect(traceEntry(trace, "cascade-start").atMs).toBeGreaterThanOrEqual(Math.max(...ends.map(entry => entry.atMs)));
+    expect(trace.filter(entry => entry.kind === "combo-charge")).toHaveLength(0);
+  });
+});
+
+async function playRecordedPowerUpAction(page: Page, level: LevelDefinition, action: BoardAction) {
+  const resolution = new BoardEngine(level, levelSeed(level.id)).applyWithResolution(action);
+  await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
+  await page.goto("/?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  if (action.kind === "swap") await dragBoardCells(page, action.from, action.to);
+  else if (action.kind === "tap") await clickBoardPoint(page, await boardCellPoint(page, action.at));
+  else throw new Error("Recorded chain scenarios use real on-board power-ups");
+  await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+    .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"), null, { timeout: 45_000 });
+  const trace = await presentationTrace(page);
+  const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+  const activations = resolution.steps.flatMap(step => step.activations).filter(record => !record.isRepeat);
+  const ids = [...new Set(activations.map(record => record.activationId))];
+  expect(trace.filter(entry => entry.kind === "powerup-activation-start").map(entry => entry.detail)).toEqual(ids);
+  const ends = trace.filter(entry => entry.kind === "powerup-activation-complete");
+  expect(ends.map(entry => entry.detail).sort()).toEqual([...ids].sort());
+  expect(frames).toHaveLength(resolution.steps.length);
+  for (const step of resolution.steps) {
+    const frame = frames.find(item => item.ordinal === step.ordinal)!;
+    const expected = step.after.grid.allPositions.flatMap(position => {
+      const occupantId = step.after.grid.get(position).debugTileId;
+      return occupantId === null ? [] : [{ position, occupantId }];
+    });
+    expect(frame.rendered.map(cell => ({ position: cell.position, occupantId: cell.occupantId }))).toEqual(expected);
+    if (step.kind !== "activation") continue;
+    const nextClear = frames.find(item => item.ordinal > step.ordinal && item.kind === "clear")!;
+    for (const activation of step.activations.filter(record => !record.isRepeat)) {
+      const end = ends.find(entry => entry.detail === activation.activationId)!;
+      expect(end.atMs).toBeLessThanOrEqual(nextClear.atMs);
+    }
+  }
+  return { trace, frames, resolution };
+}
 
 test.describe("power-up combo choreography", () => {
   for (const combo of powerUpCombos) {
