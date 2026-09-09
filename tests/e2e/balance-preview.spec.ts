@@ -56,6 +56,8 @@ for (const profile of profiles) {
     await page.getByTestId("qa-win").click();
     await expect(page.getByText("Grid secured", { exact: true })).toBeVisible();
     expect(await fingerprint(page)).toEqual(before);
+    await page.getByRole("button", { name: "Level Select", exact: true }).click();
+    await expect(page.getByText("Grid secured", { exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "Reset Local Save", exact: true }).click();
     await expect(page.getByLabel("0 coins", { exact: true })).toBeVisible();
@@ -87,6 +89,37 @@ test("production build ignores candidate requests", async ({ page }) => {
   await ready(page);
   await expect(page.getByText("44/44", { exact: true })).toBeVisible();
   await expect(page.getByTestId("balance-profile")).toHaveCount(0);
+});
+
+test("reset failure preserves the displayed save and shows a recoverable error", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await seedNormalSave(page);
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("777 coins", { exact: true })).toBeVisible();
+  const before = await fingerprint(page);
+  await page.evaluate(() => {
+    const original = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) {
+      if (key === "gridwatch-match-web.save.v1") {
+        Storage.prototype.setItem = original;
+        throw new DOMException("Storage unavailable", "QuotaExceededError");
+      }
+      original.call(this, key, value);
+    };
+  });
+  await page.getByRole("button", { name: "Reset Local Save", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveText("Could not reset local save. Please try again.");
+  await expect(page.getByLabel("777 coins", { exact: true })).toBeVisible();
+  expect(await fingerprint(page)).toEqual(before);
+  expect(errors).toEqual([]);
+  await page.getByRole("button", { name: "Reset Local Save", exact: true }).click();
+  await expect(page.getByLabel("0 coins", { exact: true })).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByLabel("0 coins", { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 async function ready(page: Page) {

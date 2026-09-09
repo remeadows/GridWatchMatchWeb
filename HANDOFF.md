@@ -2,7 +2,68 @@
 
 Last updated: 2026-09-09
 
-## 2026-09-09: Task 12 Preview Automated Gates Pass; Human Pilots Open
+Merge ownership: Russ alone merges PRs. Agents may push reviewed fixes when
+authorized, but must never merge PRs or enable auto-merge.
+
+Evidence paths under `/private/tmp`, `/tmp`, and `/var/folders` in this document
+are author-local, transient artifacts, not shared review attachments. They may be
+removed by OS cleanup. Digests identify historical reports; use the checked-in
+reproduction instructions rather than assuming another machine can open them.
+
+## 2026-09-09: PR 48 Review Repair Verification
+
+Russ requires all valid PR 48 conversations fixed and resolved, and explicitly
+retains every merge. Work remains on `codex/campaign-balance-analysis` in its
+isolated worktree. PR 47 was merged by Russ as `20a4a80`; its post-merge Codex P1
+about targetless chained effects is separate pending work, not fixed here.
+
+- Directed-swap sampling and initial-choice metrics first failed their regressions
+  (reverse missing; 15 choices instead of 30), then passed. All policies now see
+  both ordered endpoints, with taps/directions deduplicated. The actual Level 1
+  production-seed pair creates its rocket at row 3 versus row 2. Engine unchanged.
+- Stale-budget warning first failed with zero calls, then passed without changing
+  the canonical fallback. The native-Node test probe now requires typed results.
+- Reset-error e2e first failed on both browsers: missing alert and an unhandled
+  storage rejection. Settings now awaits one reset persistence operation, reports
+  failure visibly, preserves displayed progress on failure, and supports retry.
+  It no longer calls `commitSave` for a redundant second persistence operation.
+  Successful settings/game persistence and the storage implementation are unchanged.
+- The preview test dismisses the result modal through Level Select before Settings.
+  Documentation marks temporary evidence as author-local and asserts a baseline
+  control exists before dereferencing it. The actual documented assertion block
+  passed both matching-row and missing-row checks. Upstream WebKit follow-up samples
+  and fix-confirmation comments are linked directly; local causality remains unproven.
+- Verification: 18 focused units, 354 full units, 100 levels, build/typechecks, high
+  audit, and 188/188 full browser cases (13.8 minutes, zero retries) pass.
+  Bundle: `index-D-BYXmzJ.js`. The audit still lists two pre-existing moderate
+  Vitest entries; no dependency update. First browser launch was denied local
+  socket permission before any test ran; the authorized launch reached the reds.
+- Desktop 1280x720 and mobile 393x852 Settings screenshots show a readable error,
+  preserved 777-coin disposable save, and no page errors or alert overflow.
+  Author-local transient captures: `/private/tmp/gridwatch-pr48-settings-LufYNZ/`.
+  Full browser artifacts: `/private/tmp/gridwatch-pr48-browser-gate-20260909/`.
+- Corrected directed-swap baseline and full repeat each completed 60,000 runs /
+  774,513 actions with byte-identical JSON. The outlier screen completed 24,000 /
+  356,346; candidate pilots 24,000 / 356,705; controls 3,600 / 38,277. All 171,600
+  runs have zero errors/rejections; all six control cohorts match their baseline
+  exactly. All 125 candidate source hashes match. Pilot budgets remain unchanged.
+  Regenerated reports and pinned digests are checked in; old README numbers are
+  explicitly historical. See the corrected rescreen for current comparisons.
+- Baseline SHA-256: `9bd3a7646f0afe4118b806075e8238d39aa5e96fd938962d9a45513edf2a4418`.
+  Outliers: `7d857ec90039a77f765f3080eeae875245c3406344d66151766741f9b740057e`.
+  Candidate: `095d969a4f9b55fe1642096a32901cb80f37b84e6e77361f9b36efd5910d3433`.
+  Transient author-local repeat evidence: `/private/tmp/gridwatch-pr48-rescreen-DkvrLT/`.
+- Final full units passed again (354/354), and the final build has the same bundle
+  hash as the browser-tested build. Canonical levels, engine, backend/auth/
+  leaderboards, dependencies, browser config and original dirty checkout are untouched.
+
+This snapshot records local verification for the review-repair commit. Read
+[PR 48](https://github.com/remeadows/GridWatchMatchWeb/pull/48) for subsequent
+conversation resolutions, reviewer responses and remote check state. No merge or
+manual production deploy is part of this repair. Human balance acceptance and the
+separate PR 47 P1 remain open.
+
+## Historical Task 12 Snapshot: Preview Gates Pass; Human Pilots Open
 
 Task 11 is committed as `f07e457`; this branch integrates reviewed gameplay
 capture repairs at `aa237b5`. Task 12 implementation is committed with
@@ -40,11 +101,14 @@ Worker deploy is authorized by those checks. The original dirty checkout is inta
   Trace: `/private/tmp/gridwatch-balance-full-diagnostic-nIszfn/artifacts/`.
   Its page remains `about:blank` with an empty body. A minimal server/page/context
   diagnostic passed 300 navigations, so it did not reproduce the long-run fault.
-- Upstream Playwright issue 42385 documents a matching macOS display-sleep/window
-  animation stall in the installed 1.62.1 / WebKit 2336 combination, reportedly
-  fixed in newer WebKit. This Mac is 26.6.2 and `pmset` records display sleep during
-  the long runs. This is a supported working hypothesis, not a locally sampled
-  deadlock diagnosis: https://github.com/microsoft/playwright/issues/42385.
+- Playwright issue 42385 is a related navigation issue. The reporter's
+  [follow-up samples](https://github.com/microsoft/playwright/issues/42385#issuecomment-5539073362)
+  attribute their 1.62.1 / WebKit 2336 reproduction to display-sleep/window-animation
+  thread accumulation; a [maintainer reply](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545275294)
+  and [reporter verification](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545690086)
+  report a newer-WebKit fix. This Mac is 26.6.2 and `pmset` recorded display sleep
+  during the long runs. That supports a working hypothesis, not a locally sampled
+  deadlock diagnosis or a claim that the upstream fix was installed here.
   A full unchanged-build gate passed under `caffeinate -diu`, which prevents
   display sleep only for the command lifetime. Evidence parent:
   `/private/tmp/gridwatch-task12-awake-gate-dLiTUG/`. No global preferences,

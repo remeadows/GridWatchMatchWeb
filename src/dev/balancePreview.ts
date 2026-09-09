@@ -23,6 +23,9 @@ export function applyBalanceProfile(level: LevelDefinition, profile: BalanceProf
   const change = profile?.changes.find(item => item.levelId === level.id);
   // A stale candidate cannot silently override newly authored content.
   if (change && change.from === level.moveLimit) copy.moveLimit = change.to;
+  else if (change) {
+    console.warn(`[balance] Skipped stale change for level ${level.id}: expected moveLimit ${change.from}, found ${level.moveLimit}.`);
+  }
   return copy;
 }
 

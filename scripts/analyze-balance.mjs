@@ -94,15 +94,30 @@ function merit(policy, action, snapshot, level) {
   return score;
 }
 
+function playerActions(validActions) {
+  if (validActions.some(action => !['swap', 'tap'].includes(action.kind))) throw new Error('Only legal swap and tap actions are allowed; no boosters');
+  const actions = new Map();
+  // The engine enumerates undirected pairs, but creation prefers the drag destination.
+  for (const action of validActions) {
+    const directions = action.kind === 'swap'
+      ? [action, { kind: 'swap', from: action.to, to: action.from }] : [action];
+    for (const directed of directions) {
+      const key = directed.kind === 'swap' ? `swap:${positionKey(directed.from)}:${positionKey(directed.to)}` : `tap:${positionKey(directed.at)}`;
+      if (!actions.has(key)) actions.set(key, directed);
+    }
+  }
+  return [...actions.values()];
+}
+
 export function pickAction(policy, snapshot, level, validActions, policyRng) {
   if (!policies.includes(policy)) throw new Error(`Unknown policy: ${policy}`);
-  if (validActions.some(action => !['swap', 'tap'].includes(action.kind))) throw new Error('Only legal swap and tap actions are allowed; no boosters');
-  if (validActions.length === 0) throw new Error('No legal actions');
-  let candidates = validActions;
+  const actions = playerActions(validActions);
+  if (actions.length === 0) throw new Error('No legal actions');
+  let candidates = actions;
   if (policy !== 'random') {
-    const scores = validActions.map(action => merit(policy, action, snapshot, level));
+    const scores = actions.map(action => merit(policy, action, snapshot, level));
     const best = Math.max(...scores);
-    candidates = validActions.filter((_, index) => scores[index] === best);
+    candidates = actions.filter((_, index) => scores[index] === best);
   }
   return structuredClone(candidates[policyRng.nextInt(candidates.length)]);
 }
@@ -141,7 +156,7 @@ export function runSimulation(level, { policy, engineSeed, policySeed, includeAc
   try {
     const engine = new BoardEngine(level, engineSeed), chooser = new SeededRNG(policySeed);
     const run = { levelId: level.id, policy, engineSeed: String(engineSeed), policySeed: String(policySeed), outcome: null,
-      movesUsed: 0, unusedMoves: level.moveLimit, remainingObjectives: {}, initialLegalChoices: engine.validMoves().length,
+      movesUsed: 0, unusedMoves: level.moveLimit, remainingObjectives: {}, initialLegalChoices: playerActions(engine.validMoves()).length,
       clears: 0, powerUpsCreated: 0, powerUpActivations: 0, reshuffles: 0, maxCascadeDepth: 0, presentationMs: 0 };
     const actions = [];
     for (let index = 0; index < level.moveLimit; index++) {
@@ -239,7 +254,8 @@ export function analyzeCampaign(levels, options) {
   if (selectedPolicies.some(policy => !policies.includes(policy)) || !selectedPolicies.length) throw new Error('Unknown policy cohort');
   if (cohorts.some(cohort => !cohortNames.includes(cohort)) || !cohorts.length) throw new Error('Unknown seed cohort');
   const report = { schemaVersion: 1, seeds, policies: selectedPolicies, cohorts,
-    model: { foresight: 'No future refill, cascade, or engine RNG inspection. Power-up target uncertainty uses a fixed independent footprint sampler.',
+    model: { actionSpace: 'Both directions of each legal swap, deduplicated by ordered endpoints; each legal power-up tap once.',
+      foresight: 'No future refill, cascade, or engine RNG inspection. Power-up target uncertainty uses a fixed independent footprint sampler.',
       thinkingSeconds, gestureSecondsPerMove: 0.25, bossClock: 'Task 5 candidate: visible controllable time only; forced presentation and hidden time excluded.',
       presentation: 'Nominal ordered phase model using current pure timing helpers and power-up budgets, not measured per-run browser time.', sceneCosts,
       sampling: 'Production cohorts hold the app retry seed fixed while policy choices vary. Sensitivity cohorts vary both seeds. Wilson intervals are conditional bot-screening summaries, not human win rates.' },

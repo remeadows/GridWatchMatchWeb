@@ -52,7 +52,17 @@ describe("isolated development balance profiles", () => {
   it("fails closed when an authored budget no longer matches the reviewed patch", () => {
     const stale = level(51);
     stale.moveLimit = 43;
-    expect(applyBalanceProfile(stale, select())).toEqual(stale);
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(applyBalanceProfile(stale, select())).toEqual(stale);
+      expect(warning).toHaveBeenCalledExactlyOnceWith(
+        "[balance] Skipped stale change for level 51: expected moveLimit 44, found 43."
+      );
+      warning.mockClear();
+      applyBalanceProfile(level(51), select());
+      applyBalanceProfile(level(51), null);
+      expect(warning).not.toHaveBeenCalled();
+    } finally { warning.mockRestore(); }
   });
 
   it("isolates load, persistence and reset entirely in memory", async () => {

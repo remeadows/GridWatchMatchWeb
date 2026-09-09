@@ -95,6 +95,12 @@ export default function App() {
     void saveStore.persist(next);
   }, []);
 
+  const resetLocalSave = useCallback(async () => {
+    // reset() already persists; only publish its successful result to React.
+    const fresh = await saveStore.reset();
+    setSave(fresh);
+  }, []);
+
   if (!save) {
     return (
       <main className="app-shell loading-shell">
@@ -117,7 +123,7 @@ export default function App() {
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
       {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} auth={auth} />}
       {screen.name === "account" && <AccountScreen save={save} commitSave={commitSave} auth={auth} />}
-      {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} />}
+      {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} resetLocalSave={resetLocalSave} />}
       {screen.name === "rules" && <RulesScreen save={save} commitSave={commitSave} />}
       {screen.name === "intel" && <IntelScreen save={save} commitSave={commitSave} />}
       {screen.name === "store" && <StoreScreen />}
@@ -1144,7 +1150,22 @@ function OperatorIdentityPanel({ auth }: { auth: ReturnType<typeof useAuth> }) {
   );
 }
 
-function SettingsScreen({ save, commitSave }: { save: SaveState; commitSave: (save: SaveState) => void }) {
+function SettingsScreen({ save, commitSave, resetLocalSave }: {
+  save: SaveState; commitSave: (save: SaveState) => void; resetLocalSave: () => Promise<void>;
+}) {
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const reset = async () => {
+    setResetError(null);
+    setResetting(true);
+    try {
+      await resetLocalSave();
+    } catch {
+      setResetError("Could not reset local save. Please try again.");
+    } finally {
+      setResetting(false);
+    }
+  };
   const updateSetting = (key: keyof SaveState["settings"], value: boolean) => {
     const next = cloneSave(save);
     next.settings[key] = value;
@@ -1159,7 +1180,8 @@ function SettingsScreen({ save, commitSave }: { save: SaveState; commitSave: (sa
           <input type="checkbox" checked={value} onChange={(event) => updateSetting(key as keyof SaveState["settings"], event.currentTarget.checked)} />
         </label>
       ))}
-      <button className="danger-button" onClick={() => void saveStore.reset().then(commitSave)}>Reset Local Save</button>
+      <button className="danger-button" disabled={resetting} onClick={() => void reset()}>Reset Local Save</button>
+      {resetError && <p className="identity-notice" role="alert">{resetError}</p>}
     </section>
   );
 }

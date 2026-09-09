@@ -4,6 +4,10 @@ This is an offline diagnostic, not a player model, automatic level generator, or
 authorization to change production content. Canonical levels, engine outcomes,
 score formulas, Worker validation, and player saves are unchanged.
 
+Temporary evidence paths below are author-local, transient artifacts, not shared
+review attachments. They may disappear during OS cleanup. Retained SHA-256 digests
+identify the historical files; reproduce reports using the commands here.
+
 ## Reproduction
 
 Use the repository's pinned Node 24 runtime and existing installed dependencies.
@@ -33,7 +37,10 @@ Experimental native-transform warnings are expected on Node 24.
 
 ## Policies And Cohorts
 
-- `random`: uniform choice among engine-reported legal swaps and power-up taps.
+- `random`: uniform choice among both directions of every engine-reported legal
+  swap and each power-up tap once. Ordered endpoints are deduplicated. Reversing
+  a drag can change the match-created power-up's destination, so all policies
+  consider both directions and initial legal-choice metrics count them separately.
   It is not a model of random screen taps or the time a person needs to find moves.
 - `visible-match`: estimates immediate visible clears and potential match-created
   power-ups. It does not simulate future refill or subsequent cascades.
@@ -106,13 +113,18 @@ sessions must establish fairness and content acceptance.
 
 ## Verification
 
-The nine focused unit regressions exercise the exact CLI loader and exports:
+The focused unit regressions exercise the exact CLI loader and exports:
 independent deterministic choices, first-terminal stop, authored move limit,
 invalid input, fail-loud engine errors, Wilson intervals, repeatable cohort output,
 and separate boss controllable/forced time. The frozen all-level engine corpus
 remains the engine-outcome regression gate.
 
-## September 9 Baseline
+## Historical September 9 One-Direction Baseline
+
+This section records the superseded one-direction analyzer results and their
+original digests. They are retained as provenance, not current screening evidence.
+The checked-in reports now use both drag directions; see the corrected rescreen
+below before evaluating a candidate.
 
 The full baseline completed 60,000 runs and 772,840 legal actions with zero engine
 errors or rejected actions. No protected source changed during analysis.
@@ -274,6 +286,7 @@ const { analyzeCampaign, sourceHashes } = await import('./scripts/analyze-balanc
 const { selectBalanceProfile, applyBalanceProfile } = await import('./src/dev/balancePreview.ts');
 const spec = read('docs/balance/candidates/pilot-moves-v1.json');
 const baseline = read('docs/balance/baseline.json');
+assert.equal(sha('docs/balance/baseline.json'), spec.baselineSha256);
 assert.equal(sha(process.argv[2]), spec.outlierSha256);
 const outliers = read(process.argv[2]), before = sourceHashes();
 assert.deepEqual(before, baseline.sources);
@@ -288,7 +301,9 @@ const analyze = (ids, samples) => analyzeCampaign(ids.map(load), {
 const candidatePilots = analyze(spec.changes.map(change => change.levelId), 500);
 const controls = analyze(spec.controls, 100);
 for (const control of controls.levels) {
-  assert.deepEqual(control.cohorts, baseline.levels.find(level => level.id === control.id).cohorts);
+  const row = baseline.levels.find(level => level.id === control.id);
+  assert.ok(row, `Baseline is missing control level ${control.id}`);
+  assert.deepEqual(control.cohorts, row.cohorts);
 }
 assert.deepEqual(sourceHashes(), before);
 for (const [path, hash] of Object.entries(extra)) assert.equal(sha(path), hash);
@@ -299,7 +314,11 @@ writeFileSync('docs/balance/candidate-analysis.json', JSON.stringify(report, nul
 NODE
 ```
 
-### First Candidate Results
+### Historical First Candidate Results
+
+The following first-trial numbers use the superseded one-direction action space.
+The pilot budgets remain fixed hypotheses, not newly selected from these numbers.
+Use the corrected directed-swap report below for current comparisons.
 
 The comparison completed 27,600 new runs / 394,868 actions with zero errors or
 rejections in 306.58 seconds: 24,000 pilot runs and 3,600 control runs. All six
@@ -356,10 +375,14 @@ navigation diagnostics are separate and do not erase this failure.
 The traced unchanged-build full reproduction also failed before gameplay:
 163 passed / 1 failed / 22 not run, with a blank `about:blank` page in a different
 mobile combo case. A 300-navigation minimal diagnostic passed. The installed
-Playwright 1.62.1 / WebKit 2336 has a matching upstream macOS display-sleep issue,
-and this host's power logs show display sleep during the long runs. See
-[Playwright issue 42385](https://github.com/microsoft/playwright/issues/42385).
-The exact local deadlock has not been sampled; treat this as a working diagnosis.
+Playwright 1.62.1 / WebKit 2336 has a related upstream navigation issue.
+The reporter's [follow-up process samples](https://github.com/microsoft/playwright/issues/42385#issuecomment-5539073362)
+attribute their reproduction to display-sleep/window-animation thread accumulation.
+A [maintainer response](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545275294)
+and [reporter verification](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545690086)
+report a fix in newer WebKit. These are upstream observations, not proof of this
+app's local root cause. This host's power logs show display sleep during the long
+runs, but the exact local deadlock was not sampled; it remains a working hypothesis.
 
 The successful full gate keeps the display awake temporarily, without test retries,
 timeout increases, assertion changes, global preferences or dependency upgrades:
@@ -375,3 +398,62 @@ including both formerly stalled cases, zero retries. This validates the temporar
 environment workaround on the unchanged build, not a fix to WebKit or proof of
 the precise local deadlock. All 125 candidate source hashes match. Task 12's
 automated gates are green; human pilots and content acceptance are still open.
+
+## Corrected Directed-Swap Rescreen
+
+PR 48 review identified an omitted player choice: the engine enumerates adjacent
+swap pairs once, but reversing a drag can change the newly created power-up's
+anchor. The analyzer now evaluates both directions for every policy and counts
+directed initial choices, without duplicating taps or changing engine behavior.
+The Level 1 production-seed regression verifies different rocket endpoints, not
+just different action labels. The pilot budgets above remain fixed hypotheses.
+
+The corrected all-level baseline and its full repeat each completed 60,000 runs /
+774,513 actions with zero errors or rejected actions. Their JSON is byte-identical,
+including all 121 pinned source hashes. Baseline SHA-256:
+`9bd3a7646f0afe4118b806075e8238d39aa5e96fd938962d9a45513edf2a4418`.
+
+| Cohort | Random wins / 10,000 | Visible-match wins / 10,000 | Objective-aware wins / 10,000 |
+|---|---:|---:|---:|
+| Production | 9,848 | 9,993 | 9,999 |
+| Sensitivity | 9,835 | 9,985 | 9,996 |
+
+Ninety-one post-tutorial levels trigger the >=95% production-random win flag;
+74 have median unused moves above 40%. Seven neighboring unused-move jumps and
+two win-rate jumps remain. These are corrected bot diagnostics, not player win
+rates or human acceptance of the candidate.
+
+The corrected 500-seed outlier screen completed 24,000 runs / 356,346 actions.
+Outlier SHA-256:
+`7d857ec90039a77f765f3080eeae875245c3406344d66151766741f9b740057e`.
+The fixed-budget candidate completed 24,000 runs / 356,705 actions; the six controls
+completed 3,600 runs / 38,277 actions and exactly match baseline cohort metrics.
+All runs have zero errors/rejections. All 125 candidate source hashes match.
+Candidate report SHA-256:
+`095d969a4f9b55fe1642096a32901cb80f37b84e6e77361f9b36efd5910d3433`.
+The full outlier data is embedded in the checked-in candidate report.
+
+| Level | Production random before -> trial | Sensitivity random before -> trial | Trial sensitivity Wilson 95% | Trial production median unused |
+|---|---|---|---|---:|
+| 19 | 96.0 -> 90.0% | 98.0 -> 93.0% | 90.4-94.9% | 4 |
+| 35 | 71.8 -> 79.4% | 74.4 -> 80.2% | 76.5-83.5% | 3 |
+| 49 | 98.4 -> 93.2% | 97.4 -> 90.4% | 87.5-92.7% | 5 |
+| 50 | 66.2 -> 81.2% | 72.0 -> 84.6% | 81.2-87.5% | 4 |
+| 51 | 100 -> 100% | 100 -> 99.0% | 97.7-99.6% | 13 |
+| 60 | 100 -> 98.2% | 99.2 -> 93.4% | 90.9-95.3% | 11 |
+| 61 | 100 -> 99.4% | 100 -> 96.2% | 94.1-97.6% | 9 |
+| 70 | 99.8 -> 99.2% | 98.6 -> 94.4% | 92.0-96.1% | 11 |
+
+Each rate uses 500 seeds for the named cohort/policy. Production visible-match
+trial wins range 96.4-100%; objective-aware wins range 99.8-100%. Level 51 still
+triggers high-win, unused-move, and neighboring-jump flags. The corrected analysis
+does not establish a balanced campaign or authorize canonical budget changes.
+
+Verification after the review repairs: 354/354 units, 100 level validations,
+build/typechecks, high audit, and 188/188 browser tests pass with zero browser
+retries. Final bundle `index-D-BYXmzJ.js` matches the browser-tested build. The
+reset-storage failure regression first failed on Chromium and WebKit, then passed
+with a visible alert, unchanged displayed save, no unhandled rejection, and a
+successful retry. Desktop/mobile screenshots confirm the error remains readable.
+No engine, canonical level, backend, dependency, or browser configuration changed.
+Human pilot sessions and content acceptance remain open.
