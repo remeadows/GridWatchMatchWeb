@@ -1,7 +1,9 @@
 const { chromium, webkit, devices } = require('@playwright/test');
-const { mkdirSync, writeFileSync } = require('node:fs');
-const out = process.env.GW_CAPTURE_DIR || '/tmp/gridwatch-resolution-baseline-20260908';
-mkdirSync(out, { recursive: true });
+const { mkdtempSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
+const out = mkdtempSync(join(process.env.GW_CAPTURE_DIR || tmpdir(), 'gridwatch-resolution-baseline-'));
+console.log(`Capture directory: ${out}`);
 
 async function gesture(page, from, to = from) {
   await page.evaluate(({ from, to }) => {
@@ -63,5 +65,5 @@ async function gesture(page, from, to = from) {
       }
     } finally { await browser.close(); }
   }
-  writeFileSync(`${out}/traces.json`, JSON.stringify(results, null, 2));
+  writeFileSync(`${out}/traces.json`, JSON.stringify(results, null, 2), { flag: 'wx', mode: 0o600 });
 })().catch(error => { console.error(error); process.exitCode = 1; });
