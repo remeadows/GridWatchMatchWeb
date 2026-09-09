@@ -1,6 +1,62 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## 2026-09-09: Task 2 Ordered Engine Records Complete
+
+Russ approved correcting the new test scenario. Generator/lock assertions remain
+against the frozen specimen; a separate in-memory level copy adds surviving malware
+outside the blast and retains the propagation assertion. Frozen files and engine
+rules were not changed to resolve the test failure.
+
+- Passed 297/297 unit tests: both APIs preserve all 21 specimens and 34,054 frozen
+  action outcomes each, including invalid actions, RNG, IDs, HP, score, objectives,
+  move count, and action logs. Ten focused stage/identity/metadata checks pass.
+- Build/typechecks and `git diff --check` pass. The existing Phaser chunk warning
+  remains. All-level validation and capture-overhead evidence from the prior Task 2
+  checks remain applicable; only the test scenario changed after that measurement.
+- New pure `applyWithResolution` returns detached ordered boundaries and causal
+  activation metadata. Legacy `apply` uses the same implementation without optional
+  frames. The renderer still uses the old handoff until Task 3.
+- Commit message: `Expose deterministic resolution steps for playback`.
+  No implementation push, merge, deployment, or player-acceptance claim.
+
+Next: Task 3, adjacent-stage renderer playback and browser identity checks.
+
+## 2026-09-09: Task 2 Paused On An Unexpected New Test Failure
+
+Task 0 is committed as `9554063`; Task 1 as `056909a`. Task 2 is uncommitted on
+`codex/gameplay-causal-playback` in `/private/tmp/gridwatch-match-planning-20260908`.
+Modified: `src/engine/{types,boardEngine}.ts`; new `src/tests/resolution.test.ts`.
+No implementation push, merge, or deployment has occurred.
+
+- Added optional `applyWithResolution` through the existing resolution algorithm.
+  Records include detached stage snapshots, IDs, HP changes, objective changes,
+  activation/parent identities, combo participants, and repeat-origin metadata.
+  Legacy apply does not allocate optional snapshot frames.
+- The initial eight stage tests passed after the expected missing-API reds.
+  Full suite passed 295/295, including both APIs against 21 specimens and all
+  34,054 frozen actions per API. Build passed; all 100 levels validate. No frozen
+  fixture, game rule, RNG call, aggregate delta, score, or backend changes.
+- A subsequent added coverage test FAILED at `src/tests/resolution.test.ts:171`:
+  it expected the `generator-and-lock` fixture to contain a malware propagation
+  change. This was an agent-authored test scenario mistake: the immutable baseline
+  has one HP-1 malware tile at (5,5), destroyed by TNT at (5,6); final malware is
+  empty. The assertion has NOT been weakened or removed, and rules are unchanged.
+- Stopped for the user's unexpected-test-failure guardrail. Requested approval to
+  correct this new test's scenario using surviving malware, preserving the existing
+  frozen fixture and its assertions for generator/lock behavior. Do not claim Task 2
+  green or commit it until the test is corrected and the gates rerun.
+- Worst sampled depth was 10 (Level 3, seed 19): 49 steps, 808,812 serialized bytes,
+  median apply 0.33 ms versus captured apply 1.12 ms on this Mac. Also sampled max
+  event count 21 and max clears 102. Raw timings and noisy GC heap deltas are in
+  `/tmp/gridwatch-resolution-benchmark-20260909.json`; script is
+  `/tmp/gridwatch-resolution-benchmark.mjs`. These are local measurements, not
+  mobile performance claims. Some heap deltas are negative and are not peak-memory
+  estimates; serialized size and cell-copy counts are the reliable size measures.
+
+Next: resolve the new test-scenario approval, rerun Task 2 gates, then commit
+`Expose deterministic resolution steps for playback` and continue Task 3.
 
 ## 2026-09-08: Task 1 Single-Power-Up Contacts Complete
 

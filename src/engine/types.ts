@@ -124,6 +124,60 @@ export interface BoardSnapshot {
   chainDepth: number;
 }
 
+export interface BoardActivationSource {
+  position: GridPosition;
+  occupantId: number | null;
+  powerUp: PowerUpType;
+}
+
+export interface BoardPowerUpActivation {
+  eventId: string;
+  eventIndex: number;
+  activationId: string;
+  originOccupantId: number | null;
+  initiatingAction: BoardAction;
+  parentActivationId: string | null;
+  kind: "single" | "combo" | "secondary";
+  isRepeat: boolean;
+  sources: BoardActivationSource[];
+  event: PowerUpEvent;
+}
+
+export interface BoardResolutionHit {
+  position: GridPosition;
+  occupantId: number | null;
+  activationId: string | null;
+  disposition: "clear" | "damage" | "empty";
+}
+
+export interface BoardResolutionMove {
+  from: GridPosition;
+  to: GridPosition;
+  occupantId: number;
+  tileType: TileType | null;
+  powerUp: PowerUpType | null;
+}
+
+export interface BoardResolutionStep {
+  ordinal: number;
+  cascadeDepth: number;
+  kind: "action" | "activation" | "creation" | "clear" | "gravity" | "refill" | "malware" | "shuffle" | "settled";
+  before: BoardSnapshot;
+  after: BoardSnapshot;
+  clears: (ClearEvent & { occupantId: number | null })[];
+  moves: BoardResolutionMove[];
+  spawns: (SpawnEvent & { occupantId: number | null })[];
+  objectiveEvents: ObjectiveEvent[];
+  cellChanges: { position: GridPosition; before: CellState; after: CellState }[];
+  hits: BoardResolutionHit[];
+  activations: BoardPowerUpActivation[];
+}
+
+export interface BoardResolution {
+  delta: BoardDelta;
+  steps: BoardResolutionStep[];
+}
+
 export class BoardEngineError extends Error {
   readonly code:
     | "invalidSwap"
