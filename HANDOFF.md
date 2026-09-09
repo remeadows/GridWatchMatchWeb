@@ -2,6 +2,36 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
+
+PR 45 was merged externally at `2026-09-09T15:45:56Z` as `67e1c6b`, with all
+checks green. This supersedes the earlier ready-but-unmerged entries below.
+Local merge `67e57bf` aligns the gameplay branch with that squash merge while
+preserving every task commit. Its file tree exactly matches tested `514c04e`.
+Draft PR 47 is open for timing/lifecycle review:
+`https://github.com/remeadows/GridWatchMatchWeb/pull/47`.
+
+- PR 47's CodeQL analysis identified one high insecure-temporary-file finding in
+  Task 0's older `baseline-browser.cjs`. The helper now allocates a fresh private
+  randomized capture directory and writes its trace exclusively with mode 0600.
+  `GW_CAPTURE_DIR` selects an existing parent. Historical captures are preserved.
+- A new regression runs the real setup block twice and verifies unique child
+  directories with mode 0700. It first failed on the reused shared output path,
+  then passed unchanged. The first attempted test invocation could not resolve
+  Vitest in this fresh worktree; after the locked `npm ci --ignore-scripts`, the
+  actual behavioral red was observed. No dependency file changed.
+- All 336 units pass, script syntax and build/typechecks pass, and the gameplay
+  bundle remains `index-CpK1aw8K.js`. No runtime, canonical level, engine, Worker,
+  auth, leaderboard, or player-save changes in this repair. The Task 6 172/172
+  browser result still applies to the identical gameplay bundle.
+
+Independent work: Task 7 pipeline is local on `codex/blender-piece-pipeline`,
+commit `73d6fa0`, with two material studies awaiting Russ's selection. Task 11 is
+running on `codex/campaign-balance-analysis` in its own worktree; the first full
+screen passed 60,000 runs / 772,840 actions / zero errors, with repeat/outlier
+verification pending. Those changes are not included in PR 47.
+No gameplay merge, Worker deployment, new player or physical-device acceptance.
+
 ## 2026-09-09: Task 6 Pacing Candidate Complete Locally
 
 Task 5 is `08b7c33`; planning security integration is `b837dfb`. Task 6 has passed

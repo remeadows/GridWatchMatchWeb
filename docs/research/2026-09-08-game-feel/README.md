@@ -24,8 +24,11 @@ name coordinate reuse and creation followed by a later tap; they do not claim a
 same-action created-then-consumed power-up without stage/identity evidence.
 
 With the baseline preview on 4174, run `baseline-browser.cjs` for videos, before/
-impact/settled screenshots, and actual scene traces in
-`/tmp/gridwatch-resolution-baseline-20260908/` (`GW_CAPTURE_DIR` can override).
+impact/settled screenshots, and actual scene traces. It prints `Capture directory:`
+with a new private randomized `gridwatch-resolution-baseline-*` directory inside
+the system temporary directory. `GW_CAPTURE_DIR` selects an existing parent
+directory, not a reusable output directory. Historical Task 0 captures remain at
+`/tmp/gridwatch-resolution-baseline-20260908/`.
 Unlike the original audit below, this uses WebKit for the iPhone 15 project.
 Combo captures are preview-only; singles and normal/cascade captures are real
 engine actions. The script uses isolated guest contexts. Sticky header overlap
