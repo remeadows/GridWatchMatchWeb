@@ -2,6 +2,51 @@
 
 Last updated: 2026-09-08
 
+## 2026-09-08: Task 0 Baseline Frozen
+
+Implementation branch: `codex/gameplay-causal-playback`, in the isolated worktree
+`/private/tmp/gridwatch-match-planning-20260908`, based on planning commit `34a7542`.
+Task commit message: `Record gameplay timing and balance baselines`.
+No gameplay, engine, level, asset, backend, or dependency files changed.
+
+- Fresh baseline: 238/238 unit tests, 100 valid levels, build passed with the existing
+  bundle-size warning, 102/102 Playwright tests passed (51 Chromium, 51 WebKit).
+- Installed missing Playwright Chromium 1234 and WebKit 2336 test runtimes. Initial
+  launch failures were missing executables, not gameplay assertion failures. Vite
+  and browsers required local sandbox execution permission. No tests were relaxed.
+- Node 24.16.0; Blender 5.1.0 `adfe2921d5f3` responds at its application CLI path.
+  Blender's existing USD cache-line warning persists; renders are Task 7 work.
+- Immutable fixtures total 2,945,594 bytes: 2,000 sensitivity runs, 34,054 actions,
+  and 21 full specimens. Every engine/level source hash is recorded against
+  `328a1a7`. A separate no-write replay verified every complete outcome hash and
+  focused initial/before/after snapshot, including IDs, HP, RNG, and action logs.
+- Specimens cover all ten combos, damage without occupant clear, generator/lock,
+  repeated coordinates, created power-up then later tap, coordinate reuse across
+  activation/creation, post-resolution shuffle, and five invalid actions.
+- Coverage clarification: aggregate events at the same coordinate are not proof
+  that a newly created power-up was consumed later in the same action. Existing
+  resolution drains initial power-up chains before ordinary match creations.
+  The corpus labels coordinate reuse honestly and separately covers a created
+  piece consumed by a later action. Task 2 must use IDs/stages before claiming
+  same-action created-then-consumed coverage; do not change rules to force it.
+- Sixteen baseline browser captures cover ordinary match, the Level 1 three-wave
+  engine cascade, all four singles, and two representative combo previews at
+  1280x720 Chromium and iPhone 15 WebKit. Raw traces, 48 screenshots, and videos
+  are in `/tmp/gridwatch-resolution-baseline-20260908/`. No page exceptions or
+  horizontal page overflow. Some canvas-element screenshots include the sticky
+  header after automatic scrolling; they are not clean art-acceptance captures.
+- Actual scene-clock break-minus-contact ranges: desktop rocket 0..458 ms,
+  TNT -97..222 ms, propeller +467 ms, Light Ball -480..435 ms; mobile rocket
+  0..80 ms, TNT 39..162 ms, propeller +200 ms, Light Ball -561..107 ms.
+  Capture overhead/parallel baseline tests affect wall timing. These demonstrate
+  competing clocks, not performance benchmarks. Both render the three-wave
+  Level 1 action as only one clear/fall stage. Player acceptance remains open.
+- Dependency audit on the unchanged base reports 3 high findings (sharp via
+  miniflare/wrangler) and 2 moderate (Vitest/mocker). Separate maintenance scope;
+  no automatic dependency fixes, merge, push, or deployment performed this task.
+
+Next: Task 1, shared single-power-up contact dispatch and actual visibility tests.
+
 ## 2026-09-08: Gameplay Acceptance Reopened; Implementation Plan Prepared
 
 Russ reports local gameplay is not fully accepted. Tile breaking still feels off,

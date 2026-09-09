@@ -1,5 +1,38 @@
 # Audit Reproduction
 
+## Frozen Implementation Baseline
+
+Task 0 fixtures live in `src/tests/fixtures/resolution/`. `manifest.json` contains
+SHA-256 source hashes; `corpus.json` stores 2,000 runs / 34,054 actions, action
+tuples, and complete canonical outcome hashes. Arrays preserve order; object keys
+sort recursively. Each outcome includes delta, error, complete row-major snapshot,
+and cumulative action log. `specimens.json` retains full authored input, initial
+state, the last action's before/after state, and expected outcome for 21 cases.
+
+```bash
+node --experimental-transform-types docs/research/2026-09-08-game-feel/verify-resolution.mjs
+```
+
+Verification writes nothing. `freeze-resolution.mjs` is provenance only: it checks
+every source byte against `328a1a7` and refuses to overwrite existing fixtures.
+Never regenerate expected outcomes from a changed engine. An initial unpublished
+specimen draft retained a mutable action-array reference; it was quarantined outside
+source and corrected before the no-write replay gate. Corpus hashes did not change.
+
+Creation/activation at one coordinate alone is ambiguous. The specimens separately
+name coordinate reuse and creation followed by a later tap; they do not claim a
+same-action created-then-consumed power-up without stage/identity evidence.
+
+With the baseline preview on 4174, run `baseline-browser.cjs` for videos, before/
+impact/settled screenshots, and actual scene traces in
+`/tmp/gridwatch-resolution-baseline-20260908/` (`GW_CAPTURE_DIR` can override).
+Unlike the original audit below, this uses WebKit for the iPhone 15 project.
+Combo captures are preview-only; singles and normal/cascade captures are real
+engine actions. The script uses isolated guest contexts. Sticky header overlap
+can occur in scrolled canvas screenshots; retain videos for full sequence context.
+
+## Original Screening
+
 These are research scripts for the September 8 plan, not production gameplay code
 or a finished balance-testing tool. They use existing project dependencies and
 Node 24's TypeScript stripping/module hooks. Run from a checkout with dependencies
