@@ -1,6 +1,6 @@
 # GridWatch Match Web Memory
 
-Last updated: 2026-07-17
+Last updated: 2026-09-08
 
 ## Durable Context
 
@@ -13,6 +13,14 @@ Last updated: 2026-07-17
 
 ## Product Priorities
 
+- Local gameplay is not fully accepted. Russ reopened acceptance on 2026-09-08:
+  tile-break timing remains wrong, assets need improvement, and campaign balance
+  needs analysis and local iteration.
+- Active plan: `docs/superpowers/plans/2026-09-08-game-feel-assets-and-balance.md`.
+  Fix causal impact timing and missing intermediate cascades before tuning delays.
+- Blender 5.1.0 is available at `/Applications/Blender.app/Contents/MacOS/Blender`
+  for original offline-rendered piece and fracture assets. Phaser stays the runtime.
+
 - Gameplay feel and presentation clarity are release-critical.
 - The board must be responsive on mouse, touch, desktop, and mobile.
 - All seven rows must be playable; prior bugs affected rows 5-7 due to board interaction/layout issues.
@@ -24,7 +32,8 @@ Last updated: 2026-07-17
 ## Presentation Contract
 
 - `docs/art/gridwatch-match-presentation-bible.md` is the durable presentation contract.
-- Candidate B is the approved bright tactical die-cast piece set. Web-owned tile,
+- Candidate B is the historically approved bright tactical die-cast piece set;
+  the next asset iteration requires fresh actual-size review. Web-owned tile,
   power-up, and booster art lives under `public/assets/images/web-overrides/` and must
   survive iOS asset sync.
 - The approved Tactical Glass sound pack contains 20 CC0 board cues under
@@ -43,7 +52,20 @@ Last updated: 2026-07-17
 - `src/App.tsx` contains booster selection/drag UI and passes targeted booster actions to the scene.
 - `tests/e2e/app.spec.ts` covers deterministic swap flow, live drag into a match, booster targeting, booster drag placement, persistence, and viewport overlap checks.
 
-## Latest Known Good State
+## Current Verification And Historical Release
+
+- 2026-09-08 audit: 238 unit tests and all 100 level validations passed; build passed.
+  Ten headless desktop/mobile-sized browser action flows completed, exposing real
+  effect-versus-tile timing discrepancies. Full e2e, physical-device listening, and
+  new player acceptance are not claimed by that audit.
+- Eight thousand deterministic simulation runs completed with no engine errors.
+  Actual production-seed runs won 98.65% with random legal choices and 99.85% with
+  a simple visible-match policy. These exclude boss clocks and are screening data,
+  not human win rates. Details: `docs/research/2026-09-08-game-feel-audit.md`.
+- Auth, signed-in score submission, and leaderboard updates were already verified
+  by Russ. Campaign saves remain device/browser-local. No backend changes planned.
+
+Historical release record (not a claim of current gameplay acceptance):
 
 - Presentation implementation `eab2cfc` and final handoff `d8ecbe7` are pushed on
   `codex/gridwatch-presentation-overhaul`. Application revision `d8ecbe7` was deployed
@@ -59,4 +81,6 @@ Last updated: 2026-07-17
 - Do not change the iOS game source when fixing the web game.
 - Treat gameplay polish as critical; code the game as if the public challenge result depends on it.
 - Keep secrets out of git.
-- Push to GitHub when preparing public web-hosted changes unless the user says not to.
+- GitHub pushes and opening PRs are authorized as of 2026-09-08, superseding the
+  local-commits-only restriction. Test gameplay locally first; keep merge/deploy
+  separate from PR publication and from player acceptance.

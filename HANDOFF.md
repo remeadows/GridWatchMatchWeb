@@ -1,6 +1,91 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-07-19
+Last updated: 2026-09-09
+
+## 2026-09-09: PR 45 Security Gate Repairs
+
+PR 45 was blocked by its dependency audit and two high-severity CodeQL findings,
+not merge conflicts. This maintenance is isolated from the gameplay implementation.
+
+- Audit scripts now create private, randomized temporary directories and exclusive
+  mode-0600 JSON reports. Both actual scripts completed; directory mode 0700,
+  report mode 0600, and overwrite rejection were verified. Future runs print their
+  output paths. Historical capture paths below remain historical evidence.
+- A scoped Miniflare override pins Sharp 0.35.4 (patched libheif 1.23.2). No broad
+  dependency upgrade, audit suppression, application, level, or backend change.
+  Lockfile changes are confined to Sharp and its native/libvips packages.
+- `npm ci --ignore-scripts`, 238 unit tests, all 100 levels, build/typechecks,
+  `npm audit --audit-level=high`, Sharp resize/PNG smoke, and Wrangler 4.119.0 CLI
+  smoke passed. The two moderate Vitest advisories remain separate maintenance.
+  Build retains the existing large-chunk warning. Wrangler log output was directed
+  to `/private/tmp` after the sandbox denied its default user-preferences path.
+- Production-seed screening completed 4,000 runs / 55,817 actions with zero errors.
+  Ten browser audit flows completed against this PR's isolated preview on 4175
+  with zero page exceptions. This validates script execution, not gameplay feel:
+  the baseline's known contact timing defects remain on this planning branch.
+- Evidence: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-Oyxok5/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-feel-audit-ZKUADE/`.
+  Browser audit used an in-memory URL substitution from 4174 to 4175; source and
+  the interactive gameplay preview were not changed.
+
+Published as `c586bc9`: fresh CI, CodeQL analysis, CodeQL security gate and Pages
+preview passed; PR 45 reports CLEAN and is ready for review. A subsequent review
+comment identified stale reproduction paths in the research README/report. Those
+instructions now explain the logged randomized paths while preserving historical
+September 8 evidence locations. `git diff --check` passed for that docs-only fix.
+Do not merge or deploy. Gameplay Tasks 0-4 and Task 5 work remain on the separate
+`codex/gameplay-causal-playback` branch.
+
+## 2026-09-08: Gameplay Acceptance Reopened; Implementation Plan Prepared
+
+Russ reports local gameplay is not fully accepted. Tile breaking still feels off,
+the art can improve, and balance needs review. All earlier acceptance statements
+below are historical. Current implementation and passing tests do not close this
+new quality gate. Pushes and opening GitHub PRs are now authorized; merge/deployment
+of unaccepted gameplay is not authorized by that change alone.
+
+The next implementation plan is
+`docs/superpowers/plans/2026-09-08-game-feel-assets-and-balance.md`.
+Evidence, limitations, and backlog reconciliation are in
+`docs/research/2026-09-08-game-feel-audit.md`. Reproducible analysis scripts and
+compact results live in `docs/research/2026-09-08-game-feel/`.
+
+Confirmed priorities:
+
+1. Unify effect arrival, actual tile break, and sound. Separate schedulers currently
+   produce roughly 0.2-0.3 second late rocket breaks and some Light Ball breaks more
+   than half a second early in headless desktop/mobile-sized captures. TNT times are
+   also assigned to the wrong cells after sorting loses their position pairing.
+2. Preserve intermediate resolution stages. The aggregate delta/final-snapshot
+   renderer currently collapses cascades and can omit intermediate creations.
+   The proposed engine change is observation-only, with frozen outcome comparisons.
+3. Distinguish genuine combos, chained pieces, and already-consumed origin records;
+   remove blanket suppression only after causal metadata exists.
+4. Make queue/result/HUD and boss timing follow the actual playback lifecycle.
+   Retain the 2,500 ms bottom-up celebration after the winning action fully finishes.
+5. Build original, reproducible Blender assets and matched fragments with clean
+   silhouettes at real mobile size. CLI 5.1.0 is available through the app path.
+6. Formalize balance tooling and test isolated hand-authored candidates. Production
+   seed screening suggests a difficulty drop after Level 50, with 29-30 unused
+   moves typically remaining in Levels 51-70 under the visible-match policy.
+
+Verification this turn: 238/238 unit tests, 100/100 levels, successful build, ten
+headless browser flows, 8,000 simulated runs / 113,583 legal actions / zero engine
+errors. Browser audit found presentation defects; this is not a passed acceptance
+gate. Full e2e and physical-device/audio acceptance remain to be rerun during
+implementation. Baseline application code matches main at `328a1a7`; dependencies
+in the original checkout differ from current main. No application, engine, level,
+asset, backend, or deployment changes were made during planning.
+
+Planning branch: `codex/game-feel-balance-plan-20260908`, isolated from the original
+checkout's existing package-lock edit and untracked July plan. Those files are
+preserved. Historical July Task 0-18 implementation is complete, but its quality
+approval is reopened. Seven dependency PRs are separate maintenance work.
+
+Next: execute Task 0, freeze current outcome fixtures, then Task 1's shared impact
+schedule. Do not start another cosmetic timing increase before fixing contact
+causality. No new user input is required for those implementation tasks once this
+plan is selected for execution.
 
 ## 2026-07-19: Main-integration review corrections awaiting deployment
 
@@ -368,7 +453,12 @@ per-task record: `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`
   workers.dev fallback: `gridwatch-match.russell-meadows.workers.dev`. Deploy is manual
   (`npm run build && npx wrangler deploy`).
 
-### Remaining to finish Phase 3
+### Historical Phase 3 Release Checklist
+
+Status correction, 2026-09-08: all three gates below were completed; Russ confirmed
+real signed-in score submission and leaderboard updates on 2026-07-18. The original
+wording is retained as release history, not an open task or authorization to change
+the database. Automatic deployment is deferred.
 1. ✅ Worker secret set. 2. ✅ Domain cutover done.
 3. **Live score E2E (human-playability gate — the one open item):** signed in on
    gridwatchmatchweb.warsignallabs.net, win a level → the won modal should show
