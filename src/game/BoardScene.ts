@@ -62,16 +62,19 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, winSequenceDurationMs, type CascadePresentationPlan } from "./motion";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, computeCentroidStagger, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
 import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
+import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
   onAnimationComplete: (animationId: number) => void;
+  onStepComplete: (animationId: number, ordinal: number) => void;
+  onAnimationError: (animationId: number) => void;
 }
 
 export type BoardAnimationEvent =
@@ -317,12 +320,7 @@ const POWERUP_RESOLVE_BUDGET_MS =
   CASCADE_LANDING_SQUASH_MS +
   CASCADE_LANDING_SETTLE_MS;
 
-// Worst-case wall-clock for one resolved swap's animation chain: swap settle →
-// match lock → the slowest clear/cascade, power-up FX, or power-up staggered pop
-// path. The action queue must pace SLOWER than this so a queued action never
-// starts while the previous BoardScene tweens are still running (which would
-// render over in-flight pops/cascades/FX). Derived from named timing constants so
-// it stays correct when those timings change.
+// Conservative single-wave recovery estimate, never an action-queue timer.
 export const RESOLVE_ANIMATION_BUDGET_MS =
   SWAP_TRAVEL_MS +
   SWAP_SETTLE_MS +
@@ -352,6 +350,9 @@ export class BoardScene extends Phaser.Scene {
   private snapshot: BoardSnapshot | null = null;
   private onAction: ((action: BoardAction) => void) | null = null;
   private onAnimationComplete: ((animationId: number) => void) | null = null;
+  private onStepComplete: BoardSceneData["onStepComplete"] | null = null;
+  private onAnimationError: BoardSceneData["onAnimationError"] | null = null;
+  private playbackWatchdog: Phaser.Time.TimerEvent | null = null;
   private layer: Phaser.GameObjects.Container | null = null;
   private fxUnderlay: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
@@ -385,6 +386,8 @@ export class BoardScene extends Phaser.Scene {
   private presentationPlannedAtMs = 0;
   private hasPlannedMatchImpact = false;
   private winPresentationActive = false;
+  private winTimeline: TerminalPlayback | null = null;
+  private winTick: (() => void) | null = null;
   private playback: ResolutionPlayback | null = null;
   private occupantInstanceId = 0;
 
@@ -395,6 +398,8 @@ export class BoardScene extends Phaser.Scene {
   init(data: BoardSceneData): void {
     this.onAction = data.onAction;
     this.onAnimationComplete = data.onAnimationComplete;
+    this.onStepComplete = data.onStepComplete;
+    this.onAnimationError = data.onAnimationError;
   }
 
   preload(): void {
@@ -433,6 +438,7 @@ export class BoardScene extends Phaser.Scene {
       if (this.winPresentationActive) return;
       // Keep the current stage alive; the next boundary applies the new geometry.
       if (this.playback) return;
+      if (this.activeAnimationId !== null && !this.drag) return;
       // A resize can land while a committed swap's resolve handoff is parked
       // on the settle tween (pendingCommitCb). hardClearDrag alone would kill
       // that tween and drop the handoff, wedging the active animation forever
@@ -450,9 +456,23 @@ export class BoardScene extends Phaser.Scene {
       this.renderSnapshot();
     });
     this.renderSnapshot();
+    this.setPresentationPaused(document.hidden);
   }
 
+  update(): void { this.winTick?.(); }
+
   private disposeVfx(): void {
+    this.winTimeline?.cancel();
+    this.winTimeline = null;
+    this.winTick = null;
+    this.clearPlaybackWatchdog();
+    this.clearDragWatchdog();
+    this.activeAnimationId = null;
+    this.activeResolvedSnapshot = null;
+    this.pendingCommitCb = null;
+    this.pendingResolvedSnapshot = null;
+    this.presentationSequenceId += 1;
+    this.activePresentationSequenceId = this.presentationSequenceId;
     this.playback?.cancel();
     this.playback = null;
     this.winPresentationActive = false;
@@ -460,6 +480,49 @@ export class BoardScene extends Phaser.Scene {
     this.fxUnderlay = null;
     this.fxLayer = null;
     this.fxScreen = null;
+  }
+
+  setPresentationPaused(paused: boolean): void {
+    if (!this.time || !this.tweens) return;
+    this.winTimeline?.setPaused(paused, performance.now());
+    this.time.paused = paused;
+    this.tweens.paused = paused;
+  }
+
+  private clearPlaybackWatchdog(): void {
+    this.playbackWatchdog?.remove(false);
+    this.playbackWatchdog = null;
+  }
+
+  private armPlaybackWatchdog(animation: BoardAnimationEvent): void {
+    this.clearPlaybackWatchdog();
+    const steps = animation.kind === "resolved" ? animation.steps : [];
+    const budget = playbackRecoveryBudgetMs(steps, {
+      action: SWAP_TRAVEL_MS + SWAP_SETTLE_MS,
+      activation: 0,
+      creation: POWERUP_CREATION_CHARGE_MS + POWERUP_CREATION_OVERSHOOT_MS + POWERUP_CREATION_SETTLE_MS,
+      clear: RESOLVE_ANIMATION_BUDGET_MS,
+      gravity: CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS,
+      refill: CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS,
+      malware: 0, shuffle: SWAP_TRAVEL_MS + SWAP_SETTLE_MS, settled: 0
+    });
+    this.playbackWatchdog = this.time.delayedCall(budget, () => {
+      if (this.activeAnimationId !== animation.id) return;
+      const resolved = this.activeResolvedSnapshot;
+      this.playback?.cancel();
+      this.playback = null;
+      this.vfxCleanup.dispose();
+      this.tweens.killAll();
+      this.time.removeAllEvents();
+      this.hardClearDrag();
+      if (resolved) this.snapshot = resolved;
+      this.activeAnimationId = null;
+      this.activeResolvedSnapshot = null;
+      this.playbackWatchdog = null;
+      this.renderSnapshot();
+      this.recordPresentation("resolution-recovery", String(animation.id));
+      this.onAnimationError?.(animation.id);
+    });
   }
 
   sync(snapshot: BoardSnapshot, animation?: BoardAnimationEvent | null, reducedMotion = false, pendingBooster: BoosterType | null = null): void {
@@ -473,6 +536,7 @@ export class BoardScene extends Phaser.Scene {
       this.lastAnimationId = animation.id;
       this.activeAnimationId = animation.id;
       this.beginPresentationSequence(animation.action);
+      this.armPlaybackWatchdog(animation);
       if (animation.kind === "invalid") {
         this.playInvalidAnimation(animation.action);
         return;
@@ -489,6 +553,8 @@ export class BoardScene extends Phaser.Scene {
 
   private finishAnimation(): void {
     const completedAnimationId = this.activeAnimationId;
+    if (completedAnimationId === null) return;
+    this.clearPlaybackWatchdog();
     this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
     this.activeAnimationId = null;
     this.activeResolvedSnapshot = null;
@@ -784,11 +850,15 @@ export class BoardScene extends Phaser.Scene {
     this.winPresentationActive = true;
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.beginWinPresentationTrace();
+    const sequenceId = this.activePresentationSequenceId;
     const sourceSnapshot = this.snapshot;
     const poppedKeys = occupiedKeys(sourceSnapshot);
     this.hardClearDrag();
 
     const finish = () => {
+      if (!this.winPresentationActive || !this.sys.isActive() || this.activePresentationSequenceId !== sequenceId) return;
+      this.winTick = null;
+      this.winTimeline = null;
       this.winPresentationActive = false;
       if (this.sys.isActive()) {
         this.snapshot = buildPostClearSnapshot(sourceSnapshot, poppedKeys);
@@ -806,10 +876,20 @@ export class BoardScene extends Phaser.Scene {
     const hiddenKeys = new Set<string>();
     const rows = rowDestructionOrder(sourceSnapshot.grid.rows);
     const seed = sourceSnapshot.rngSeed;
+    const timeline = new TerminalPlayback(performance.now(), {
+      rows: rows.length, leadMs: WIN_SEQUENCE_LEAD_IN_MS, staggerMs: WIN_ROW_DESTRUCTION_STAGGER_MS,
+      popMs: WIN_ROW_DESTRUCTION_POP_MS, holdMs: WIN_SEQUENCE_FINAL_HOLD_MS
+    });
+    timeline.setPaused(this.time.paused, performance.now());
+    this.winTimeline = timeline;
     this.cueBoardAudio("comboCharge", { gain: 0.3, playbackRate: 0.9 });
-    rows.forEach((row, index) => {
-      this.time.delayedCall(WIN_SEQUENCE_LEAD_IN_MS + index * WIN_ROW_DESTRUCTION_STAGGER_MS, () => {
-        if (!this.sys.isActive() || !this.fxLayer) return;
+    this.winTick = () => {
+      if (!this.sys.isActive() || !this.fxLayer || this.activePresentationSequenceId !== sequenceId) return;
+      const event = timeline.update(performance.now());
+      if (event.complete) { finish(); return; }
+      if (event.rowIndex !== null) {
+        const index = event.rowIndex;
+        const row = rows[index];
         const rowPositions = sourceSnapshot.grid.allPositions.filter((position) => {
           const key = positionKey(position);
           return position.row === row && poppedKeys.has(key);
@@ -837,19 +917,8 @@ export class BoardScene extends Phaser.Scene {
           this.cueBoardAudio("comboImpact", { gain: 0.55, playbackRate: 0.96 });
           this.playWinFinalBurst();
         }
-      });
-    });
-
-    this.time.delayedCall(
-      winSequenceDurationMs(
-        sourceSnapshot.grid.rows,
-        WIN_ROW_DESTRUCTION_STAGGER_MS,
-        WIN_ROW_DESTRUCTION_POP_MS,
-        WIN_SEQUENCE_LEAD_IN_MS,
-        WIN_SEQUENCE_FINAL_HOLD_MS
-      ),
-      finish
-    );
+      }
+    };
     return true;
   }
 
@@ -931,6 +1000,7 @@ export class BoardScene extends Phaser.Scene {
         if (step.kind === "action") this.renderSnapshot(new Set(), false);
         this.recordResolutionFrame(step);
         this.renderSnapshot(new Set(), false);
+        if (animationId !== null) this.onStepComplete?.(animationId, step.ordinal);
         done();
       };
       this.snapshot = step.before;
@@ -3380,14 +3450,20 @@ export class BoardScene extends Phaser.Scene {
   // swap so nothing should be pinned, but clearing it costs nothing and
   // removes any dependence on that invariant holding.
   private recoverFromWedgedDrag(drag: ActiveDrag): void {
+    const handoff = this.pendingCommitCb;
+    if (handoff) {
+      this.hardClearDrag();
+      handoff();
+      return;
+    }
     if (this.pendingResolvedSnapshot) {
       const resolvedSnapshot = this.pendingResolvedSnapshot;
       this.vfxCleanup.dispose();
       this.tweens.killAll();
-      this.finishAnimation();
       this.hardClearDrag();
       this.snapshot = resolvedSnapshot;
       this.renderSnapshot();
+      this.finishAnimation();
       return;
     }
     this.vfxCleanup.dispose();
@@ -3402,8 +3478,8 @@ export class BoardScene extends Phaser.Scene {
     this.tweens.killAll();
     this.hardClearDrag();
     this.snapshot = resolvedSnapshot;
-    this.finishAnimation();
     this.renderSnapshot();
+    this.finishAnimation();
     return true;
   }
 

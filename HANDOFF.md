@@ -2,6 +2,93 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: PR 45 Unblocked; Task 5 Complete Locally
+
+Russ requested correction of the blocked PR and continuation through the plan.
+The earlier incorrect test-probe pause is resolved under that authorization.
+
+- PR 45 repair is committed/pushed as `c586bc9` on the separate planning branch
+  `codex/game-feel-balance-plan-20260908`. Randomized private temporary output
+  directories fix both high CodeQL findings. A narrow Miniflare override to Sharp
+  0.35.4 fixes the high audit gate; only Sharp/native/libvips lock entries changed.
+  Follow-up `277ca02` documents the randomized output paths and resolves the
+  remaining review thread. Fresh CI, CodeQL analysis, CodeQL security gate and
+  Pages preview all pass at that head; GitHub reports CLEAN. PR 45 is ready for
+  review, not merged or Worker-deployed.
+  Two moderate Vitest advisories remain separate maintenance. The repair is not
+  yet integrated into this gameplay branch; do so at a clean task boundary.
+- Task 5's corrected `rocket-head-launch` probe established the intended red:
+  Play On covered a still-running final rocket. Additional pre-implementation
+  browser reds confirmed early boss-fail UI, queue interruption of a long chain,
+  immediate final HUD score, boss time charged during effects, and a win result
+  appearing while hidden. The initial short queue specimen passed and was replaced
+  with the existing long-chain fixture to expose the predicted fixed-budget bug.
+- Twelve new pure lifecycle tests pass. Completion IDs now gate queue release,
+  queue depth stays three, terminal outcomes discard queued actions, and HUD
+  progress follows real step boundaries using the already-authoritative score.
+  Engine scoring, awards, action logs, submission arguments and backend unchanged.
+- Candidate boss rule is visible controllable time, not unchanged iOS parity.
+  Authored durations are unchanged. Forced playback, hidden tabs and results pause
+  the monotonic clock. Boss expiry and final-move failure wait for active playback.
+  Win celebration remains 2,500 ms and callback-driven, with its wall fallback
+  removed. Scene recovery is separate, plan-derived, paused with scene timers, and
+  reports an interrupted run rather than awarding a false completion.
+- Initial build/typechecks passed (`index-ALsBXgly.js`), 327 units passed, all 100
+  levels validated, and 18 focused lifecycle browser instances passed on Chromium/
+  iPhone WebKit. The full suite then stopped at 90 passed / 1 failed / 75 not run:
+  mobile `app.spec.ts:160` measured the ending at 2,901 ms against its unchanged
+  2,900 ms ceiling. No assertion relaxation or flake retry was applied.
+- Diagnostic captures completed six final-power-up/result flows with exact stage
+  identities, one completion each, and clean tracked VFX resources. Captured endings
+  were 2,511 ms desktop / 2,509 ms mobile; this did not erase the full-suite failure.
+  Evidence: `/private/tmp/gridwatch-lifecycle-LYtcwM/`. Some mobile screenshots were
+  scrolled by Playwright's QA-button clicks; the capture helper now invokes those
+  diagnostic buttons without scrolling for the final visual pass.
+- Phaser Clock accumulates smoothed frame deltas but exposes unsmoothed `now`.
+  The ending now uses a pure pause-aware elapsed-time timeline, driven by scene
+  updates. It preserves the nominal 2,500 ms duration, at least one row-pop interval
+  between overdue rows, and the final pop/hold before completing. It never bunches
+  overdue rows or reports completion from an unrelated wall timer. Four additional
+  pure regressions first failed for the missing timeline, then passed (16 focused
+  pure tests total). New build/typechecks pass as `index-CFrz_7qr.js`; the unchanged
+  desktop/mobile ending-time assertions pass in the focused browser run. Final
+  full-suite/capture/warm-drag gates remain pending. No player/device acceptance.
+- The second full run on `index-CFrz_7qr.js` stopped at 146 passed / 1 failed /
+  19 not run: WebKit `presentation.spec.ts:577` timed out waiting for page load
+  before the Light Ball test reached scene readiness or made an action. Its
+  screenshot was blank; no DOM snapshot was available. This is a separate,
+  unexplained navigation failure, not evidence of a Light Ball effect regression.
+  No retry, timeout increase, config change, or assertion relaxation was applied.
+- A new Next Level regression held the level response until the new scene booted.
+  It failed because the CREATE callback replayed the previous level's final action
+  from mount-time props. CREATE now reads the latest presentation props through a
+  ref. Both Chromium and iPhone WebKit pass the unchanged regression on the fresh
+  `index-DLcD2sj2.js` build. Scene mount/FPS timing remains unchanged. The final
+  full suite passed all 168 cases (13.2 minutes), with no retries. This includes
+  the previously timed-out navigation, without claiming its root cause is fixed.
+- Fresh final verification: 331 units in 10 files, 100 level validations, build/
+  typechecks and diff check pass. Final captures at
+  `/private/tmp/gridwatch-lifecycle-MJqYPD/` cover final-fail, boss-expiry and winning
+  power-ups at 1280x720 Chromium and iPhone 15 WebKit. All six retain exact stage
+  IDs, one completion, zero page/console errors, no overflow and zero tracked VFX
+  resources after cleanup. Inspected video frames show sequential bottom-up rows,
+  no early result overlay, and complete board framing. Endings measured 2,516 ms
+  desktop / 2,532 ms mobile. These are emulation/capture observations, not physical
+  phone or subjective audio acceptance. The known TNT raw-scale art issue remains
+  assigned to Task 8. All 20 consecutive warm drag runs passed on the final build
+  (40 desktop/mobile instances, zero failures, no retries). Evidence:
+  `/private/tmp/gridwatch-drag-gate-task5-Qyjzrx/`.
+- A test helper needed a one-line `unknown` cast for TypeScript. One browser run
+  was mistakenly launched after that failed build, repeated the known Task 4 red,
+  and is not Task 5 evidence. The subsequent build and all focused passes used
+  the fresh Task 5 bundle. No assertion was weakened to produce a pass.
+
+Task 4 is `288ba0c`. This change is Task 5, committed with the exact message
+`Gate game transitions on playback completion`. Original checkout's pre-existing
+edits remain untouched. No gameplay push, main merge or production deployment.
+Next: integrate the planning-branch security repairs, then Task 6's local pacing
+comparison without a routine approval stop.
+
 ## 2026-09-09: Task 4 Chained Power-Up Playback Complete
 
 Task 3 is committed locally as `687eced`. Task 4 completed on the same branch.

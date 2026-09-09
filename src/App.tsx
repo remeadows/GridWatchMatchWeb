@@ -6,16 +6,10 @@ import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
-import {
-  WIN_ROW_DESTRUCTION_POP_MS,
-  WIN_ROW_DESTRUCTION_STAGGER_MS,
-  WIN_SEQUENCE_FINAL_HOLD_MS,
-  WIN_SEQUENCE_LEAD_IN_MS
-} from "./data/gameplayTiming";
-import { BoardEngine, type BoardAction, type BoardDelta, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
-import { RESOLVE_ANIMATION_BUDGET_MS, type BoardAnimationEvent } from "./game/BoardScene";
+import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
+import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
-import { winSequenceDurationMs } from "./game/motion";
+import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
@@ -327,9 +321,10 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
-  const [status, setStatus] = useState<"loading" | "running" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
+  const [status, setStatus] = useState<"loading" | "running" | "resolving" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
   const [score, setScore] = useState(0);
+  const [hud, setHud] = useState<PlaybackHud | null>(null);
   const [bossRemaining, setBossRemaining] = useState<number | null>(null);
   const [playOnUsed, setPlayOnUsed] = useState(false);
   const [queueDepth, setQueueDepth] = useState(0);
@@ -341,8 +336,10 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [boosterDrag, setBoosterDrag] = useState<BoosterDragState | null>(null);
   const gameCanvasRef = useRef<GameCanvasHandle | null>(null);
   const engineRef = useRef<BoardEngine | null>(null);
-  const queueRef = useRef<BoardAction[]>([]);
-  const processingRef = useRef(false);
+  const lifecycleRef = useRef(new PlaybackLifecycle<BoardAction>());
+  const bossClockRef = useRef<PlayClock | null>(null);
+  const bossExpiredRef = useRef(false);
+  const tutorialVisibleRef = useRef(false);
   const boosterPointerRef = useRef<{
     booster: BoosterType;
     dragging: boolean;
@@ -357,11 +354,14 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const tutorialInitialMoveRef = useRef(0);
   const finalRef = useRef(false);
   const animationIdRef = useRef(0);
-  const pendingWinRef = useRef<{
+  const pendingPlaybackRef = useRef<{
     animationId: number;
+    initialScore: number;
     nextScore: number;
     engine: BoardEngine;
     level: LevelDefinition;
+    steps: readonly BoardResolutionStep[];
+    outcome: "win" | "playOn" | null;
   } | null>(null);
   const runStatsRef = useRef({ tilesCleared: 0, powerUpEvents: 0, chainSum: 0 });
 
@@ -378,22 +378,25 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [save]);
 
   useEffect(() => {
-    scoreRef.current = score;
-  }, [score]);
-
-  useEffect(() => {
     let active = true;
+    statusRef.current = "loading";
     setStatus("loading");
     setMessage("");
     setScore(0);
+    scoreRef.current = 0;
+    setHud(null);
+    setSnapshot(null);
     setLastDelta(null);
     setAnimationEvent(null);
     setPlayOnUsed(false);
     setSelectedBooster(null);
     setBoosterDrag(null);
     finalRef.current = false;
-    pendingWinRef.current = null;
-    queueRef.current = [];
+    pendingPlaybackRef.current = null;
+    lifecycleRef.current.reset();
+    lifecycleRef.current.suspend(document.hidden);
+    bossExpiredRef.current = false;
+    bossClockRef.current = null;
     setQueueDepth(0);
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
     setSubmitState({ kind: "idle" });
@@ -403,7 +406,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       engineRef.current = engine;
       setLevel(loaded);
       setSnapshot(engine.snapshot);
+      setHud({ ...engine.snapshot, score: 0 });
       setBossRemaining(loaded.bossLevel ? loaded.bossTimerSeconds ?? 90 : null);
+      bossClockRef.current = loaded.bossLevel
+        ? { remainingMs: (loaded.bossTimerSeconds ?? 90) * 1_000, lastAtMs: performance.now(), running: false }
+        : null;
+      statusRef.current = "running";
       setStatus("running");
       setShowTutorial((!saveRef.current.completedTutorial || saveRef.current.tutorialReplayRequested) && !new URLSearchParams(window.location.search).has("gwTestMode"));
       tutorialInitialMoveRef.current = engine.snapshot.moveCount;
@@ -417,35 +425,59 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     });
     return () => {
       active = false;
-      pendingWinRef.current = null;
+      pendingPlaybackRef.current = null;
+      lifecycleRef.current.reset();
+      bossClockRef.current = null;
       engineRef.current = null;
     };
   }, [levelId, runId]);
 
-  useEffect(() => {
-    if (status !== "running" || !level?.bossLevel) return;
-    const timer = window.setInterval(() => {
-      // Keep this updater pure: only compute the next value. The "reached
-      // zero -> fail" side effects live in the effect below so StrictMode's
-      // double-invoked updaters can't double-fire them.
-      setBossRemaining((current) => {
-        if (current === null) return current;
-        return Math.max(0, current - 1);
-      });
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [level?.bossLevel, status]);
-
-  useEffect(() => {
-    if (status !== "running" || !level?.bossLevel || bossRemaining !== 0) return;
+  const completeBossExpiry = useCallback(() => {
+    statusRef.current = "failed";
     setStatus("failed");
+    setMessage("Boss timer expired.");
     audioService.playSfx("sfx_breach_alert.mp3");
     audioService.playSfx("vo_grid_compromised.mp3");
-  }, [bossRemaining, level?.bossLevel, status]);
+  }, []);
+
+  const requestBossExpiry = useCallback(() => {
+    if (bossExpiredRef.current || finalRef.current) return;
+    bossExpiredRef.current = true;
+    lifecycleRef.current.stop();
+    setQueueDepth(0);
+    setBossRemaining(0);
+    if (bossClockRef.current) bossClockRef.current = { ...bossClockRef.current, remainingMs: 0, running: false };
+    if (lifecycleRef.current.activeId === null) completeBossExpiry();
+    else {
+      statusRef.current = "resolving";
+      setStatus("resolving");
+    }
+  }, [completeBossExpiry]);
+
+  const tickBossClock = useCallback((allowPlay = true) => {
+    const clock = bossClockRef.current;
+    if (!clock || bossExpiredRef.current) return;
+    const running = allowPlay && statusRef.current === "running" && lifecycleRef.current.activeId === null
+      && !document.hidden && !tutorialVisibleRef.current;
+    const next = advancePlayClock(clock, performance.now(), running);
+    bossClockRef.current = next;
+    setBossRemaining(Math.ceil(next.remainingMs / 1_000));
+    if (next.remainingMs === 0) requestBossExpiry();
+  }, [requestBossExpiry]);
+
+  useEffect(() => {
+    tutorialVisibleRef.current = showTutorial;
+    tickBossClock();
+    const timer = window.setInterval(() => tickBossClock(), 100);
+    return () => window.clearInterval(timer);
+  }, [showTutorial, status, level?.id, tickBossClock]);
 
   const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition, options: { animate?: boolean } = {}) => {
-    if (finalRef.current) return;
+    if (finalRef.current || engineRef.current !== engine) return;
     finalRef.current = true;
+    lifecycleRef.current.stop();
+    setQueueDepth(0);
+    tickBossClock(false);
     const currentSnapshot = engine.snapshot;
     const stars = starsEarned(currentSnapshot);
     const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed);
@@ -469,7 +501,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     }
 
     setSnapshot(currentSnapshot);
+    setHud({ ...currentSnapshot, score: nextScore });
+    setScore(nextScore);
     const completeWin = () => {
+      if (engineRef.current !== engine) return;
+      statusRef.current = "won";
       setStatus("won");
       audioService.playSfx("sfx_level_complete.mp3");
       audioService.playSfx("vo_connection_secure.mp3");
@@ -482,40 +518,32 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       return;
     }
 
+    statusRef.current = "wonAnimating";
     setStatus("wonAnimating");
     let completed = false;
-    let fallbackId: number | null = null;
     const completeOnce = () => {
       if (completed) return;
       completed = true;
-      if (fallbackId !== null) window.clearTimeout(fallbackId);
       completeWin();
     };
-    const durationMs = winSequenceDurationMs(
-      currentSnapshot.grid.rows,
-      WIN_ROW_DESTRUCTION_STAGGER_MS,
-      WIN_ROW_DESTRUCTION_POP_MS,
-      WIN_SEQUENCE_LEAD_IN_MS,
-      WIN_SEQUENCE_FINAL_HOLD_MS
-    );
-    fallbackId = window.setTimeout(completeOnce, durationMs + 120);
     const started = gameCanvasRef.current?.playWinSequence(completeOnce) ?? false;
     if (!started) {
-      window.clearTimeout(fallbackId);
-      fallbackId = window.setTimeout(completeOnce, durationMs);
+      setMessage("Board presentation unavailable. Return to level select to continue.");
     }
-  }, [commitSave, playOnUsed, auth.session]);
+  }, [commitSave, playOnUsed, auth.session, tickBossClock]);
 
   const applyAction = useCallback((action: BoardAction) => {
     const engine = engineRef.current;
-    if (!engine || !level || statusRef.current !== "running") return;
+    if (!engine || !level || statusRef.current !== "running") return false;
+    tickBossClock(false);
+    if (bossExpiredRef.current) return false;
     try {
       let consumedBooster: BoosterType | null = null;
       if (action.kind === "activateBooster") {
         const available = saveRef.current.boosters[action.booster] ?? 0;
         if (available <= 0) {
           setMessage("No booster inventory remaining.");
-          return;
+          return false;
         }
         consumedBooster = action.booster;
       }
@@ -529,10 +557,13 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       }
       animationIdRef.current += 1;
       const animationId = animationIdRef.current;
+      lifecycleRef.current.begin(animationId);
       setAnimationEvent({ id: animationId, kind: "resolved", action, delta, steps });
-      const nextScore = scoreRef.current + delta.scoreGained;
+      const initialScore = scoreRef.current;
+      const nextScore = initialScore + delta.scoreGained;
       scoreRef.current = nextScore;
-      setScore(nextScore);
+      pendingPlaybackRef.current = { animationId, initialScore, nextScore, engine, level, steps,
+        outcome: delta.isWin ? "win" : delta.isFail ? "playOn" : null };
       setLastDelta(delta);
       setSnapshot(engine.snapshot);
       runStatsRef.current.tilesCleared += delta.clears.length;
@@ -542,63 +573,97 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       if (delta.isWin) {
         statusRef.current = "wonAnimating";
         setStatus("wonAnimating");
-        // Only the matching scene completion may start the terminal sequence.
-        pendingWinRef.current = {
-          animationId,
-          nextScore,
-          engine,
-          level
-        };
       } else if (delta.isFail) {
-        setStatus("playOn");
+        statusRef.current = "resolving";
+        setStatus("resolving");
       }
+      if (delta.isWin || delta.isFail) {
+        lifecycleRef.current.stop();
+        setQueueDepth(0);
+      }
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
       if (action.kind === "swap") {
         animationIdRef.current += 1;
+        lifecycleRef.current.begin(animationIdRef.current);
         setAnimationEvent({ id: animationIdRef.current, kind: "invalid", action });
+        return true;
       } else if (action.kind === "activateBooster") {
         setSelectedBooster(action.booster);
       }
+      tickBossClock();
+      return false;
     }
-  }, [commitSave, level]);
-
-  const handleBoardAnimationComplete = useCallback((animationId: number) => {
-    const pending = pendingWinRef.current;
-    if (!pending || pending.animationId !== animationId) return;
-    pendingWinRef.current = null;
-    finishWin(pending.nextScore, pending.engine, pending.level);
-  }, [finishWin]);
+  }, [commitSave, level, tickBossClock]);
 
   const drainQueue = useCallback(() => {
-    if (processingRef.current) return;
-    processingRef.current = true;
-    const run = () => {
-      const next = queueRef.current.shift();
-      setQueueDepth(queueRef.current.length);
-      if (!next) {
-        processingRef.current = false;
+    const gate = lifecycleRef.current;
+    let next = gate.next();
+    while (next) {
+      setQueueDepth(gate.queueDepth);
+      if (applyAction(next)) return;
+      next = gate.next();
+    }
+    tickBossClock();
+  }, [applyAction, tickBossClock]);
+
+  const handleBoardStepComplete = useCallback((animationId: number, ordinal: number) => {
+    const pending = pendingPlaybackRef.current;
+    if (!pending || pending.animationId !== animationId || lifecycleRef.current.activeId !== animationId) return;
+    const next = playbackHudAtStep(pending.steps, ordinal, pending.initialScore, pending.nextScore);
+    if (next) { setHud(next); setScore(next.score); }
+  }, []);
+
+  const handleBoardAnimationComplete = useCallback((animationId: number) => {
+    if (!lifecycleRef.current.complete(animationId)) return;
+    const pending = pendingPlaybackRef.current;
+    pendingPlaybackRef.current = null;
+    if (pending && pending.engine === engineRef.current) {
+      setHud({ ...pending.engine.snapshot, score: pending.nextScore });
+      setScore(pending.nextScore);
+      if (pending.outcome === "win") {
+        finishWin(pending.nextScore, pending.engine, pending.level);
         return;
       }
-      applyAction(next);
-      // Pace the next queued action past the previous swap's full resolve
-      // animation, or it starts while BoardScene tweens are still running and
-      // renders over in-flight pops/cascades. RESOLVE_ANIMATION_BUDGET_MS is
-      // derived from the BoardScene motionTiming constants, so this stays
-      // correct if those timings change.
-      window.setTimeout(run, saveRef.current.settings.reducedMotion ? 0 : RESOLVE_ANIMATION_BUDGET_MS);
+    }
+    if (bossExpiredRef.current) { completeBossExpiry(); return; }
+    if (pending?.outcome === "playOn") {
+      statusRef.current = "playOn";
+      setStatus("playOn");
+      return;
+    }
+    drainQueue();
+  }, [completeBossExpiry, drainQueue, finishWin]);
+
+  const handleBoardAnimationError = useCallback((animationId: number) => {
+    if (!lifecycleRef.current.complete(animationId)) return;
+    lifecycleRef.current.stop();
+    pendingPlaybackRef.current = null;
+    setQueueDepth(0);
+    statusRef.current = "failed";
+    setStatus("failed");
+    setMessage("Board playback was interrupted. Retry the mission.");
+    tickBossClock(false);
+  }, [tickBossClock]);
+
+  useEffect(() => {
+    const visibilityChanged = () => {
+      lifecycleRef.current.suspend(document.hidden);
+      tickBossClock();
+      if (!document.hidden) drainQueue();
     };
-    run();
-  }, [applyAction]);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    return () => document.removeEventListener("visibilitychange", visibilityChanged);
+  }, [drainQueue, tickBossClock]);
 
   const enqueueAction = useCallback((action: BoardAction) => {
     if (statusRef.current !== "running") return;
-    if (queueRef.current.length >= 3) {
+    if (!lifecycleRef.current.enqueue(action)) {
       setMessage("Action queue full.");
       return;
     }
-    queueRef.current.push(action);
-    setQueueDepth(queueRef.current.length);
+    setQueueDepth(lifecycleRef.current.queueDepth);
     drainQueue();
   }, [drainQueue]);
 
@@ -698,8 +763,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     commitSave(next);
     saveRef.current = next;
     engine.extendMoveLimit(playOnExtraMoves);
+    lifecycleRef.current.reset();
+    lifecycleRef.current.suspend(document.hidden);
     setPlayOnUsed(true);
     setSnapshot(engine.snapshot);
+    setHud({ ...engine.snapshot, score: scoreRef.current });
+    statusRef.current = "running";
     setStatus("running");
     setMessage(`Play On accepted: +${playOnExtraMoves} moves.`);
   };
@@ -720,15 +789,18 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   };
 
   const qaSetupWinningRocketCombo = () => {
-    if (!level) return;
+    if (!level || lifecycleRef.current.activeId !== null) return;
     const harness = winningRocketComboLevel(level);
     const engine = new BoardEngine(harness, levelSeed(harness.id));
     engineRef.current = engine;
     finalRef.current = false;
+    lifecycleRef.current.reset();
+    pendingPlaybackRef.current = null;
     scoreRef.current = 0;
     statusRef.current = "running";
     setLevel(harness);
     setSnapshot(engine.snapshot);
+    setHud({ ...engine.snapshot, score: 0 });
     setAnimationEvent(null);
     setScore(0);
     setStatus("running");
@@ -740,7 +812,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
 
   const area = areaForLevel(levelId);
   const objectives = level?.objectives ?? [];
-  const moveRemaining = snapshot ? Math.max(0, snapshot.moveLimit - snapshot.moveCount) : 0;
+  const moveRemaining = hud ? Math.max(0, hud.moveLimit - hud.moveCount) : 0;
   const tutorialCanAdvance = !tutorialSteps[tutorialStep]?.waitsForMove || ((snapshot?.moveCount ?? 0) > tutorialInitialMoveRef.current);
   const isTestMode = new URLSearchParams(window.location.search).has("gwTestMode");
 
@@ -754,7 +826,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         </div>
         <div>
           <span>Moves</span>
-          <strong>{snapshot ? `${moveRemaining}/${snapshot.moveLimit}` : "--"}</strong>
+          <strong>{hud ? `${moveRemaining}/${hud.moveLimit}` : "--"}</strong>
         </div>
         {bossRemaining !== null && <div className="timer"><span>Breach</span><strong>{bossRemaining}s</strong></div>}
         <div><span>Score</span><strong>{score.toLocaleString()}</strong></div>
@@ -764,13 +836,14 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       <div className="objective-row">
         {objectives.map((objective) => (
           <div className="objective-chip" key={objective.id}>
-            {objectiveLabel(objective, snapshot?.objectiveProgress[objective.id] ?? 0)}
+            {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
           </div>
         ))}
       </div>
 
       <div className="game-board-panel">
         <GameCanvas
+          key={`${levelId}:${runId}`}
           ref={gameCanvasRef}
           snapshot={snapshot}
           animationEvent={animationEvent}
@@ -778,6 +851,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           pendingBooster={selectedBooster}
           onAction={handleBoardAction}
           onAnimationComplete={handleBoardAnimationComplete}
+          onStepComplete={handleBoardStepComplete}
+          onAnimationError={handleBoardAnimationError}
         />
       </div>
 
@@ -816,11 +891,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {isTestMode && <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>}
         {isTestMode && <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>}
         {isTestMode && <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>}
-        {isTestMode && <button data-testid="qa-boss-timeout" onClick={() => {
-          setBossRemaining(0);
-          setMessage("Boss timer expired.");
-          setStatus("failed");
-        }}>QA Boss Timeout</button>}
+        {isTestMode && <button data-testid="qa-boss-timeout" onClick={requestBossExpiry}>QA Boss Timeout</button>}
       </div>
 
       {boosterDrag && (

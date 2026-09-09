@@ -11,6 +11,8 @@ interface GameCanvasProps {
   pendingBooster: BoosterType | null;
   onAction: (action: BoardAction) => void;
   onAnimationComplete: (animationId: number) => void;
+  onStepComplete: (animationId: number, ordinal: number) => void;
+  onAnimationError: (animationId: number) => void;
 }
 
 export interface GameCanvasHandle {
@@ -19,13 +21,16 @@ export interface GameCanvasHandle {
 }
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
-  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete },
+  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete, onStepComplete, onAnimationError },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const gameRef = useRef<Phaser.Game | null>(null);
   const onActionRef = useRef(onAction);
   const onAnimationCompleteRef = useRef(onAnimationComplete);
+  const onStepCompleteRef = useRef(onStepComplete);
+  const onAnimationErrorRef = useRef(onAnimationError);
+  const presentationRef = useRef({ snapshot, animationEvent, reducedMotion, pendingBooster });
 
   useEffect(() => {
     onActionRef.current = onAction;
@@ -34,6 +39,12 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   useEffect(() => {
     onAnimationCompleteRef.current = onAnimationComplete;
   }, [onAnimationComplete]);
+
+  useEffect(() => { onStepCompleteRef.current = onStepComplete; }, [onStepComplete]);
+  useEffect(() => { onAnimationErrorRef.current = onAnimationError; }, [onAnimationError]);
+  useEffect(() => {
+    presentationRef.current = { snapshot, animationEvent, reducedMotion, pendingBooster };
+  }, [snapshot, animationEvent, reducedMotion, pendingBooster]);
 
   useImperativeHandle(ref, () => ({
     activateBoosterAtClientPoint: (booster, clientX, clientY) => {
@@ -82,17 +93,27 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
         postBoot: () => {
           const scene = game.scene.getScene("BoardScene") as BoardScene;
           scene.events.once(Phaser.Scenes.Events.CREATE, () => {
-            if (snapshot) scene.sync(snapshot, animationEvent, reducedMotion, pendingBooster);
+            const current = presentationRef.current;
+            if (current.snapshot) scene.sync(current.snapshot, current.animationEvent, current.reducedMotion, current.pendingBooster);
           });
         }
       }
     });
     game.scene.start("BoardScene", {
       onAction: (action: BoardAction) => onActionRef.current(action),
-      onAnimationComplete: (animationId: number) => onAnimationCompleteRef.current(animationId)
+      onAnimationComplete: (animationId: number) => onAnimationCompleteRef.current(animationId),
+      onStepComplete: (animationId: number, ordinal: number) => onStepCompleteRef.current(animationId, ordinal),
+      onAnimationError: (animationId: number) => onAnimationErrorRef.current(animationId)
     });
     gameRef.current = game;
+    const visibilityChanged = () => {
+      const scene = game.scene.getScene("BoardScene") as BoardScene | undefined;
+      scene?.setPresentationPaused(document.hidden);
+    };
+    document.addEventListener("visibilitychange", visibilityChanged);
+    game.events.once(Phaser.Core.Events.READY, visibilityChanged);
     return () => {
+      document.removeEventListener("visibilitychange", visibilityChanged);
       containerRef.current?.removeEventListener("pointerdown", unlockBoardSounds);
       game.destroy(true);
       gameRef.current = null;
