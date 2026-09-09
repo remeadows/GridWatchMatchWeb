@@ -1,6 +1,36 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-08
+Last updated: 2026-09-09
+
+## 2026-09-09: PR 45 Security Gate Repairs
+
+PR 45 was blocked by its dependency audit and two high-severity CodeQL findings,
+not merge conflicts. This maintenance is isolated from the gameplay implementation.
+
+- Audit scripts now create private, randomized temporary directories and exclusive
+  mode-0600 JSON reports. Both actual scripts completed; directory mode 0700,
+  report mode 0600, and overwrite rejection were verified. Future runs print their
+  output paths. Historical capture paths below remain historical evidence.
+- A scoped Miniflare override pins Sharp 0.35.4 (patched libheif 1.23.2). No broad
+  dependency upgrade, audit suppression, application, level, or backend change.
+  Lockfile changes are confined to Sharp and its native/libvips packages.
+- `npm ci --ignore-scripts`, 238 unit tests, all 100 levels, build/typechecks,
+  `npm audit --audit-level=high`, Sharp resize/PNG smoke, and Wrangler 4.119.0 CLI
+  smoke passed. The two moderate Vitest advisories remain separate maintenance.
+  Build retains the existing large-chunk warning. Wrangler log output was directed
+  to `/private/tmp` after the sandbox denied its default user-preferences path.
+- Production-seed screening completed 4,000 runs / 55,817 actions with zero errors.
+  Ten browser audit flows completed against this PR's isolated preview on 4175
+  with zero page exceptions. This validates script execution, not gameplay feel:
+  the baseline's known contact timing defects remain on this planning branch.
+- Evidence: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-Oyxok5/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-feel-audit-ZKUADE/`.
+  Browser audit used an in-memory URL substitution from 4174 to 4175; source and
+  the interactive gameplay preview were not changed.
+
+Next: publish this repair to PR 45 and verify fresh CI/CodeQL checks. Do not merge
+or deploy. Gameplay Tasks 0-4 and Task 5 work remain on the separate
+`codex/gameplay-causal-playback` branch.
 
 ## 2026-09-08: Gameplay Acceptance Reopened; Implementation Plan Prepared
 

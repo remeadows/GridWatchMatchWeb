@@ -1,5 +1,6 @@
 import { registerHooks } from 'node:module';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 
@@ -88,7 +89,10 @@ for(const level of levels) {
   result.levels.push(row);
   if(level.id%10===0) console.log(`Screened ${level.id}/100 levels`);
 }
-writeFileSync(`${tmpdir()}/${productionSeeds ? 'gridwatch-balance-production' : 'gridwatch-balance-audit'}.json`,JSON.stringify(result,null,2));
+const outputDirectory = mkdtempSync(join(tmpdir(), 'gridwatch-balance-'));
+const outputPath = join(outputDirectory, productionSeeds ? 'production.json' : 'sensitivity.json');
+writeFileSync(outputPath, JSON.stringify(result,null,2), { flag: 'wx', mode: 0o600 });
+console.log(`Report: ${outputPath}`);
 const deciles=Array.from({length:10},(_,i)=>{
   const rows=result.levels.slice(i*10,i*10+10);
   return {levels:`${i*10+1}-${i*10+10}`,random:rows.reduce((n,l)=>n+l.policies.random.wins,0),visible:rows.reduce((n,l)=>n+l.policies['visible-match'].wins,0),runsPerPolicy:200};

@@ -1,9 +1,11 @@
 const { createRequire } = require('node:module');
-const { mkdirSync, writeFileSync } = require('node:fs');
+const { mkdtempSync, writeFileSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
 const root = require('node:path').resolve(__dirname, '../../..');
 const { chromium } = createRequire(`${root}/package.json`)('@playwright/test');
-const out='/tmp/gridwatch-feel-audit-20260908';
-mkdirSync(out,{recursive:true});
+const out = mkdtempSync(join(tmpdir(), 'gridwatch-feel-audit-'));
+console.log(`Capture directory: ${out}`);
 (async()=>{
   const browser=await chromium.launch({headless:true});
   const results=[];
@@ -46,6 +48,6 @@ mkdirSync(out,{recursive:true});
       }
       await context.close();
     }
-    writeFileSync(`${out}/traces.json`,JSON.stringify(results,null,2));
+    writeFileSync(join(out, 'traces.json'),JSON.stringify(results,null,2), { flag: 'wx', mode: 0o600 });
   } finally { await browser.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});
