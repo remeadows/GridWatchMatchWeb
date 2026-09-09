@@ -2,6 +2,248 @@
 
 Last updated: 2026-09-09
 
+## 2026-09-09: Task 3 Ordered Cascade Playback Complete
+
+Russ approved migrating remaining legacy timing assertions to their actual stage
+boundaries, preserving per-effect limits and stopping for real regressions.
+
+- Reproduced the unchanged Light Ball assertion failure: planned dim-to-gravity
+  1,470 ms against 1,050 ms. The approved test correction keeps the 1,050 ms limit
+  on dim-to-undim and separately requires both pre-gravity clears (14 then 12
+  occupants), exactly the second clear's occupant IDs at impact, its actual
+  rendered state, and completion before gravity. No gameplay timing/code changed.
+- Focused test passes in Chromium and iPhone WebKit (2/2). Full Playwright suite
+  passes 122/122 with no retries. Fresh unit suite passes 301/301, including frozen
+  engine parity contracts; all 100 levels validate. Build/typechecks and
+  `git diff --check` pass. Existing bundle-size warning only.
+- All-level browser audit: one deterministic legal action on each of the 100
+  levels in Chromium, plus Levels 1, 6, 7, 13, 51 in iPhone WebKit. All 105 sampled
+  actions pass: 910 stage boundaries, 171 clear waves, exact rendered IDs/positions,
+  persistent survivor container instances, and only genuinely new IDs spawning.
+  No missing move IDs, page exceptions, console errors, Vite overlays, or horizontal
+  overflow. These are action samples, not full campaign-completion playtests.
+- Inspected desktop/mobile motion contact sheets and board screenshots for all
+  five selected levels. Empty cells precede falling refills, subsequent matches
+  follow landing, and lock markers remain legible. No observed destination pop-in,
+  ghost trails, or hard snap-back. Captures include loading and element-screenshot
+  viewport adjustments outside gameplay; do not mistake those for board motion.
+  Browser plugin not available; used installed Playwright (Chromium 1280x720 and
+  iPhone 15 WebKit emulation). Only console warnings were Chromium GPU ReadPixels
+  stalls during capture, not app exceptions. No physical-device acceptance claim.
+- Evidence: `/tmp/gridwatch-ordered-playback-20260909/` contains all action traces,
+  `results.json`, ten before/settled screenshot pairs, videos and motion sheets.
+  Reproduction script: `/private/tmp/gridwatch-campaign-playback.cjs`.
+- Warm-preview drag gate passed 20/20 consecutive iterations, 40 browser instances,
+  no retries/failures. Each run retained in `/tmp/gridwatch-drag-gate-20260909/`.
+  A single preview on 4173 served the fresh `index-PhdOA2p2.js` build throughout.
+- Task 3 implementation reuses real occupants at adjacent engine boundaries,
+  awaits every clear/fall/refill, reveals creations before later movement, handles
+  empty gravity without phantom falls, and protects active stages during resize.
+  The previously approved win-only completion dependency is included; terminal
+  duration remains 2,500 ms. Timing assertion migrations do not alter gameplay.
+- Commit message: `Render cascades from ordered engine steps`. Nothing pushed,
+  merged, or deployed. Local review remains at `http://127.0.0.1:4174/`.
+  Original checkout retains only its pre-existing lockfile and untracked July plan.
+  Task 4 secondary activation choreography and Task 5 remaining queue/fail/clock/
+  recovery lifecycle work are still pending. Current gameplay acceptance is open.
+
+Next: Task 4. Earlier Task 3 approval pauses below are historical/resolved.
+
+## 2026-09-09: TNT Phase Assertions Pass; Light Ball Timing Boundary Pauses Task 3
+
+Russ approved stage-aware effect-count tests with exact per-effect limits.
+The TNT test now requires exactly one detonation, flash, shockwave, and activation
+shake. It separately requires the recorded three six-tile later match groups,
+one weaker shake at each group-start frame, and no unmatched extra shakes.
+Both Chromium and iPhone WebKit focused tests pass (2/2). Gameplay code and
+timing constants were not changed for this test correction.
+
+- Full suite progressed to 43 passed, 1 failed, 78 not run. The next failure is
+  `tests/e2e/presentation.spec.ts:494`, single Light Ball, at line 528: planned
+  dim-to-first-cascade bound <= 1,050 ms, observed 1,470 ms. This assertion is
+  unchanged. No retry or gameplay change was made after the failure.
+- Read-only stage capture shows the first Light Ball clear removes 14 occupants;
+  a subsequent recorded activation/clear removes 12 more before gravity. The
+  initial effect's planned dim-to-undim duration remains 1,000 ms. The old bound
+  spans the subsequent clear's 240 ms planned recognition/impact and a 230 ms
+  cascade marker, totaling 1,470 ms. Unlike the prior empty-gravity issue, the
+  intervening clear has real occupants and cannot simply be skipped.
+- Actual scene times from this diagnostic: initial undim about 1,305 ms, first
+  clear completion 1,537 ms, second clear completion / gravity start 2,076 ms,
+  final settled boundary 11,146 ms. Planned time is NOT measured wall-clock
+  performance. No page exceptions or missing move IDs. Raw trace, all 27 stage
+  frames, and audits: `/tmp/gridwatch-lightball-stages-20260909/trace.json`.
+- Proposed correction: apply the unchanged primary-effect timing bound to its
+  own completion boundary, and separately assert the additional clear completes
+  before gravity. Preserve wave counts, contact alignment, release/restore order,
+  flash count, and fall-distance checks. Secondary activation choreography remains
+  Task 4; this test migration must not claim that VFX work is complete.
+- Request approval to handle remaining legacy stage-boundary timing assertions
+  together, preserving per-effect limits and stopping for actual gameplay
+  regressions. Current approval covered effect counts, not this timing-boundary
+  change, so the assertion has not yet been edited.
+- Task 3 remains uncommitted; all-level renderer audit, remaining e2e cases and
+  warm drag loop remain pending. Last gameplay revision still has 301 passing
+  units, 100 valid levels, passing build, and only the existing bundle warning.
+  Build `index-PhdOA2p2.js` remains local at `http://127.0.0.1:4174/`.
+  No implementation push, merge, deployment, or new player acceptance.
+
+Next: await the timing-boundary migration approval, then resume Task 3 gates.
+The TNT effect-count pause below is historical and resolved.
+
+## 2026-09-09: Empty Stage Fixed; Whole-Action TNT Shake Assertion Pauses Task 3
+
+Russ approved the empty-stage correction. A new browser regression first failed
+with two `cascade-start` events where only one physical fall occurs. The renderer
+now retains the empty engine boundary and its identity audit, but skips motion
+tracing/audio when that stage has no moves or spawns. No timing constant changed.
+
+- Focused gate passed 6/6 across Chromium and iPhone WebKit: empty-stage identity,
+  unchanged normal-timeline bounds, and reduced-motion chain audio. Fresh full
+  unit suite passes 301/301; all 100 level files validate; build/typechecks and
+  `git diff --check` pass. Existing bundle-size warning only. Latest local build:
+  `index-PhdOA2p2.js`.
+- Full browser suite stopped at a different assertion: 40 passed, 1 failed,
+  81 not run. `tests/e2e/presentation.spec.ts:389`, single TNT, fails at line 418:
+  whole-action `shake-request` count expected 1, received 4. No retry, test
+  relaxation, or gameplay change was made after this failure.
+- Read-only capture confirms one TNT detonation and one TNT shake (intensity
+  0.008) at the same scene time. Three later six-tile normal match groups each
+  emit their existing strong-match shake (0.006), at their own group-start frame.
+  Full playback reaches `settled`; zero page exceptions. Evidence:
+  `/tmp/gridwatch-tnt-phases-20260909/trace.json`.
+- This is a legacy whole-action assertion counting legitimate newly visible
+  cascade effects as duplicate TNT effects. Proposed test correction: assert
+  exactly one TNT activation shake within its activation phase and separately
+  verify later shakes against actual normal match waves. Preserve exact per-effect
+  counts and timing checks; do not replace the assertion with an unbounded minimum
+  or suppress correct cascade presentation to satisfy it.
+- Task 3 remains uncommitted. All-level rendered-state audit, remaining browser
+  cases, and warm drag loop are still pending. Original checkout still has only
+  its pre-existing lockfile edit and untracked July plan. No implementation push,
+  merge, deployment, or new player acceptance.
+
+Next: request approval to make presentation effect-count assertions stage-aware
+while preserving their per-effect limits, then resume Task 3 verification.
+The empty-stage pause below is historical and resolved.
+
+## 2026-09-09: Winning Gate Fixed; Empty-Gravity Trace Regression Pauses Task 3
+
+Russ approved moving only the winning-action completion gate from Task 5 into
+Task 3. Added a browser regression first: at terminal start it expected the last
+board boundary to be `settled`, but observed `clear`, confirming the expected red.
+
+- Removed App's fixed pending-win fallback. Only the matching animation-complete
+  callback starts the win sequence; pending completion is cleared on teardown.
+  The winning-combo test now awaits actual resolution before its result check,
+  retaining every existing combo/order assertion. Queue, boss clock, failure
+  transitions, score calculations, submissions, and the 2,500 ms ending are unchanged.
+  The celebration's own fallback remains Task 5 work, as do recovery/lifecycle cases.
+- Green focused gate: 6/6 Chromium/iPhone WebKit tests for settled-before-ending,
+  existing combo ordering, and ending duration. Fresh 301/301 unit tests and
+  build/typechecks pass. Existing bundle-size warning only. Local build:
+  `index-DNGpOuDG.js`, preview `http://127.0.0.1:4174/`.
+- Full Playwright run stopped at the next failure: 28 passed, 1 failed, 91 not
+  run. `tests/e2e/presentation.spec.ts:162` fails its unchanged planned-timeline
+  upper bound at line 189: expected <= 1,300 ms, observed 1,330 ms. This is not
+  the pointer-init flake; no retry or assertion relaxation was used.
+- Read-only diagnostic of Level 1 `(0,0)->(1,0)` identifies empty-stage bookkeeping:
+  gravity has zero moves and zero spawns, followed by a refill with three spawns.
+  Both emit `cascade-start` at the same scene time (765.6 ms after the action),
+  each adding 230 ms to the planned trace. Actual completion was 1,287.8 ms;
+  planned completion was 1,330 ms. No page exceptions or missing move IDs.
+  Evidence: `/tmp/gridwatch-timeline-20260909/trace.json`.
+- Proposed narrow fix: preserve the empty engine boundary but do not run motion
+  trace/audio bookkeeping for a gravity/refill stage with no moving or spawning
+  occupants. Add the empty-stage regression before changing code. Keep existing
+  timing constants and assertions intact; do not widen the failed upper bound.
+- Task 3 remains uncommitted. All-level renderer verification, remaining browser
+  cases, and the warm drag loop remain pending. No implementation push, merge,
+  deployment, or player-acceptance claim.
+
+Next: await approval for the empty-stage bookkeeping fix, then finish Task 3
+verification and commit `Render cascades from ordered engine steps`. Both prior
+approval pauses below are historical and resolved.
+
+## 2026-09-09: Task 3 Level 6 Wait Fixed; Winning Transition Gate Blocks Completion
+
+Russ approved adjusting the test-only completion wait. The Level 6 helper now
+awaits the actual `resolution-complete` event with a bounded 30-second limit;
+gameplay timing constants and every identity/state assertion are unchanged.
+Both Chromium and mobile WebKit Level 6 regressions pass (2/2).
+
+- Removed unused final-snapshot resolution methods superseded by the stage
+  runner. Fresh verification: 301/301 unit tests, all 100 level validations,
+  build/typechecks pass. Existing bundle-size warning only. Latest preview build
+  is `index-J8HrFRJw.js` at `http://127.0.0.1:4174/`.
+- Full Playwright run stopped at its first failure: 8 passed, 1 failed, 109 not
+  run. Failure: `tests/e2e/app.spec.ts:163`, winning rocket combo before terminal
+  rows, at the unchanged `comboCharge` assertion on line 181. This is not the
+  authorized pointer-init flake and was not retried to claim green.
+- A separate read-only browser observation retained events across trace resets.
+  The combo charge and impact DO play, at scene times 943 and 1,607 ms. However,
+  `win-sequence-start` occurs at 4,052 ms while a cascade is still active;
+  `resolution-complete` occurs at 6,053 ms. The two presentations overlap for
+  about two seconds. The premature win start also resets the trace, explaining
+  why the final test trace no longer contains the earlier charge.
+- Source diagnosis: App's `pendingWinRef` fixed
+  `RESOLVE_ANIMATION_BUDGET_MS + 500` fallback calls `finishWin` before ordered
+  playback completes. `BoardScene.playWinSequence` starts immediately and resets
+  VFX/trace while the stage runner is still active. No browser page exceptions.
+  Captured history and result screenshot:
+  `/tmp/gridwatch-winning-combo-20260909/{trace.json,result.png}`.
+- This exposes a Task 3/Task 5 dependency: Task 3's full regression gate cannot
+  pass with the old terminal fallback interrupting its longer complete playback.
+  Requested permission to move only the winning-action completion gate from
+  Task 5 into Task 3. Preserve the 2,500 ms ending, test assertions, and engine
+  outcomes; do not shorten cascades or merely preserve misleading trace entries.
+  Remaining Task 4/5 work stays in plan order unless separately authorized.
+- Task 3 remains uncommitted. The 100-level renderer audit and further e2e checks
+  are paused. No implementation push, merge, or deployment. The original checkout
+  and its unrelated changes remain untouched.
+
+Next: await this narrow dependency approval, then add regression coverage for
+the completion gate before implementing it and rerunning Task 3 verification.
+The prior Level 6 timeout pause below is historical and resolved.
+
+## 2026-09-09: Task 3 Paused On Level 6 Browser Timeouts
+
+Task 2 is committed as `1ca31d8`. Task 3 is uncommitted on
+`codex/gameplay-causal-playback` in `/private/tmp/gridwatch-match-planning-20260908`.
+No implementation push, merge, or deployment has occurred.
+
+- Added a callback-driven ordered stage runner and App's `applyWithResolution`
+  handoff. Board playback now renders adjacent stages, reuses real occupant
+  containers by ID, separates gravity/refill, and shows creation before later
+  movement. Stage audits inspect actual sprites before the final truth redraw.
+- Passed 301/301 unit tests and build/typechecks (existing chunk warning only).
+  Focused Playwright run: 16 passed, 2 failed. New intermediate-wave, same-cell
+  identity, falling-created-power-up, resize, and single-contact cases passed
+  in Chromium and iPhone WebKit. Full e2e and the 100-level renderer audit have
+  NOT run; Task 3 is not complete or accepted.
+- Both failures are `tests/e2e/app.spec.ts:58`, the Level 6 cascade regression:
+  its second swap `(3,5)->(3,6)` exceeds `waitForResolutionComplete`'s 5-second
+  limit. This is NOT the previously authorized scene-init flake. The timeout
+  has not been raised, and the failed run has not been retried to claim green.
+- A separate read-only, bounded 30-second observation replayed the exact two
+  swaps. The second action completed all five clear waves / 24 stages in both
+  browsers, ending at `settled`, with matching IDs/positions, preserved survivor
+  container instances, and zero page exceptions. Chromium: 8,924 ms wall-clock,
+  7,409 ms scene-clock; mobile WebKit: 8,933 ms wall-clock, 7,441 ms scene-clock.
+  The first action completed in about 1.45 seconds. These diagnostics establish
+  that this reproduction is not stuck; they do not turn the failed tests green.
+- Diagnostic JSON and final screenshots are in
+  `/tmp/gridwatch-level6-timeout-20260909/`. Latest local build is
+  `index-CQ8MKYD9.js`, preview at `http://127.0.0.1:4174/`.
+- Secondary activation VFX remain Task 4; fixed-budget queue/result transitions
+  remain Task 5. Timing acceptance is still open. Do not claim all chained or
+  terminal effects are fixed by the partial Task 3 work.
+
+Next: request approval to adapt the test-only completion wait for multi-stage
+playback, retaining all identity/state assertions and gameplay timings. Then
+finish Task 3 verification and commit `Render cascades from ordered engine steps`.
+Do not advance, commit Task 3, or publish the partial implementation while paused.
+
 ## 2026-09-09: Task 2 Ordered Engine Records Complete
 
 Russ approved correcting the new test scenario. Generator/lock assertions remain

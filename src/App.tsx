@@ -362,7 +362,6 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     nextScore: number;
     engine: BoardEngine;
     level: LevelDefinition;
-    fallbackId: number;
   } | null>(null);
   const runStatsRef = useRef({ tilesCleared: 0, powerUpEvents: 0, chainSum: 0 });
 
@@ -393,7 +392,6 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setSelectedBooster(null);
     setBoosterDrag(null);
     finalRef.current = false;
-    if (pendingWinRef.current) window.clearTimeout(pendingWinRef.current.fallbackId);
     pendingWinRef.current = null;
     queueRef.current = [];
     setQueueDepth(0);
@@ -419,6 +417,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     });
     return () => {
       active = false;
+      pendingWinRef.current = null;
       engineRef.current = null;
     };
   }, [levelId, runId]);
@@ -520,7 +519,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         }
         consumedBooster = action.booster;
       }
-      const delta = engine.apply(action);
+      const { delta, steps } = engine.applyWithResolution(action);
       if (consumedBooster) {
         const available = saveRef.current.boosters[consumedBooster] ?? 0;
         const nextSave = cloneSave(saveRef.current);
@@ -530,7 +529,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       }
       animationIdRef.current += 1;
       const animationId = animationIdRef.current;
-      setAnimationEvent({ id: animationId, kind: "resolved", action, delta });
+      setAnimationEvent({ id: animationId, kind: "resolved", action, delta, steps });
       const nextScore = scoreRef.current + delta.scoreGained;
       scoreRef.current = nextScore;
       setScore(nextScore);
@@ -543,19 +542,13 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       if (delta.isWin) {
         statusRef.current = "wonAnimating";
         setStatus("wonAnimating");
-        const pending = {
+        // Only the matching scene completion may start the terminal sequence.
+        pendingWinRef.current = {
           animationId,
           nextScore,
           engine,
-          level,
-          fallbackId: 0
+          level
         };
-        pending.fallbackId = window.setTimeout(() => {
-          if (pendingWinRef.current !== pending) return;
-          pendingWinRef.current = null;
-          finishWin(nextScore, engine, level);
-        }, RESOLVE_ANIMATION_BUDGET_MS + 500);
-        pendingWinRef.current = pending;
       } else if (delta.isFail) {
         setStatus("playOn");
       }
@@ -568,12 +561,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         setSelectedBooster(action.booster);
       }
     }
-  }, [commitSave, finishWin, level]);
+  }, [commitSave, level]);
 
   const handleBoardAnimationComplete = useCallback((animationId: number) => {
     const pending = pendingWinRef.current;
     if (!pending || pending.animationId !== animationId) return;
-    window.clearTimeout(pending.fallbackId);
     pendingWinRef.current = null;
     finishWin(pending.nextScore, pending.engine, pending.level);
   }, [finishWin]);
