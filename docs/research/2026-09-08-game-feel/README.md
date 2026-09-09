@@ -44,10 +44,13 @@ node docs/research/2026-09-08-game-feel/balance-screen.mjs
 node docs/research/2026-09-08-game-feel/balance-screen.mjs --production-seed
 ```
 
-Each command simulates 4,000 runs. Raw JSON is written to the operating system's
-temporary directory as `gridwatch-balance-audit.json` or
-`gridwatch-balance-production.json`. The seed field in the original saved examples
-is the chooser seed; production examples use `levelSeed(level.id)` for the board.
+Each command simulates 4,000 runs. It creates a private, randomized directory
+named `gridwatch-balance-*` inside the operating system's temporary directory.
+The sensitivity command writes `sensitivity.json`; `--production-seed` writes
+`production.json`. Use the exact path printed as `Report: <path>` when the run
+finishes. Every run gets a new directory and exclusively creates its report.
+The seed field in the original saved examples is the chooser seed; production
+examples use `levelSeed(level.id)` for the board.
 The reproduction script also labels engineSeed explicitly. No application data,
 public levels, browser saves, or external APIs are modified by balance screening.
 
@@ -71,9 +74,11 @@ node docs/research/2026-09-08-game-feel/browser-screen.cjs
 
 It uses isolated Playwright contexts and test mode; no signed-in account is used.
 The mobile run is a narrow Chromium viewport, not Safari or physical-device testing.
-PNG captures and actual scene-clock traces are written under
-`/tmp/gridwatch-feel-audit-20260908/`. Positive contact offsets mean the piece broke
-late; negative offsets mean early. Results vary with frame scheduling; they are
+PNG captures and `traces.json` are written in a private, randomized
+`gridwatch-feel-audit-*` directory inside the operating system's temporary directory.
+Use the exact directory printed as `Capture directory: <path>` at startup.
+Positive contact offsets mean the piece broke late; negative offsets mean early.
+Results vary with frame scheduling; they are
 diagnostic observations, not performance percentiles or acceptance assertions.
 
 Temporary scripts/outputs used for the original audit remain outside Git. Their
