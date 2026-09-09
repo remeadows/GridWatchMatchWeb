@@ -51,6 +51,7 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 
 ## Collaboration And Release
 
+- Never merge PRs or enable auto-merge. Russ owns every merge.
 - As of 2026-09-08, Russ authorizes GitHub pushes and opening PRs. This supersedes
   the earlier local-commits-only restriction.
 - Test gameplay changes locally and provide concrete review evidence. PR creation

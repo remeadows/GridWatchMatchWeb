@@ -2,6 +2,188 @@
 
 Last updated: 2026-09-09
 
+Merge ownership: Russ alone merges PRs. Agents may push reviewed fixes when
+authorized, but must never merge PRs or enable auto-merge.
+
+Evidence paths under `/private/tmp`, `/tmp`, and `/var/folders` in this document
+are author-local, transient artifacts, not shared review attachments. They may be
+removed by OS cleanup. Digests identify historical reports; use the checked-in
+reproduction instructions rather than assuming another machine can open them.
+
+## 2026-09-09: PR 48 Review Repair Verification
+
+Russ requires all valid PR 48 conversations fixed and resolved, and explicitly
+retains every merge. Work remains on `codex/campaign-balance-analysis` in its
+isolated worktree. PR 47 was merged by Russ as `20a4a80`; its post-merge Codex P1
+about targetless chained effects is separate pending work, not fixed here.
+
+- Directed-swap sampling and initial-choice metrics first failed their regressions
+  (reverse missing; 15 choices instead of 30), then passed. All policies now see
+  both ordered endpoints, with taps/directions deduplicated. The actual Level 1
+  production-seed pair creates its rocket at row 3 versus row 2. Engine unchanged.
+- Stale-budget warning first failed with zero calls, then passed without changing
+  the canonical fallback. The native-Node test probe now requires typed results.
+- Reset-error e2e first failed on both browsers: missing alert and an unhandled
+  storage rejection. Settings now awaits one reset persistence operation, reports
+  failure visibly, preserves displayed progress on failure, and supports retry.
+  It no longer calls `commitSave` for a redundant second persistence operation.
+  Successful settings/game persistence and the storage implementation are unchanged.
+- The preview test dismisses the result modal through Level Select before Settings.
+  Documentation marks temporary evidence as author-local and asserts a baseline
+  control exists before dereferencing it. The actual documented assertion block
+  passed both matching-row and missing-row checks. Upstream WebKit follow-up samples
+  and fix-confirmation comments are linked directly; local causality remains unproven.
+- Verification: 18 focused units, 354 full units, 100 levels, build/typechecks, high
+  audit, and 188/188 full browser cases (13.8 minutes, zero retries) pass.
+  Bundle: `index-D-BYXmzJ.js`. The audit still lists two pre-existing moderate
+  Vitest entries; no dependency update. First browser launch was denied local
+  socket permission before any test ran; the authorized launch reached the reds.
+- Desktop 1280x720 and mobile 393x852 Settings screenshots show a readable error,
+  preserved 777-coin disposable save, and no page errors or alert overflow.
+  Author-local transient captures: `/private/tmp/gridwatch-pr48-settings-LufYNZ/`.
+  Full browser artifacts: `/private/tmp/gridwatch-pr48-browser-gate-20260909/`.
+- Corrected directed-swap baseline and full repeat each completed 60,000 runs /
+  774,513 actions with byte-identical JSON. The outlier screen completed 24,000 /
+  356,346; candidate pilots 24,000 / 356,705; controls 3,600 / 38,277. All 171,600
+  runs have zero errors/rejections; all six control cohorts match their baseline
+  exactly. All 125 candidate source hashes match. Pilot budgets remain unchanged.
+  Regenerated reports and pinned digests are checked in; old README numbers are
+  explicitly historical. See the corrected rescreen for current comparisons.
+- Baseline SHA-256: `9bd3a7646f0afe4118b806075e8238d39aa5e96fd938962d9a45513edf2a4418`.
+  Outliers: `7d857ec90039a77f765f3080eeae875245c3406344d66151766741f9b740057e`.
+  Candidate: `095d969a4f9b55fe1642096a32901cb80f37b84e6e77361f9b36efd5910d3433`.
+  Transient author-local repeat evidence: `/private/tmp/gridwatch-pr48-rescreen-DkvrLT/`.
+- Final full units passed again (354/354), and the final build has the same bundle
+  hash as the browser-tested build. Canonical levels, engine, backend/auth/
+  leaderboards, dependencies, browser config and original dirty checkout are untouched.
+
+This snapshot records local verification for the review-repair commit. Read
+[PR 48](https://github.com/remeadows/GridWatchMatchWeb/pull/48) for subsequent
+conversation resolutions, reviewer responses and remote check state. No merge or
+manual production deploy is part of this repair. Human balance acceptance and the
+separate PR 47 P1 remain open.
+
+## Historical Task 12 Snapshot: Preview Gates Pass; Human Pilots Open
+
+Task 11 is committed as `f07e457`; this branch integrates reviewed gameplay
+capture repairs at `aa237b5`. Task 12 implementation is committed with
+`Add isolated local balance candidates`; human pilots/content acceptance remain open.
+PR 47 remains draft, CLEAN, with all four checks green at `287db8e`. No merge or
+Worker deploy is authorized by those checks. The original dirty checkout is intact.
+
+- Added the explicit moves-only `pilot-moves-v1` hypothesis for 19/35/49/50/51/60/
+  61/70 and unchanged tutorial/neighbor controls. The development adapter requires
+  exact test mode plus a named profile; candidate and canonical-control previews
+  use cloned, in-memory saves and cannot submit scores even after query removal.
+  Production builds ignore profiles. Normal storage implementation, engine,
+  canonical levels, Worker, auth and score formulas are unchanged.
+- Seven pure regressions passed after the absent-module red. Browser integration
+  first failed for the unapplied budget, two normal-save leaks and two attempted
+  submissions; requests were intercepted before network access. All fourteen new
+  browser instances then passed unchanged. All 352 units, 100 levels, build and
+  high audit pass. Bundle: `index--KEa5xel.js`; selectors are absent from it.
+- Candidate comparison: 27,600 runs / 394,868 actions / zero errors. Six controls
+  exactly match baseline cohorts. Report SHA-256:
+  `a28ab5dbc1e7e12f8615a1e4d9255b524240549452b43c6f038c17e0633c0570`.
+  All 125 source hashes match. Level 51 still has excessive simulated slack; this
+  trial does not establish a balanced campaign. No human pilot sessions yet.
+- Six capture flows at 1280x720, explicit 393x852 WebKit and 320x740 passed 60
+  stage-identity checks with no page errors/overflow and all rows reachable.
+  Evidence: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-preview-review-GYRLUr/`.
+- Full e2e stopped at 156 passed / 1 failed / 29 not run (10.6 minutes). Mobile
+  `presentation.spec.ts:562` timed out in `page.goto` before the rocket/TNT action,
+  with a blank screenshot. Retained unchanged at
+  `/private/tmp/gridwatch-task12-first-failure-20260909/`. A separately traced
+  navigation diagnostic is not a replacement for the failed full gate. No retries,
+  longer timeouts, relaxed assertions, or gameplay fix are claimed.
+- The unchanged-build full reproduction stopped at 163 passed / 1 failed / 22
+  not run (12.4 minutes), this time in `page.goto` before propeller/Light Ball.
+  Trace: `/private/tmp/gridwatch-balance-full-diagnostic-nIszfn/artifacts/`.
+  Its page remains `about:blank` with an empty body. A minimal server/page/context
+  diagnostic passed 300 navigations, so it did not reproduce the long-run fault.
+- Playwright issue 42385 is a related navigation issue. The reporter's
+  [follow-up samples](https://github.com/microsoft/playwright/issues/42385#issuecomment-5539073362)
+  attribute their 1.62.1 / WebKit 2336 reproduction to display-sleep/window-animation
+  thread accumulation; a [maintainer reply](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545275294)
+  and [reporter verification](https://github.com/microsoft/playwright/issues/42385#issuecomment-5545690086)
+  report a newer-WebKit fix. This Mac is 26.6.2 and `pmset` recorded display sleep
+  during the long runs. That supports a working hypothesis, not a locally sampled
+  deadlock diagnosis or a claim that the upstream fix was installed here.
+  A full unchanged-build gate passed under `caffeinate -diu`, which prevents
+  display sleep only for the command lifetime. Evidence parent:
+  `/private/tmp/gridwatch-task12-awake-gate-dLiTUG/`. No global preferences,
+  dependency versions, browser config, tests or assertions changed.
+- The display-awake run passed 186/186 in 13.8 minutes, including both formerly
+  stalled cases, with zero retries. This validates the temporary test-environment
+  workaround on this build; it does not claim a local WebKit fix or prove the
+  precise deadlock without a process sample. Keep the earlier failures as evidence.
+  Compared with Task 0's 238 units / 102 browsers, this branch has 352 / 186;
+  the separate audio branch is not included. All 125 candidate source hashes
+  reverified, and protected engine/levels/backend/dependency/config diffs are empty.
+- All eight production budget migrations need separate server-limit/star review;
+  increases on 35/50 also exceed current move maxima. See `docs/balance/README.md`.
+  Do not regenerate validator limits or migrate canonical content under this plan.
+
+Independent audio worktree: `/private/tmp/gridwatch-match-audio-20260909`, branch
+`codex/staged-board-audio`, Task 10 commit `4eceb9f`, based on `287db8e`. It has
+345 passing units and ten final-build focused browser instances; its 174-case
+full pass predates only the final shared board-bus compressor. Seventeen headed
+recordings measured at most -1.2 dBFS / 12 active sources, with complete cleanup;
+three muted flows preserve the same stage identities. Listening is unaccepted.
+Art branch is `4e2d9c3`, with the
+two finishes still awaiting Russ's selection; Tasks 8/9 remain gated. Headed final
+performance, listening, human pilot sessions and physical-device acceptance remain.
+
+## 2026-09-09: Task 11 Balance Regression Tool Complete
+
+Independent balance work runs on `codex/campaign-balance-analysis` in
+`/private/tmp/gridwatch-match-balance-20260909`, based on Task 6 `514c04e`.
+Task 7 is separate on `codex/blender-piece-pipeline` at `73d6fa0`; Russ's finish
+selection is still pending. Do not infer approval from historical Candidate B.
+
+- Added the offline native-Node CLI `scripts/analyze-balance.mjs`, with production
+  retry-seed and sensitivity cohorts and random, visible-match, objective-aware
+  policies. No engine RNG inspection, future refills/cascades, boosters, Play On,
+  server calls or telemetry. Exceptions fail loudly, not as ordinary losses.
+- Nine focused tests first failed for the absent module. Initial implementation
+  passed eight; the remaining finite-duration assertion exposed a nonexistent
+  exported creation timing constant. The actual scene-local 310 ms creation and
+  40 ms spawn premium are explicitly modeled and BoardScene is source-hashed.
+  All nine then passed unchanged. All 344 units in 12 files, all 100 level
+  validations, build/typechecks and diff check pass. Bundle is unchanged:
+  `index-CpK1aw8K.js`. No browser rerun is claimed for this offline-only task.
+- Full baseline: 60,000 runs, 772,840 legal actions, zero errors/rejections. Full
+  repeat: same totals, byte-identical JSON by `cmp`, 591.76 seconds. SHA-256:
+  `49355e1905ba629b089200ddf53bcafc112afb0f0306a98766f5aca761611731`.
+  Repeat: `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-regression-qjqzQY/report.json`.
+  All 121 source hashes reverified, including canonical levels and Worker files.
+- Production wins out of 10,000: random 9,835, visible-match 9,991, objective-aware
+  10,000; sensitivity: 9,842 / 9,989 / 9,997. Ninety post-tutorial levels trigger
+  the >=95% random flag; 73 exceed 40% median unused moves. Levels 35 and 50 are
+  materially harder than the campaign mean. These are conditional bot results,
+  not human win rates or approval of a content change.
+- Every boss reports raw move outcomes plus 1/3/5/8-second thinking models under
+  Task 5's visible-controllable-time candidate. Forced animation is separate and
+  nominally estimated, not measured per run or deducted twice. All authored boss
+  durations remain unchanged. Details/limitations: `docs/balance/README.md`.
+- The eight-pilot, 500-seed screen passed 24,000 runs / 357,507 actions / zero
+  errors/rejections in 350.22 seconds. Its full report is at
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-balance-regression-FHkxw5/report.json`,
+  SHA-256 `99e53bc4f8777b5daadf44bab016f9f99f0fc941b1a273d5e27534c57c27647e`.
+  The larger screen confirms harder 35/50 and large move slack on 51/61. Full
+  cohort summaries, intervals, provenance and commands are in the balance README.
+  Commit: `f07e457`, `Add deterministic campaign balance analysis`.
+
+GitHub: PR 45 merged externally as `67e1c6b`. Verified timing/lifecycle work is
+published in draft PR 47, `https://github.com/remeadows/GridWatchMatchWeb/pull/47`,
+at `287db8e`. A separate capture-helper security regression/fix passed 336 units,
+build and the high audit gate; all four remote checks are green. Gameplay tree is
+unchanged. This balance branch integrates those documentation/test repairs at the
+completed Task 11 boundary, preserving both handoff histories and task commits.
+Next: Task 12's isolated moves-only candidate preview and save/submission fences.
+No gameplay merge, production Worker deploy, fresh player/device acceptance,
+canonical content change, or balance preview implementation yet.
+
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
 PR 45 was merged externally at `2026-09-09T15:45:56Z` as `67e1c6b`, with all
