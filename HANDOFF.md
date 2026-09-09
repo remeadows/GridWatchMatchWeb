@@ -28,8 +28,12 @@ not merge conflicts. This maintenance is isolated from the gameplay implementati
   Browser audit used an in-memory URL substitution from 4174 to 4175; source and
   the interactive gameplay preview were not changed.
 
-Next: publish this repair to PR 45 and verify fresh CI/CodeQL checks. Do not merge
-or deploy. Gameplay Tasks 0-4 and Task 5 work remain on the separate
+Published as `c586bc9`: fresh CI, CodeQL analysis, CodeQL security gate and Pages
+preview passed; PR 45 reports CLEAN and is ready for review. A subsequent review
+comment identified stale reproduction paths in the research README/report. Those
+instructions now explain the logged randomized paths while preserving historical
+September 8 evidence locations. `git diff --check` passed for that docs-only fix.
+Do not merge or deploy. Gameplay Tasks 0-4 and Task 5 work remain on the separate
 `codex/gameplay-causal-playback` branch.
 
 ## 2026-09-08: Gameplay Acceptance Reopened; Implementation Plan Prepared

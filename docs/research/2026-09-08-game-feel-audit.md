@@ -31,10 +31,18 @@ Fresh checks on the local application:
   build `adfe2921d5f3`. It is not on PATH. Version check passed with a USD
   cache-line warning. A full asset render has not yet been validated.
 
-Temporary captures and raw traces: `/tmp/gridwatch-feel-audit-20260908/`.
-Full simulation outputs: `/tmp/gridwatch-balance-audit.json` and
+Original September 8 captures and raw traces: `/tmp/gridwatch-feel-audit-20260908/`.
+Original full simulation outputs: `/tmp/gridwatch-balance-audit.json` and
 `/tmp/gridwatch-balance-production.json`. Reproduction script and compact results
 are retained beside this report under `2026-09-08-game-feel/`.
+
+Those fixed paths are historical evidence, not the output paths of new runs.
+After the September 9 security repair, balance reproduction prints
+`Report: <path>` for `sensitivity.json` or `production.json` in a private randomized
+`gridwatch-balance-*` directory. Browser reproduction prints
+`Capture directory: <path>` for its PNGs and `traces.json` in a private randomized
+`gridwatch-feel-audit-*` directory. Both directories are created inside the operating
+system's temporary directory. See the adjacent reproduction README for commands.
 
 ## Confirmed Presentation Defects
 
