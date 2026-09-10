@@ -86,7 +86,89 @@ function createService(backend: FakeBoardAudioBackend | null, playFallback = vi.
   return { service, playFallback };
 }
 
+function createHtmlService() {
+  const elements: Array<ReturnType<typeof makeElement>> = [];
+  const makeElement = (src: string) => ({
+    src, currentTime: 0, volume: 1,
+    onended: null as (() => void) | null, onerror: null as (() => void) | null,
+    play: vi.fn<() => Promise<void>>().mockResolvedValue(undefined), pause: vi.fn()
+  });
+  const createAudio = vi.fn((url: string) => {
+    const element = makeElement(url);
+    elements.push(element);
+    return element as unknown as HTMLAudioElement;
+  });
+  const service = new AudioService({ createBoardBackend: () => null, createAudio });
+  service.configure(enabledSettings);
+  return { service, elements, createAudio };
+}
+
 describe("board audio service", () => {
+  it("reuses and resets a completed HTML player for a different cue and gain", () => {
+    const { service, elements, createAudio } = createHtmlService();
+    service.playBoardCue("tntBlast");
+    const first = elements[0];
+    const staleEnded = first.onended;
+    const staleError = first.onerror;
+    first.currentTime = 0.6;
+    first.onended?.();
+    expect(first.currentTime).toBe(0);
+    expect(first.onended).toBeNull();
+    expect(first.onerror).toBeNull();
+    service.playBoardCue("tilePopB", { gain: 0.2 });
+    expect(createAudio).toHaveBeenCalledTimes(1);
+    expect(first.src).toBe(presentationAudioUrl("tilePopB"));
+    expect(first.volume).toBe(0.2);
+    expect(first.play).toHaveBeenCalledTimes(2);
+    const done = vi.fn();
+    service.whenBoardSilent(done);
+    staleEnded?.();
+    staleError?.();
+    expect(done).not.toHaveBeenCalled();
+    first.onended?.();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds HTML allocation to sixteen players across dense overlapping waves", () => {
+    const { service, elements, createAudio } = createHtmlService();
+    for (let index = 0; index < 40; index++) service.playBoardCue("tilePopA");
+    expect(createAudio).toHaveBeenCalledTimes(16);
+    expect(elements.filter(element => element.onended !== null)).toHaveLength(16);
+    const done = vi.fn();
+    service.whenBoardSilent(done);
+    service.stopBoardSounds();
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(elements.every(element => element.onended === null && element.onerror === null)).toBe(true);
+    for (let index = 0; index < 40; index++) service.playBoardCue("comboImpact");
+    expect(createAudio).toHaveBeenCalledTimes(16);
+    service.configure({ ...enabledSettings, sfxEnabled: false });
+    expect(elements.every(element => element.onended === null)).toBe(true);
+  });
+
+  it("recycles only the stopped owner's HTML player and ignores its late play rejection", async () => {
+    const { service, elements, createAudio } = createHtmlService();
+    const oldOwner = Symbol("old"), newOwner = Symbol("new");
+    service.playBoardCue("tilePopA", {}, oldOwner);
+    service.stopBoardSounds(oldOwner);
+    let rejectPlay: (reason: Error) => void = () => { throw new Error("Missing pending play"); };
+    elements[0].play.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectPlay = reject; }));
+    service.playBoardCue("tilePopB", {}, oldOwner);
+    service.playBoardCue("tntBlast", {}, newOwner);
+    service.stopBoardSounds(oldOwner);
+    service.playBoardCue("comboImpact", {}, newOwner);
+    expect(createAudio).toHaveBeenCalledTimes(2);
+    const done = vi.fn();
+    service.whenBoardSilent(done, newOwner);
+    rejectPlay(new Error("Old play aborted"));
+    await Promise.resolve();
+    expect(elements.filter(element => element.onended !== null)).toHaveLength(2);
+    expect(done).not.toHaveBeenCalled();
+    elements[0].onended?.();
+    expect(done).not.toHaveBeenCalled();
+    elements[1].onended?.();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
   it.each(["suspended", "interrupted"])("releases a %s Web Audio cue without allocating HTML fallback players", (state) => {
     const createBufferSource = vi.fn();
     vi.stubGlobal("AudioContext", class {

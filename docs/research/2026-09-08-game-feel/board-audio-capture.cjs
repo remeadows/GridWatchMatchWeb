@@ -5,6 +5,8 @@ const { tmpdir } = require('node:os');
 const { spawnSync } = require('node:child_process');
 const assert = require('node:assert/strict');
 const root = resolve(__dirname, '../../..');
+const { presentationAudioManifest } = require(join(root, 'src/data/presentationAssets.ts'));
+const expectedDecodedCount = Object.keys(presentationAudioManifest).length;
 const [port = '4176', label = 'candidate', mode] = process.argv.slice(2);
 assert.ok(/^\d+$/.test(port) && Number(port) >= 1 && Number(port) <= 65535, 'port must be 1-65535');
 assert.ok(/^[A-Za-z0-9_-]{1,80}$/.test(label), 'label must contain only letters, digits, underscores or hyphens');
@@ -45,8 +47,21 @@ console.log(`Evidence: ${out}`);
             const destination = context.createMediaStreamDestination();
             const recorder = new MediaRecorder(destination.stream, { mimeType: 'audio/webm;codecs=opus' });
             const chunks = [], events = [], active = new Set();
-            const state = { decoded: 0, peak: 0, events, active, start: () => recorder.start(), stop: () => new Promise(resolve => {
-              recorder.onstop = async () => resolve(Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer())));
+            const state = { decoded: 0, peak: 0, events, active, start: () => recorder.start(), stop: () => new Promise((resolve, reject) => {
+              recorder.onstop = () => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                  const result = reader.result;
+                  if (typeof result !== 'string' || !result.includes(',')) {
+                    reject(new Error('Invalid recording data URL'));
+                    return;
+                  }
+                  resolve(result.slice(result.indexOf(',') + 1));
+                };
+                reader.onerror = () => reject(reader.error || new Error('Recording read failed'));
+                reader.onabort = () => reject(new Error('Recording read aborted'));
+                reader.readAsDataURL(new Blob(chunks));
+              };
               recorder.stop();
             }) };
             recorder.ondataavailable = event => chunks.push(event.data);
@@ -90,7 +105,7 @@ console.log(`Evidence: ${out}`);
       });
       if (scenario.level) await page.route('**/levels/level_001.json', route => route.fulfill({ json: scenario.level }));
       await page.goto(`http://127.0.0.1:${port}/?gwTestMode=1&level=1`);
-      await page.waitForFunction(() => window.__gwBoardReady && window.__audioCapture?.decoded === 20);
+      await page.waitForFunction(expected => window.__gwBoardReady && window.__audioCapture?.decoded === expected, expectedDecodedCount);
       await page.locator('[data-testid=board-canvas] canvas').click({ position: { x: 3, y: 3 } });
       if (scenario.win) await page.getByTestId('qa-setup-winning-rocket-combo').evaluate(button => button.click());
       writeFileSync(join(out, `${scenario.name}-before.png`), await page.screenshot(), { flag: 'wx', mode: 0o600 });
@@ -117,9 +132,9 @@ console.log(`Evidence: ${out}`);
       if (scenario.win) await page.getByRole('heading', { name: 'Grid secured', exact: true }).waitFor();
       await page.waitForFunction(() => window.__audioCapture.active.size === 0
         && Object.values(window.__gwPresentationResourceCounts.current).every(value => value === 0));
-      const bytes = await page.evaluate(() => window.__audioCapture.stop());
+      const encoded = await page.evaluate(() => window.__audioCapture.stop());
       const audioPath = join(out, `${scenario.name}.webm`);
-      writeFileSync(audioPath, Buffer.from(bytes), { flag: 'wx', mode: 0o600 });
+      writeFileSync(audioPath, Buffer.from(encoded, 'base64'), { flag: 'wx', mode: 0o600 });
       const data = await page.evaluate(() => ({ trace: window.__gwPresentationTrace, frames: window.__gwResolutionFrames,
         sources: { peak: window.__audioCapture.peak, active: window.__audioCapture.active.size, events: window.__audioCapture.events },
         resources: window.__gwPresentationResourceCounts, overflow: document.documentElement.scrollWidth > innerWidth }));

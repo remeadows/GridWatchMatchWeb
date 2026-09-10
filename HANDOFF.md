@@ -1,6 +1,38 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## 2026-09-10: PR 49 Follow-Up Review Repairs
+
+Russ requested fixes for the five new CodeRabbit conversations and the reported
+base conflict. PR 49 remains the target; Russ alone merges PRs. No PR merge,
+auto-merge, retarget or production deployment is authorized or performed.
+
+- HTML board fallback players are now reused in a lazy pool capped at 16. End,
+  error, rejected play and explicit stop release the slot, reset playback time,
+  and retain once-only completion and scene ownership. Old callbacks cannot stop
+  a reused player. Web Audio, gains, timing, engine outcomes and assets are unchanged.
+- Three new audio regressions first failed for unreset time and 40/four player
+  allocations instead of 16/two, then passed. The browser HTML fixture now tracks
+  each play separately and checks the real allocation cap without relaxing its
+  held-tail, completion, input or deadline assertions.
+- The capture helper uses base64 across the browser/Node boundary and decodes it
+  to identical bytes on write. FileReader errors and aborts reject. Its expected
+  decoded count comes from the actual TypeScript manifest using the repo's Node 24
+  runtime; board readiness and resource/completion waits remain mandatory.
+- Four capture regressions first failed on array output, missing rejection and
+  absent manifest-derived argument. The fixture's initial reused-VM declaration
+  error was fixed with a fresh context per call, without changing assertions.
+  The source extraction marker is now checked before evaluation. The playback
+  helper uses the nullable Window hook directly and keeps its fail-fast guard.
+- Repair checkpoint: 29 focused units, 356 full units, 32 Chromium/mobile-WebKit
+  lifecycle cases, 100 level validations, build/typechecks and high audit pass.
+  Bundle: `index-VYK5XUkj.js`. Two pre-existing moderate Vitest advisories remain.
+  Focused artifacts: `/private/tmp/gridwatch-pr49-pool-focused-20260910/`.
+- Base synchronization and the final combined-build browser/capture checks are
+  next. No publication or fresh review approval is claimed by this checkpoint.
+
+Earlier entries below are historical snapshots, not current PR status.
 
 ## 2026-09-09: PR 49 Review Repairs Verified Locally
 

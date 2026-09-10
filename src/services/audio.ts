@@ -57,6 +57,7 @@ export class AudioService {
   private boardBackendResolved = false;
   private boardPreload: Promise<void> | null = null;
   private activeBoardSources: ActiveBoardSource[] = [];
+  private readonly htmlBoardPlayers: Array<{ audio: HTMLAudioElement; url: string; busy: boolean }> = [];
   private boardSourceOrder = 0;
   private readonly silenceListeners = new Set<{ callback: () => void; owner?: symbol }>();
   private lastCascadeLandingMs = Number.NEGATIVE_INFINITY;
@@ -204,8 +205,21 @@ export class AudioService {
   }
 
   private playHtmlBoardAudio(url: string, volume: number, onEnded: () => void): BoardAudioSource | null {
-    const audio = this.createAudio(url);
-    if (!audio) return null;
+    let player = this.htmlBoardPlayers.find(entry => !entry.busy);
+    if (!player) {
+      if (this.htmlBoardPlayers.length >= MAX_ACTIVE_BOARD_SOURCES) return null;
+      const audio = this.createAudio(url);
+      if (!audio) return null;
+      player = { audio, url, busy: false };
+      this.htmlBoardPlayers.push(player);
+    }
+    const pooled = player;
+    const audio = pooled.audio;
+    pooled.busy = true;
+    if (pooled.url !== url) {
+      audio.src = url;
+      pooled.url = url;
+    }
     audio.volume = volume;
     let ended = false;
     const finish = () => {
@@ -214,6 +228,8 @@ export class AudioService {
       audio.onended = null;
       audio.onerror = null;
       audio.pause();
+      audio.currentTime = 0;
+      pooled.busy = false;
       onEnded();
     };
     audio.onended = finish;

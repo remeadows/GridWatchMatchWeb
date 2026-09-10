@@ -6,6 +6,7 @@ declare global {
   interface Window {
     __gwReleaseTestAudio?: () => void;
     __gwPendingTestAudio?: () => number;
+    __gwAllocatedTestAudio?: () => number;
     __gwBoardReady?: boolean;
     __gwResolutionFrames?: ResolutionFrameAudit[];
     __gwPresentationTrace?: PresentationTraceEntry[];
@@ -37,6 +38,7 @@ async function holdBoardAudio(page: Page, backend: "web" | "html" = "web") {
       }
     }
     let contexts = 0;
+    let htmlPlayers = 0;
     if (backend === "html") {
       // Exercise the genuine no-Web-Audio path in both the service and Phaser.
       Object.defineProperty(window, "AudioContext", { configurable: true, value: undefined });
@@ -45,14 +47,19 @@ async function holdBoardAudio(page: Page, backend: "web" | "html" = "web") {
         construct(constructor, args) {
           const element: HTMLAudioElement = Reflect.construct(constructor, args);
           if (!String(args[0]).includes("/audio/web-overrides/")) return element;
-          const source = { ended: false, onended: null, stop() {
-            if (source.ended) return;
-            source.ended = true;
-            element.dispatchEvent(new Event("ended"));
-          } };
+          htmlPlayers++;
+          let current: (typeof sources)[number] | undefined;
           // Reproduce play() succeeding with neither ended nor error ever arriving.
-          element.play = async () => { sources.push(source); };
-          element.pause = () => { source.ended = true; };
+          element.play = async () => {
+            const source = { ended: false, onended: null, stop() {
+              if (source.ended) return;
+              source.ended = true;
+              element.dispatchEvent(new Event("ended"));
+            } };
+            current = source;
+            sources.push(source);
+          };
+          element.pause = () => { if (current) current.ended = true; };
           return element;
         }
       });
@@ -65,6 +72,7 @@ async function holdBoardAudio(page: Page, backend: "web" | "html" = "web") {
     }
     window.__gwReleaseTestAudio = () => [...sources].forEach(source => source.stop());
     window.__gwPendingTestAudio = () => sources.filter(source => !source.ended).length;
+    window.__gwAllocatedTestAudio = () => htmlPlayers;
   }, backend);
 }
 
@@ -132,6 +140,7 @@ test("a stalled HTML audio tail completes normally within its one-second scene-c
   await holdBoardAudio(page, "html");
   await openWinningBoard(page);
   await triggerAndWaitForTail(page);
+  expect(await page.evaluate(() => window.__gwAllocatedTestAudio!())).toBeLessThanOrEqual(16);
   await page.waitForFunction(() => window.__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"),
     undefined, { timeout: 3_000 });
   const result = await page.evaluate(() => ({
