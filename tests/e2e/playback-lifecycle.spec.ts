@@ -193,9 +193,9 @@ async function openFixture(page: Page, level: LevelDefinition) {
 
 async function tapRocket(page: Page) {
   await page.evaluate(() => {
-    const target = window as unknown as Window & { __gwBoardCellClientPoint: (row: number, col: number) => { x: number; y: number } };
     const canvas = document.querySelector("[data-testid=board-canvas] canvas")!;
-    const point = target.__gwBoardCellClientPoint(3, 3);
+    const point = window.__gwBoardCellClientPoint?.(3, 3);
+    if (!point) throw new Error("Rocket cell is unavailable");
     for (const type of ["pointerdown", "pointerup"]) canvas.dispatchEvent(new PointerEvent(type, {
       bubbles: true, cancelable: true, composed: true, button: 0, buttons: type === "pointerdown" ? 1 : 0,
       clientX: point.x, clientY: point.y, isPrimary: true, pointerId: 1, pointerType: "mouse", view: window

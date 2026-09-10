@@ -8,6 +8,7 @@ import {
   WIN_SEQUENCE_LEAD_IN_MS
 } from "../data/gameplayTiming";
 import {
+  AUDIO_TAIL_MAX_WAIT_MS,
   CASCADE_FALL_MAX_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_LANDING_SQUASH_MS,
@@ -68,6 +69,7 @@ import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFl
 import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
 import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle";
+import { createMatchAudioDispatch } from "./presentation";
 
 export interface BoardSceneData {
   onAction: (action: BoardAction) => void;
@@ -388,6 +390,8 @@ export class BoardScene extends Phaser.Scene {
   private winTimeline: TerminalPlayback | null = null;
   private winTick: (() => void) | null = null;
   private playback: ResolutionPlayback | null = null;
+  private readonly audioOwner = Symbol("BoardScene");
+  private cancelAudioCompletion: (() => void) | null = null;
   private occupantInstanceId = 0;
 
   constructor() {
@@ -424,6 +428,7 @@ export class BoardScene extends Phaser.Scene {
       (snapshot) => this.publishPresentationResourceCounts(snapshot)
     );
     this.events.once("shutdown", this.disposeVfx, this);
+    this.events.once(Phaser.Scenes.Events.DESTROY, this.disposeVfx, this);
     ensureVfxTextures(this);
     this.resetPresentationTrace();
     this.installDomPointerHandlers();
@@ -461,6 +466,7 @@ export class BoardScene extends Phaser.Scene {
   update(): void { this.winTick?.(); }
 
   private disposeVfx(): void {
+    this.cancelBoardAudio();
     this.winTimeline?.cancel();
     this.winTimeline = null;
     this.winTick = null;
@@ -507,6 +513,7 @@ export class BoardScene extends Phaser.Scene {
     });
     this.playbackWatchdog = this.time.delayedCall(budget, () => {
       if (this.activeAnimationId !== animation.id) return;
+      this.cancelBoardAudio();
       const resolved = this.activeResolvedSnapshot;
       this.playback?.cancel();
       this.playback = null;
@@ -552,12 +559,38 @@ export class BoardScene extends Phaser.Scene {
 
   private finishAnimation(): void {
     const completedAnimationId = this.activeAnimationId;
-    if (completedAnimationId === null) return;
-    this.clearPlaybackWatchdog();
-    this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
-    this.activeAnimationId = null;
-    this.activeResolvedSnapshot = null;
-    if (completedAnimationId !== null) this.onAnimationComplete?.(completedAnimationId);
+    if (completedAnimationId === null || this.cancelAudioCompletion) return;
+    const finish = () => {
+      this.cancelAudioCompletion?.();
+      this.cancelAudioCompletion = null;
+      if (this.activeAnimationId !== completedAnimationId || !this.sys.isActive()) return;
+      this.clearPlaybackWatchdog();
+      this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
+      this.activeAnimationId = null;
+      this.activeResolvedSnapshot = null;
+      this.onAnimationComplete?.(completedAnimationId);
+    };
+    if (this.reducedMotion) { finish(); return; }
+    let waiting = true;
+    let deadline: Phaser.Time.TimerEvent | null = null;
+    const cancel = audioService.whenBoardSilent(() => { waiting = false; finish(); }, this.audioOwner);
+    if (!waiting) return;
+    const dispose = () => { cancel(); deadline?.remove(false); };
+    this.cancelAudioCompletion = dispose;
+    this.recordPresentation("audio-tail-wait", String(AUDIO_TAIL_MAX_WAIT_MS));
+    deadline = this.time.delayedCall(AUDIO_TAIL_MAX_WAIT_MS, () => {
+      if (this.cancelAudioCompletion !== dispose) return;
+      this.recordPresentation("audio-tail-deadline");
+      dispose();
+      audioService.stopBoardSounds(this.audioOwner);
+      finish();
+    });
+  }
+
+  private cancelBoardAudio(): void {
+    this.cancelAudioCompletion?.();
+    this.cancelAudioCompletion = null;
+    audioService.stopBoardSounds(this.audioOwner);
   }
 
   private isPresentationTestMode(): boolean {
@@ -587,6 +620,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private beginPresentationSequence(action: BoardAction): void {
+    this.cancelBoardAudio();
     this.playback?.cancel();
     this.playback = null;
     if (this.isPresentationTestMode()) {
@@ -620,17 +654,17 @@ export class BoardScene extends Phaser.Scene {
 
   private cueBoardAudio(key: PresentationAudioKey, playback?: Partial<BoardAudioPlayback>): void {
     if (!this.vfxCleanup.allocateAudio(this)) return;
-    if (!audioService.playBoardCue(key, playback)) return;
+    if (!audioService.playBoardCue(key, playback, this.audioOwner)) return;
     this.recordPresentation("audio-cue", key);
   }
 
   private cueReducedMotionAudio(key: PresentationAudioKey): void {
-    if (audioService.playBoardCue(key, { gain: 0.28 })) this.recordPresentation("audio-cue", key);
+    if (audioService.playBoardCue(key, { gain: 0.28 }, this.audioOwner)) this.recordPresentation("audio-cue", key);
   }
 
   private cueChainAudio(depth: number): void {
-    if (depth <= 1 || !this.vfxCleanup.allocateAudio(this)) return;
-    if (audioService.playChain(depth)) this.recordPresentation("audio-cue", "chainRise");
+    if (depth <= 0 || !this.vfxCleanup.allocateAudio(this)) return;
+    if (audioService.playChain(depth, this.audioOwner)) this.recordPresentation("audio-cue", "chainRise");
   }
 
   private presentationViewportProfile(): "desktop" | "mobile" {
@@ -1077,6 +1111,7 @@ export class BoardScene extends Phaser.Scene {
     };
     if (events.length === 0) {
       this.recordPresentation("match-recognition-start", String(step.ordinal));
+      this.cueChainAudio(step.cascadeDepth);
       this.time.delayedCall(pacing.recognitionHoldMs, start);
     }
     else start();
@@ -1794,7 +1829,8 @@ export class BoardScene extends Phaser.Scene {
 
     this.recordPresentation("match-group-start", String(popObjects.length));
     let remaining = popObjects.length;
-    let playedClusterBody = false;
+    const audioDispatch = createMatchAudioDispatch();
+    const audioGroups = new Map(pacing.impacts.map(impact => [positionKey(impact.position), impact.groupId]));
     let cleanupScheduled = false;
     const seed = this.snapshot?.rngSeed ?? "0";
     if (allowMatchShake && popObjects.length >= MATCH_SHAKE_WEAK_THRESHOLD_TILES) {
@@ -1828,15 +1864,10 @@ export class BoardScene extends Phaser.Scene {
         this.recordPresentation("tile-impact", key, 0, {
           before: visibleBefore, after: popTarget.visible, occupantId: sourceSnapshot.grid.get(entry.position).debugTileId
         });
-        if (!playedClusterBody) {
-          playedClusterBody = true;
-          this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
-        }
         const variation = tilePopVariation(entry.position, seed);
-        this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
-          gain: 0.42,
-          playbackRate: variation.playbackRate
-        });
+        for (const cue of audioDispatch(audioGroups.get(key) ?? key, this.time.now, variation)) {
+          this.cueBoardAudio(cue.key, cue.playback);
+        }
         this.playMatchBurst(entry.object, entry.tint);
         if (!cleanupScheduled) {
           cleanupScheduled = true;
@@ -2034,7 +2065,6 @@ export class BoardScene extends Phaser.Scene {
 
     const plannedCascadeLeadMs = hasSequencedPowerUp(delta) ? 0 : CASCADE_START_AFTER_IMPACT_MS;
     this.recordPresentation("cascade-start", "occupants-unique", plannedCascadeLeadMs);
-    this.cueChainAudio(delta.chainDepth);
 
     this.snapshot = postClearSnapshot;
     // Hide the landing cells of moves/spawns so renderSnapshot leaves them empty
@@ -3122,7 +3152,7 @@ export class BoardScene extends Phaser.Scene {
     audioService.unlockBoardSounds();
     if (!this.snapshot || !this.layer) return false;
     // Ignore new gestures while a committed swap is still settling/resolving.
-    if (this.drag || this.playback) return false;
+    if (this.drag || this.playback || this.activeAnimationId !== null || this.winPresentationActive) return false;
     const position = this.positionForPointer(pointer.x, pointer.y);
     if (!position) return false;
     const cell = this.snapshot.grid.get(position);
@@ -3509,7 +3539,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
-    if (!this.snapshot || !this.onAction || this.playback) return false;
+    if (!this.snapshot || !this.onAction || this.playback || this.activeAnimationId !== null || this.winPresentationActive) return false;
     const position = this.positionForPointer(pointer.x, pointer.y);
     if (!position) return false;
     const cell = this.snapshot.grid.get(position);

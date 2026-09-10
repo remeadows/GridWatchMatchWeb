@@ -7,6 +7,9 @@ export const MATCH_POP_COMPRESSION_MS = 100;
 export const MATCH_IMPACT_MS = 180;
 export const MATCH_AFTERIMAGE_MS = 130;
 export const MATCH_OPEN_HOLD_MS = 130;
+export const MATCH_BODY_CUE_SPACING_MS = 45;
+// Post-visual tail only: exceeds every board clip, without waiting for playback recovery.
+export const AUDIO_TAIL_MAX_WAIT_MS = 1_000;
 export const MATCH_COLORED_DEBRIS_COUNT = 7;
 export const MATCH_SMOKE_PUFF_COUNT = 1;
 export const MATCH_DEBRIS_LIFESPAN_MS = 320;

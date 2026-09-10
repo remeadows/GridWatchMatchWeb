@@ -1,6 +1,381 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-09
+Last updated: 2026-09-10
+
+## 2026-09-10: PR 49 Atomic Audio Replacement And Review Follow-Up
+
+Russ authorized automatic CI repair and addressing PR comments. The incoming
+head `4e2499a` already had successful CI and Cloudflare branch-preview checks;
+there was no failing CI job to suppress or bypass. A fresh CodeRabbit review
+added five comments. Russ retains sole PR merge ownership.
+
+- Audio replacement now registers its provisional ownership before stopping an
+  evicted player. Synchronous HTML completion cannot report false owner silence
+  between sounds. If another owner's callback cancels that provisional source,
+  it is not started afterward. The existing 16-player cap, gain/age eviction order
+  and scene-specific cleanup are preserved.
+- The injected fallback callback is captured and narrowed at construction rather
+  than accessed through a production non-null assertion. Three new regressions
+  first failed on callback capture, premature silence and stale replacement,
+  then passed. All 26 audio tests pass.
+- Capture volume parsing now explicitly reports the recording path when ffmpeg
+  supplies no `max_volume` measurement. A new regression first reproduced the
+  null-index TypeError, then passed; valid numeric conversion is also covered.
+  All eight research-artifact tests pass.
+- The deadline test now checks its exact scheduled 1,000 ms duration, one wait,
+  one expiry, no early completion, and completion on the expiry callback's scene
+  tick. It retains the 3-second completion wait, no-recovery assertion and result
+  check. Two test-mode-only trace observations replace the fragile 1,100 ms
+  scene-timestamp ceiling; production deadline and animation timings are unchanged.
+  The trace regression first failed for the missing observations, then passed.
+- The reduced-motion threshold comment does not describe the actual cascade
+  path: aggregate clears already select one `tileClusterBody` before the chain
+  fallback. Task 10 explicitly requires one compact cue in reduced motion, not
+  normal-motion escalation. No cue policy or threshold was changed. Added an
+  engine-backed Level 6 first-cascade check (depth 1, six clears, no activations)
+  that verifies exactly one compact impact cue on desktop and mobile. Its first
+  fixture incorrectly omitted the real-drag `swap-settled` trace event; corrected
+  the exact expected trace without changing application behavior or audio assertions.
+- Verification checkpoint: 379 units, four focused Chromium/mobile-WebKit cases,
+  all 100 levels, build/typechecks and high audit pass. Build: `index-1msABdpM.js`.
+  Two pre-existing moderate Vitest advisories remain; dependencies are unchanged.
+  Browser red evidence: `/private/tmp/gridwatch-pr49-round3-red/`; fixture failure:
+  `/private/tmp/gridwatch-pr49-round3-focused/`; passing focused evidence:
+  `/private/tmp/gridwatch-pr49-round3-focused-fixed/`.
+- The final full browser gate passes 202/202 in 15.9 minutes, with zero failures,
+  skips, flaky cases or retries. Report and artifacts:
+  `/private/tmp/gridwatch-pr49-round3-browser-8GZ3wm/`.
+- Native HTML audio passes at 1280x720 and 393x852: 45 sounds play and naturally
+  end using 12 players per flow, with no rejections, retained active sounds, page
+  errors or horizontal overflow. Resolution precedes Grid Secure. Inspected images
+  and traces: `/private/tmp/gridwatch-pr49-round3-native-r680av/`.
+- The committed recording helper passes all 17 sound-on scenarios / 320 exact
+  stage boundaries, with at most 12 sources and -1.2 dBFS maximum recorded level.
+  Every WebM passes ffmpeg decoding and volume extraction. Three muted flows emit
+  zero board sounds and preserve stage kinds, ordinals, cascade depths and all
+  occupant identities/positions. Private 0700 directories with 0600 artifacts:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-round3-At9Sfh/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-round3-muted-3iGJu2/`.
+- The final warm-preview drag gate passes 20 consecutive iterations / 40 cases
+  without failures or retries. Logs:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-round3-warm-EW3xjv/`.
+  All browser checks used the same owned 4173 preview with temporary sleep
+  prevention; the separate interactive 4176 preview is preserved. This is not
+  physical-device or subjective-listening acceptance.
+- Only this handoff changed after code verification. Publication, conversation
+  dispositions, fresh reviews and exact-head remote checks are recorded on
+  [PR 49](https://github.com/remeadows/GridWatchMatchWeb/pull/49). No engine,
+  authored-level, score, auth, leaderboard, Worker, dependency or iOS edits; no
+  PR merge, auto-merge, retarget, new review approval or production deploy claimed.
+
+## 2026-09-10: PR 49 Follow-Up Review Repairs
+
+Russ requested fixes for the five new CodeRabbit conversations and the reported
+base conflict. PR 49 remains the target; Russ alone merges PRs. No PR merge,
+auto-merge, retarget or production deployment is authorized or performed.
+
+- HTML board fallback players are now reused in a lazy pool capped at 16. End,
+  error, rejected play and explicit stop release the slot, reset playback time,
+  and retain once-only completion and scene ownership. Old callbacks cannot stop
+  a reused player. Web Audio, gains, timing, engine outcomes and assets are unchanged.
+- Three new audio regressions first failed for unreset time and 40/four player
+  allocations instead of 16/two, then passed. The browser HTML fixture now tracks
+  each play separately and checks the real allocation cap without relaxing its
+  held-tail, completion, input or deadline assertions.
+- The capture helper uses base64 across the browser/Node boundary and decodes it
+  to identical bytes on write. FileReader errors and aborts reject. Its expected
+  decoded count comes from the actual TypeScript manifest using the repo's Node 24
+  runtime; board readiness and resource/completion waits remain mandatory.
+- Four capture regressions first failed on array output, missing rejection and
+  absent manifest-derived argument. The fixture's initial reused-VM declaration
+  error was fixed with a fresh context per call, without changing assertions.
+  The source extraction marker is now checked before evaluation. The playback
+  helper uses the nullable Window hook directly and keeps its fail-fast guard.
+- Repair checkpoint: 29 focused units, 356 full units, 32 Chromium/mobile-WebKit
+  lifecycle cases, 100 level validations, build/typechecks and high audit pass.
+  Bundle: `index-VYK5XUkj.js`. Two pre-existing moderate Vitest advisories remain.
+  Focused artifacts: `/private/tmp/gridwatch-pr49-pool-focused-20260910/`.
+- Synchronized the review branch with its reviewed base at `aed3c98`, preserving
+  both handoff histories. This is a local branch integration, not a GitHub PR
+  merge. The original checkout's modified lockfile and untracked July plan remain
+  untouched. The PR diff against that base contains no engine, level, App, balance,
+  score, auth, Worker, dependency or Playwright-config changes.
+- Final combined build/typechecks pass as `index-9OhRxLfS.js`; units pass 374/374
+  in 14 files. The base supplies 18 units and 16 browser cases in addition to the
+  repair checkpoint. Full Chromium/mobile-WebKit validation passes 200/200 in
+  15.5 minutes, with zero skipped, failed, flaky or retried cases. Evidence:
+  `/private/tmp/gridwatch-pr49-final-browser-7DSUDq/`.
+- Native HTML playback passes at 1280x720 and 393x852: each winning-combo flow
+  plays and naturally ends 45 sounds using 12 reusable players, with no rejected
+  play, retained active source, page error or horizontal overflow. Resolution
+  completes before the terminal sequence. Images and traces:
+  `/private/tmp/gridwatch-pr49-native-html-LDGAwI/`.
+- The repaired recording helper passes 17 real-Web-Audio scenarios / 320 exact
+  stage boundaries. All recordings decode through ffmpeg, the source peak is 12,
+  all tracked resources release, and maximum recorded level is -0.9 dBFS. Three
+  muted scenarios emit zero board sources and match sound-on stage kinds, ordinals,
+  cascade depths and all occupant identities/positions. Private 0700 directories
+  contain 0600 artifacts:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-pool-2GRHof/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-pool-muted-DKU5zj/`.
+- The final warm-preview drag gate passes 20 consecutive iterations / 40 desktop
+  and mobile cases, with zero retries or failures. Private logs:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-pool-warm-HesEit/`.
+  Browser checks used the same owned 4173 preview under temporary `caffeinate -diu`;
+  the separate interactive 4176 preview is preserved. Screenshot inspection and
+  automated native audio checks are not physical-phone or listening acceptance.
+- Repair commit: `0d1227c`. Only documentation changed after final verification.
+  This record accompanies base synchronization; publication, conversation
+  resolutions, fresh reviews and current-head remote checks are verified on
+  [PR 49](https://github.com/remeadows/GridWatchMatchWeb/pull/49), not inferred from
+  these local results. No new review approval, PR merge or production deployment
+  is claimed here.
+
+Earlier entries below are historical snapshots, not current PR status.
+
+## 2026-09-09: PR 49 Review Repairs Verified Locally
+
+This section supersedes the historical PR/draft statuses below. PR 49 is open on
+`codex/staged-board-audio`, targeting `codex/gameplay-causal-playback`. Russ alone
+merges. Fixes may be pushed to this PR after local verification; no merge,
+auto-merge, retarget or manual deployment is authorized by this repair task.
+
+- Addressing all seven current unresolved review threads: bounded audio tails,
+  input gating through completion, suspended-context fallback allocation and its
+  regression, named match-body spacing, typed browser hooks, and portable capture.
+- Visual resolution still runs to completion. Only its final audio wait is capped
+  at 1,000 ms on the Phaser clock (longest board clip: 680 ms). Silence cancels the
+  deadline; expiry unregisters the listener and stops only the scene's sounds
+  before normal completion. Teardown cancels both. Reduced motion and the
+  2,500 ms terminal row sequence are unchanged.
+- The held-tail navigation regression additionally exposed 16 retained sources
+  after leaving a board: game destruction does not necessarily emit scene
+  shutdown. `disposeVfx` is now registered for both shutdown and destroy. The
+  unchanged regression checks source release, absence of an old result callback,
+  and no browser errors. Red evidence:
+  `/private/tmp/gridwatch-pr49-audio-final-20260909/`.
+- Both tile gestures and booster targets remain blocked through the active
+  animation and terminal presentation. The existing active animation ID provides
+  the gate; no extra input state or engine rules were added.
+- Suspended/interrupted contexts and decode misses drop their cue without making
+  HTML players. Missing Web Audio still uses the tracked HTML fallback. The
+  match-body spacing is now `MATCH_BODY_CUE_SPACING_MS`; its 45 ms value, gains,
+  caps and independent cascade-landing coalescing are unchanged.
+- Suspended/interrupted unit tests first failed on the unexpected fallback call.
+  The tile and ordinary-turn booster browser regressions first failed because
+  pointer gestures were accepted. An initial terminal booster fixture could not
+  retain selection because App intentionally clears it; the ordinary-turn fixture
+  exercises the target guard without weakening the assertion. The HTML fixture
+  now disables Web Audio capability for the entire isolated browser context;
+  constructor failure/first-read shims did not reliably exercise that fallback.
+  With this final fixture, removing only the deadline reproduced the completion
+  timeout, then restoring it passed. Red evidence:
+  `/private/tmp/gridwatch-pr49-audio-red-20260909/`,
+  `/private/tmp/gridwatch-pr49-booster-red-20260909/`, and
+  `/private/tmp/gridwatch-pr49-html-confirmed-red-20260909/`.
+- Browser globals now use their actual optional runtime types and native
+  AudioContext proxy typing. This exposed an existing nullable cell lookup in the
+  playback test helper; a one-line fail-fast guard corrects it.
+- Reproducible recording helper:
+  `node docs/research/2026-09-08-game-feel/board-audio-capture.cjs 4176 <label> [muted]`.
+  Run after `npm ci`, `npm run build`, and starting a local preview on the given
+  port. Requires Playwright Chromium and ffmpeg on PATH (`FFMPEG_PATH` can override
+  the executable). Uses disposable browser contexts, blocks score submissions,
+  and writes a fresh private directory under the OS temp directory, or an existing
+  `GW_CAPTURE_DIR`. Labels allow letters, digits, underscores and hyphens. It
+  preserves the 17 sound-on / three muted scenarios, stage checks, recordings,
+  screenshots and peak measurements; it does not measure physical listening or
+  production-rAF performance. The output/privacy test first failed for the missing
+  committed helper, then passed with unique 0700 directories and 0600 artifacts.
+- Verification baseline was 345 units / 174 browser cases. Final repair units
+  pass 349/349 in 12 files. Build and both TypeScript checks pass as
+  `index-DrcEJfsV.js`; all 100 levels and high audit pass. Two pre-existing
+  moderate Vitest/mocker entries remain, with no dependency changes.
+- All 12 focused Chromium/mobile-WebKit audio lifecycle instances pass, including
+  normal silence, both input paths, stalled HTML, hidden-tab pause/resume and
+  leaving during a held tail. Evidence:
+  `/private/tmp/gridwatch-pr49-audio-cleanup-20260909/`.
+  The warm preview drag gate passes all 20 iterations / 40 instances with zero
+  retries/failures. Author-local private logs:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-warm-drag-SOkEfP/`.
+- The committed capture helper passes 17 real-audio flows / 320 exact stage
+  boundaries, with at most 12 active sources, all tracked resources released and
+  maximum recorded level -1.3 dBFS. Three muted flows emit zero board sources and
+  have identical stages/occupant IDs to sound-on. Directories are 0700 and their
+  files 0600. Author-local recordings:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-review-aasaiX/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-muted-qgq69g/`.
+- Inspected headed 1280x720 and 393x852 combination/ending captures: board visible,
+  no overflow or page errors; resolution precedes the terminal sequence and all
+  seven rows clear bottom-to-top. These are desktop hardware at two viewport
+  sizes, not physical-phone acceptance. The first capture requested the absent
+  single-rocket event; the corrected capture observes the actual `combo-impact`.
+  Author-local images/traces:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-visual-ogV294/`.
+- Full browser validation passes 184/184 in 15.2 minutes on the same owned
+  preview under temporary `caffeinate -diu`: zero skipped, failed, flaky or retried
+  cases. JSON report and retained artifact directory:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-full-browser-2uBEZD/`.
+  The owned 4173 preview was stopped; the separate interactive 4176 preview remains
+  available. Only this documentation changed after the final code verification.
+  This record supports the repair commit; subsequent publication, conversation
+  resolutions, fresh reviews and remote checks are recorded on
+  [PR 49](https://github.com/remeadows/GridWatchMatchWeb/pull/49), not inferred from
+  local test results. No new review approval, merge or manual deployment is claimed.
+- GitHub reports a base-branch conflict after PR 48 merged into
+  `codex/gameplay-causal-playback` at `aed3c98`. Read-only three-way inspection
+  identifies only `HANDOFF.md` as conflicting. Requested Russ's permission to
+  synchronize the review branch and preserve both records; no branch merge,
+  rebase, force push, retarget or PR merge has been performed.
+
+## 2026-09-09: Independent Verification And Review Status
+
+This section supersedes the earlier pending-run states below. Independent code
+and automated gates for Tasks 10-12 are complete; this is not Task 13 acceptance
+of an integrated art/audio/balance build.
+
+- PR 47's original CodeQL blocker is repaired at `287db8e`; all four checks pass,
+  its sole review thread is resolved, and mergeability is CLEAN. It stays draft
+  pending current player/device acceptance. PR 45 was merged externally as `67e1c6b`.
+- Task 12 is committed at `954690b` on `codex/campaign-balance-analysis` and is
+  draft PR 48, https://github.com/remeadows/GridWatchMatchWeb/pull/48, stacked on
+  PR 47. All 352 units / 100 levels / build / high audit and 186 browsers pass.
+  Explicit CI run `34391739461` and the Pages preview check pass. Main-target
+  CodeQL has not run on this stacked base; retarget/recheck after PR 47 merges.
+- Two earlier Task 12 full runs stalled in a blank WebKit `page.goto`, before
+  any gameplay action (156 passed / 1 failed / 29 not run; 163 / 1 / 22).
+  Upstream issue https://github.com/microsoft/playwright/issues/42385 describes
+  the installed 1.62.1 / WebKit 2336 display-sleep stall. This Mac's power logs
+  confirm display sleep during those runs. The unchanged build then passed all
+  186 cases in 13.8 minutes under temporary `caffeinate -diu`, with zero retries.
+  No global preference, dependency, assertion, timeout, or config was changed.
+  The workaround is verified; a precise local deadlock sample is not available.
+  Both failures remain preserved, detailed in the balance branch handoff.
+- Headed production-rAF comparison: 32 flows per build (ordinary, three-stage,
+  four singles, ten combos at 1280x720 and 393x852). Baseline `index-CpK1aw8K.js`
+  worst p95 13.3 ms; audio `index-bb3qLuCo.js` worst p95 13.1 ms. The largest
+  per-scenario p95 increase is 0.3 ms. Neither has an observed JavaScript long task;
+  rare complete-frame gaps reach 57.2 / 58.1 ms, respectively, so zero jank is
+  not claimed. Candidate long-animation-frame entries attribute 40-48.8 ms to
+  the game rAF callback, below the 50 ms JS limit. No current-build performance
+  optimization or threshold relaxation was made from these measurements.
+- Hardware: Apple M4 Pro / 24 GiB / macOS 26.6.2, headed Chromium 151,
+  ANGLE Metal Apple M4 Pro. An isolated page enters through normal Quick Deploy,
+  without any QA query or forced-timer loop. A temporary read-only React-ref
+  observer samples actual Phaser postrender events; injected performance
+  observers add overhead. Audio is enabled, music/voice disabled. Fresh contexts
+  and blocked score requests protect real saves/accounts. This is desktop
+  hardware at two viewport sizes, not physical-mobile performance.
+- Candidate peaks: 172 tracked FX objects, 28 timers, 159 tweens, 12 emitters,
+  66 particles, six arcs, 12 board sounds. All tracked resources release in all
+  64 comparison flows. The ten board textures and five DOM booster images are
+  512 RGBA: 15 MiB decoded before future fragments; current VFX textures/defaults
+  add about 22 KiB. The separate 4 MiB brand icon is also recorded. These are
+  source-pixel estimates, not driver GPU-memory accounting, and do not establish
+  Task 9's future loaded-atlas/fallback budget. Desktop/mobile screenshots inspected.
+- Performance evidence:
+  `/private/tmp/gridwatch-production-performance-audio-hfMjP3/` and
+  `/private/tmp/gridwatch-production-performance-gameplay-baseline-sXw1lF/`.
+  Helper: `/private/tmp/gridwatch-production-performance-20260909.cjs`.
+  The helper's unused `score` read is absent in JSON because BoardSnapshot has no
+  score field; frame/texture/resource results are unaffected. Stage/score/ID
+  correctness remains covered by the separate engine-driven regression captures.
+- Fresh audio gates pass: 345 units, 100 levels, build/typechecks with unchanged
+  `index-bb3qLuCo.js`, high audit, and all 174 browser cases in 13.6 minutes.
+  Two existing moderate Vitest/mocker dependency entries remain separate.
+  The warm drag gate passed all 20 iterations / 40 Chromium-WebKit instances,
+  zero failures/retries, against the same owned preview. The runner then stopped
+  that preview and released its temporary display-sleep assertion. The separate
+  interactive preview on 4176 remains available. Evidence/logs/results:
+  `/private/tmp/gridwatch-final-audio-gates-wepwNv/`.
+  Task 0's baseline was 238 units / 102 browsers; the current audio branch is
+  345 / 174, without the separate balance tests. Final diff check passes.
+- The unpublished Task 10 commit is updated with this verification record,
+  preserving one `Align board audio with staged impacts` commit. Only its handoff
+  changed after the code verification; no gameplay/test/dependency edit occurred.
+  The audio branch is ready for its separate draft review, not release approval.
+
+Tasks 8/9 still require Russ's concrete choice between the delivered new Blender
+finishes. The choice was presented again in the current task; no answer is assumed.
+No human pilot sessions, current listening acceptance, physical iPhone/Android
+acceptance, final integrated-art regression, main merge or production Worker deploy.
+The original checkout's lockfile and untracked July plan remain untouched.
+
+## 2026-09-09: Task 10 Audio Implementation Verified Locally
+
+Independent audio work runs in `/private/tmp/gridwatch-match-audio-20260909`,
+branch `codex/staged-board-audio`, based on reviewed gameplay `287db8e`. Local
+implementation commit: `Align board audio with staged impacts`. Listening and
+physical-phone acceptance are still open. Task 8/9 art integration requires Russ's fresh finish choice;
+the material study is `/private/tmp/gridwatch-art-capture-U3dEwH/material-study.png`.
+
+- Six new unit reds demonstrated 50 sound dispatches for a 49-tile clear, 39
+  active sources under delayed ended callbacks, and missing completion/cleanup
+  APIs. A further scene-ownership red proved that global cleanup could complete
+  the newer scene. All 16 audio tests now pass, including HTML completion/rejected
+  autoplay and the existing two-argument fallback contract. The initial service
+  implementation broke that callback contract; it was fixed in code without
+  changing its assertion.
+- A per-clear contact dispatcher caps pops at three per connected group/eight per
+  wave and coalesces body hits within 45 ms, at most four per wave. Dispatch occurs
+  at actual piece contact. The active backend cap of 16 now reclaims stopped
+  entries synchronously, while native ended events disconnect their audio nodes.
+  HTML fallback sounds are tracked and released on completion/error/rejection.
+- Each later natural cascade gets one chain cue at recognition of its landed
+  board, not duplicate gravity/refill starts. Scene completion waits for actual
+  owned audio sources; reduced motion still emits one compact cue and does not
+  wait. Scene teardown cancels its completion listener and stops only its sounds;
+  muting SFX releases tails without changing voice/music preferences.
+- The chain browser regression failed at the old early cue timestamps. The first
+  controlled-audio fixture also replaced Phaser's own context and never booted;
+  isolating the fake to the audio service fixed the fixture, then the unchanged
+  completion assertion failed because Grid Secure started with live audio sources.
+  Evidence: `/private/tmp/gridwatch-task10-audio-tail-red-20260909/`.
+- All ten focused Chromium/WebKit instances now pass, including real scene impact
+  cues, chain recognition, held audio tails, reduced motion and shutdown coverage.
+  All 344 units/12 files, 100 levels, build/typechecks and high audit pass. Bundle:
+  `index-CFhWZZeW.js`. Two pre-existing moderate Vitest advisories remain separate.
+  The full 174-case gate is running with retained first-failure traces and no
+  retries. That full gate completed 174/174 in 14.1 minutes on `index-CFhWZZeW.js`.
+- Headed recordings of 17 real action flows then exposed a summed-audio headroom
+  problem: rocket/propeller reached 0 dBFS. Retained at
+  `/private/tmp/gridwatch-board-audio-candidate-51EEF8/`. A new native-backend graph
+  regression first failed for the missing shared compressor. The board bus now
+  uses WebAudio's compressor (-8 dB threshold, 6 dB knee, 12:1 ratio, zero attack,
+  120 ms release), keeping the existing clips, per-cue gains and hierarchy intact.
+  No audio asset, music or voice channel changes. All 17 audio tests and all 345
+  units pass; final build/typechecks pass as `index-bb3qLuCo.js`. All ten focused
+  browser instances pass again on that final build in 54.3 seconds. The 174-case
+  result predates only this DSP change; no second full final-build run is claimed.
+- Repeated headed Chromium recordings cover 17 real flows / 320 exact stage
+  boundaries, all singles and ten combinations plus a winning combo. Peak active
+  sources are 12 (cap 16); all sources and tracked VFX resources release. All
+  recorded peaks are below clipping, maximum -1.2 dBFS. Evidence:
+  `/private/tmp/gridwatch-board-audio-compressed-19S3uN/`. Three additional muted
+  flows emit zero board cues/sources and have identical stages/final IDs to their
+  sound-on counterparts: `/private/tmp/gridwatch-board-audio-muted-Vvsvt5/`.
+  Inspected the settled board screenshot; no new layout or piece changes.
+  Helper: `node docs/research/2026-09-08-game-feel/board-audio-capture.cjs 4176 <label> [muted]`.
+  The recordings measure the board WebAudio bus, not music/voice/HTML fallback or
+  physical speakers. They use the QA scene timer, not production rAF performance.
+  Audio input is unavailable to this agent; actual listening quality requires
+  Russ's review. No subjective listening or physical-device acceptance is claimed.
+  Local candidate: `http://127.0.0.1:4176/`, separate from the existing 4174 preview.
+
+Other work: Task 11 is committed (`f07e457`). Task 12's isolated development
+candidate on `codex/campaign-balance-analysis` passes its seven new unit and 14 new
+browser cases, but its full run stopped at 156 passed / 1 mobile page.goto timeout /
+29 not run, before the rocket/TNT action, with a blank page. The isolated traced
+navigation diagnostic passed in 7.4 seconds on the unchanged bundle; this does not
+  erase the full-suite failure or establish its root cause. That task remains
+  uncommitted. A full unchanged-build reproduction with first-failure traces and
+  no retries is running; output parent:
+  `/private/tmp/gridwatch-balance-full-diagnostic-nIszfn/`. Its worktree HANDOFF and
+  balance README retain all candidate results. Do not label a diagnostic pass as
+  a fix for the earlier navigation failure.
+PR 45 merged externally as `67e1c6b`; draft PR 47 is CLEAN/all four checks green.
+No engine, canonical levels, Worker, auth, leaderboard, score, binary audio, or
+dependency changes in Task 10. No production deploy or new human acceptance.
 
 Merge ownership: Russ alone merges PRs. Agents may push reviewed fixes when
 authorized, but must never merge PRs or enable auto-merge.

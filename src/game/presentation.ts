@@ -16,6 +16,7 @@ import {
   COMBO_BATCH_PARTICLE_CAP,
   COMBO_CHOREOGRAPHY_TIMING,
   COMBO_PROJECTILE_CAP,
+  MATCH_BODY_CUE_SPACING_MS,
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
@@ -201,6 +202,34 @@ export function matchPacingPlan(
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;
+}
+
+interface MatchAudioCue {
+  key: "tileClusterBody" | "tilePopA" | "tilePopB";
+  playback: { gain: number; playbackRate: number };
+}
+
+export function createMatchAudioDispatch(): (groupId: string, atMs: number, variation: TilePopVariation) => MatchAudioCue[] {
+  const groups = new Map<string, number>();
+  let bodies = 0;
+  let pops = 0;
+  let lastBodyAtMs = Number.NEGATIVE_INFINITY;
+  return (groupId, atMs, variation) => {
+    const groupPops = groups.get(groupId) ?? 0;
+    groups.set(groupId, groupPops + 1);
+    const cues: MatchAudioCue[] = [];
+    if (groupPops === 0 && bodies < 4 && atMs - lastBodyAtMs >= MATCH_BODY_CUE_SPACING_MS) {
+      bodies++;
+      lastBodyAtMs = atMs;
+      cues.push({ key: "tileClusterBody", playback: { gain: 0.62, playbackRate: 1 } });
+    }
+    if (groupPops < 3 && pops < 8) {
+      pops++;
+      cues.push({ key: variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB",
+        playback: { gain: 0.42, playbackRate: variation.playbackRate } });
+    }
+    return cues;
+  };
 }
 
 export interface TntDetonationPlan {

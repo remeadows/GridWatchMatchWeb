@@ -258,6 +258,24 @@ test.describe("normal presentation timeline", () => {
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(180);
   });
 
+  test("the first cascade retains one compact impact cue in reduced motion", async ({ page }) => {
+    const level = JSON.parse(readFileSync("public/levels/level_006.json", "utf8")) as LevelDefinition;
+    const action: BoardAction = { kind: "swap", from: { row: 4, col: 3 }, to: { row: 4, col: 4 } };
+    const delta = new BoardEngine(level, levelSeed(6)).apply(action);
+    expect(delta.chainDepth).toBe(1);
+    expect(delta.clears).toHaveLength(6);
+    expect(delta.powerUpEvents).toHaveLength(0);
+    await page.addInitScript(() => localStorage.setItem("gridwatch-match-web.save.v1",
+      JSON.stringify({ settings: { reducedMotion: true } })));
+    await page.goto("/?gwTestMode=1&level=6");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, action.from, action.to);
+    await page.waitForFunction(() => window.__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    expect(trace.map(entry => entry.kind)).toEqual(["swap-settled", "action-received", "audio-cue", "resolution-complete"]);
+    expect(traceEntry(trace, "audio-cue").detail).toBe("tileClusterBody");
+  });
+
   test("reduced motion emits one impact cue for a chained cascade", async ({ page }) => {
     await page.goto("/?gwTestMode=1");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -879,7 +897,7 @@ test.describe("audio cue ordering", () => {
     expect(landingCue?.atMs).toBe(landing.atMs);
   });
 
-  test("cues cascade chain escalation when the next cascade starts", async ({ page }) => {
+  test("cues cascade chain escalation once when each landed match is recognized", async ({ page }) => {
     await page.goto("/?gwTestMode=1&level=6");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
@@ -900,11 +918,10 @@ test.describe("audio cue ordering", () => {
     const trace = await presentationTrace(page);
     const sequenceId = trace.at(-1)?.sequenceId;
     const cascadeTrace = trace.filter((entry) => entry.sequenceId === sequenceId);
-    const cascadeStarts = cascadeTrace.filter(entry => entry.kind === "cascade-start");
-    const chainCue = cascadeTrace.find((entry) => entry.kind === "audio-cue" && entry.detail === "chainRise");
-
-    expect(chainCue).toBeDefined();
-    expect(cascadeStarts.some(entry => entry.atMs === chainCue?.atMs)).toBe(true);
+    const recognized = cascadeTrace.filter(entry => entry.kind === "match-recognition-start").slice(1);
+    const chainCues = cascadeTrace.filter(entry => entry.kind === "audio-cue" && entry.detail === "chainRise");
+    expect(recognized.length).toBeGreaterThan(0);
+    expect(chainCues.map(entry => entry.atMs)).toEqual(recognized.map(entry => entry.atMs));
   });
 });
 
