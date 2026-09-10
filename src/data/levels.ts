@@ -1,11 +1,13 @@
 import { levelUrl } from "./assets";
 import type { LevelDefinition, ObjectiveDefinition, TileType } from "../engine";
+import { applyBalanceProfile, type BalanceProfile } from "../dev/balancePreview";
 
-export async function loadLevel(levelId: number): Promise<LevelDefinition> {
+export async function loadLevel(levelId: number, profile: BalanceProfile | null = null): Promise<LevelDefinition> {
   const response = await fetch(levelUrl(levelId));
   if (!response.ok) throw new Error(`Failed to load level ${levelId}: ${response.status}`);
   const level = (await response.json()) as LevelDefinition;
-  return normalizeLevel(level);
+  const normalized = normalizeLevel(level);
+  return profile ? applyBalanceProfile(normalized, profile) : normalized;
 }
 
 export function normalizeLevel(level: LevelDefinition): LevelDefinition {

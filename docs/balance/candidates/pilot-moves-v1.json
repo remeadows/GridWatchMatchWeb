@@ -1,0 +1,66 @@
+{
+  "id": "pilot-moves-v1",
+  "label": "Pilot moves v1",
+  "status": "local-hypothesis-not-accepted",
+  "selectionBasis": "Budgets were proposed from the historical one-direction screen and are held fixed for the directed-swap rescreen. Human acceptance remains open.",
+  "baselineSha256": "9bd3a7646f0afe4118b806075e8238d39aa5e96fd938962d9a45513edf2a4418",
+  "outlierSha256": "7d857ec90039a77f765f3080eeae875245c3406344d66151766741f9b740057e",
+  "controls": [
+    1,
+    2,
+    3,
+    34,
+    48,
+    62
+  ],
+  "changes": [
+    {
+      "levelId": 19,
+      "from": 19,
+      "to": 17,
+      "hypothesis": "Test a modest two-move trim while checking player-visible headroom."
+    },
+    {
+      "levelId": 35,
+      "from": 18,
+      "to": 19,
+      "hypothesis": "Test one-move relief at a historically constrained level."
+    },
+    {
+      "levelId": 49,
+      "from": 24,
+      "to": 21,
+      "hypothesis": "Test a modest pre-five-color challenge without changing objectives or mechanics."
+    },
+    {
+      "levelId": 50,
+      "from": 27,
+      "to": 29,
+      "hypothesis": "Offer two more moves for the first five-color boss; its 90-second controllable-time clock remains an independent constraint."
+    },
+    {
+      "levelId": 51,
+      "from": 44,
+      "to": 28,
+      "hypothesis": "Test less post-boss slack; confirm remaining headroom with players."
+    },
+    {
+      "levelId": 60,
+      "from": 38,
+      "to": 32,
+      "hypothesis": "Test a six-move trim while retaining the authored 90-second timer."
+    },
+    {
+      "levelId": 61,
+      "from": 48,
+      "to": 25,
+      "hypothesis": "Test removal of the second large unused-move discontinuity."
+    },
+    {
+      "levelId": 70,
+      "from": 39,
+      "to": 35,
+      "hypothesis": "Test a four-move trim without changing the tighter 75-second clock."
+    }
+  ]
+}
