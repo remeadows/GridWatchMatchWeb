@@ -2,6 +2,72 @@
 
 Last updated: 2026-09-10
 
+## 2026-09-10: PR 49 Atomic Audio Replacement And Review Follow-Up
+
+Russ authorized automatic CI repair and addressing PR comments. The incoming
+head `4e2499a` already had successful CI and Cloudflare branch-preview checks;
+there was no failing CI job to suppress or bypass. A fresh CodeRabbit review
+added five comments. Russ retains sole PR merge ownership.
+
+- Audio replacement now registers its provisional ownership before stopping an
+  evicted player. Synchronous HTML completion cannot report false owner silence
+  between sounds. If another owner's callback cancels that provisional source,
+  it is not started afterward. The existing 16-player cap, gain/age eviction order
+  and scene-specific cleanup are preserved.
+- The injected fallback callback is captured and narrowed at construction rather
+  than accessed through a production non-null assertion. Three new regressions
+  first failed on callback capture, premature silence and stale replacement,
+  then passed. All 26 audio tests pass.
+- Capture volume parsing now explicitly reports the recording path when ffmpeg
+  supplies no `max_volume` measurement. A new regression first reproduced the
+  null-index TypeError, then passed; valid numeric conversion is also covered.
+  All eight research-artifact tests pass.
+- The deadline test now checks its exact scheduled 1,000 ms duration, one wait,
+  one expiry, no early completion, and completion on the expiry callback's scene
+  tick. It retains the 3-second completion wait, no-recovery assertion and result
+  check. Two test-mode-only trace observations replace the fragile 1,100 ms
+  scene-timestamp ceiling; production deadline and animation timings are unchanged.
+  The trace regression first failed for the missing observations, then passed.
+- The reduced-motion threshold comment does not describe the actual cascade
+  path: aggregate clears already select one `tileClusterBody` before the chain
+  fallback. Task 10 explicitly requires one compact cue in reduced motion, not
+  normal-motion escalation. No cue policy or threshold was changed. Added an
+  engine-backed Level 6 first-cascade check (depth 1, six clears, no activations)
+  that verifies exactly one compact impact cue on desktop and mobile. Its first
+  fixture incorrectly omitted the real-drag `swap-settled` trace event; corrected
+  the exact expected trace without changing application behavior or audio assertions.
+- Verification checkpoint: 379 units, four focused Chromium/mobile-WebKit cases,
+  all 100 levels, build/typechecks and high audit pass. Build: `index-1msABdpM.js`.
+  Two pre-existing moderate Vitest advisories remain; dependencies are unchanged.
+  Browser red evidence: `/private/tmp/gridwatch-pr49-round3-red/`; fixture failure:
+  `/private/tmp/gridwatch-pr49-round3-focused/`; passing focused evidence:
+  `/private/tmp/gridwatch-pr49-round3-focused-fixed/`.
+- The final full browser gate passes 202/202 in 15.9 minutes, with zero failures,
+  skips, flaky cases or retries. Report and artifacts:
+  `/private/tmp/gridwatch-pr49-round3-browser-8GZ3wm/`.
+- Native HTML audio passes at 1280x720 and 393x852: 45 sounds play and naturally
+  end using 12 players per flow, with no rejections, retained active sounds, page
+  errors or horizontal overflow. Resolution precedes Grid Secure. Inspected images
+  and traces: `/private/tmp/gridwatch-pr49-round3-native-r680av/`.
+- The committed recording helper passes all 17 sound-on scenarios / 320 exact
+  stage boundaries, with at most 12 sources and -1.2 dBFS maximum recorded level.
+  Every WebM passes ffmpeg decoding and volume extraction. Three muted flows emit
+  zero board sounds and preserve stage kinds, ordinals, cascade depths and all
+  occupant identities/positions. Private 0700 directories with 0600 artifacts:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-round3-At9Sfh/`
+  and `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-board-audio-pr49-round3-muted-3iGJu2/`.
+- The final warm-preview drag gate passes 20 consecutive iterations / 40 cases
+  without failures or retries. Logs:
+  `/var/folders/34/jr0n1ps531348kntshnbv8rm0000gn/T/gridwatch-pr49-round3-warm-EW3xjv/`.
+  All browser checks used the same owned 4173 preview with temporary sleep
+  prevention; the separate interactive 4176 preview is preserved. This is not
+  physical-device or subjective-listening acceptance.
+- Only this handoff changed after code verification. Publication, conversation
+  dispositions, fresh reviews and exact-head remote checks are recorded on
+  [PR 49](https://github.com/remeadows/GridWatchMatchWeb/pull/49). No engine,
+  authored-level, score, auth, leaderboard, Worker, dependency or iOS edits; no
+  PR merge, auto-merge, retarget, new review approval or production deploy claimed.
+
 ## 2026-09-10: PR 49 Follow-Up Review Repairs
 
 Russ requested fixes for the five new CodeRabbit conversations and the reported

@@ -147,9 +147,15 @@ test("a stalled HTML audio tail completes normally within its one-second scene-c
     trace: window.__gwPresentationTrace!, settledAt: window.__gwResolutionFrames!.at(-1)!.atMs
   }));
   const completions = result.trace.filter(entry => entry.kind === "resolution-complete");
+  const waits = result.trace.filter(entry => entry.kind === "audio-tail-wait");
+  const deadlines = result.trace.filter(entry => entry.kind === "audio-tail-deadline");
   expect(completions).toHaveLength(1);
+  expect(waits).toHaveLength(1);
+  expect(waits[0].detail).toBe("1000");
+  expect(deadlines).toHaveLength(1);
+  expect(waits[0].atMs).toBe(result.settledAt);
   expect(completions[0].atMs - result.settledAt).toBeGreaterThanOrEqual(1_000);
-  expect(completions[0].atMs - result.settledAt).toBeLessThan(1_100);
+  expect(completions[0].atMs).toBe(deadlines[0].atMs);
   expect(result.trace.some(entry => entry.kind === "resolution-recovery")).toBe(false);
   await expect(page.getByText("Grid secured")).toBeVisible({ timeout: 8_000 });
 });

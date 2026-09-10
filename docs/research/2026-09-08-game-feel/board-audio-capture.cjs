@@ -159,7 +159,9 @@ console.log(`Evidence: ${out}`);
   for (const result of results) {
     const info = spawnSync(ffmpeg, ['-hide_banner', '-i', result.audioPath, '-af', 'volumedetect', '-f', 'null', '-'], { encoding: 'utf8' });
     assert.equal(info.status, 0, info.stderr);
-    result.maxVolumeDb = Number(/max_volume: ([-\d.]+) dB/.exec(info.stderr)[1]);
+    const volume = /max_volume: ([-\d.]+) dB/.exec(info.stderr);
+    assert.ok(volume, `ffmpeg volumedetect reported no max_volume for ${result.audioPath}`);
+    result.maxVolumeDb = Number(volume[1]);
   }
   writeFileSync(join(out, 'results.json'), JSON.stringify({ label, muted, browser: 'headed Chromium', viewport: '1280x720',
     scope: 'real board WebAudio bus, excludes music/voice/HTML fallback; QA scene timer, not production rAF performance', results }, null, 2), { flag: 'wx', mode: 0o600 });

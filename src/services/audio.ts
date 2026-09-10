@@ -70,8 +70,9 @@ export class AudioService {
     this.createBoardBackend = options.createBoardBackend ?? createDefaultBoardBackend;
     this.createAudio = options.createAudio ?? createHtmlAudio;
     this.now = options.now ?? (() => performance.now());
-    this.playFallback = options.playFallback
-      ? (url, volume) => { options.playFallback!(url, volume); return null; }
+    const playFallback = options.playFallback;
+    this.playFallback = playFallback
+      ? (url, volume) => { playFallback(url, volume); return null; }
       : (url, volume, onEnded) => this.playHtmlBoardAudio(url, volume, onEnded);
   }
 
@@ -147,9 +148,12 @@ export class AudioService {
     };
     const url = presentationAudioUrl(key);
     const backend = this.resolveBoardBackend();
-    this.dropSourceForCapacity();
+    const displaced = this.dropSourceForCapacity();
     const active: ActiveBoardSource = { source: null, gain: playback.gain, order: this.boardSourceOrder++, owner };
     this.activeBoardSources.push(active);
+    // HTML stop reports silence synchronously, so replacement ownership must exist first.
+    displaced?.source?.stop();
+    if (!this.activeBoardSources.includes(active)) return false;
     const ended = () => {
       this.activeBoardSources = this.activeBoardSources.filter(entry => entry !== active);
       this.notifyBoardSilence();
@@ -196,12 +200,11 @@ export class AudioService {
     return this.boardBackend;
   }
 
-  private dropSourceForCapacity(): void {
+  private dropSourceForCapacity(): ActiveBoardSource | undefined {
     if (this.activeBoardSources.length < MAX_ACTIVE_BOARD_SOURCES) return;
     const [candidate] = [...this.activeBoardSources].sort((left, right) => left.gain - right.gain || left.order - right.order);
-    // WebAudio's ended event is asynchronous; reclaim ownership before replacement.
     this.activeBoardSources = this.activeBoardSources.filter(entry => entry !== candidate);
-    candidate?.source?.stop();
+    return candidate;
   }
 
   private playHtmlBoardAudio(url: string, volume: number, onEnded: () => void): BoardAudioSource | null {

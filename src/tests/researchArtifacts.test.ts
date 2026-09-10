@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -102,6 +103,32 @@ function recordingHarness(failure?: "error" | "abort") {
   expect(window.__audioCapture).toBeDefined();
   return { state: window.__audioCapture!, bytes };
 }
+
+function captureVolume(stderr: string) {
+  const source = readFileSync("docs/research/2026-09-08-game-feel/board-audio-capture.cjs", "utf8");
+  const tree = ts.createSourceFile("capture.cjs", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const loops: ts.ForOfStatement[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isForOfStatement(node) && node.expression.getText(tree) === "results") loops.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  expect(loops).toHaveLength(1);
+  const result = { audioPath: "capture.webm", maxVolumeDb: undefined as number | undefined };
+  runInNewContext(loops[0].statement.getText(tree), {
+    result, assert, ffmpeg: "ffmpeg", spawnSync: () => ({ status: 0, stderr })
+  });
+  return result.maxVolumeDb;
+}
+
+it("reports the recording path when ffmpeg provides no maximum-volume measurement", () => {
+  expect(() => captureVolume("volumedetect: measurement unavailable"))
+    .toThrow("ffmpeg volumedetect reported no max_volume for capture.webm");
+});
+
+it("preserves ffmpeg's maximum-volume measurement", () => {
+  expect(captureVolume("[Parsed_volumedetect] max_volume: -0.9 dB")).toBe(-0.9);
+});
 
 it("transfers captured binary audio as base64 without changing its bytes", async () => {
   const { state, bytes } = recordingHarness();

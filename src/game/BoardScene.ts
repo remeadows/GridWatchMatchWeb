@@ -577,8 +577,10 @@ export class BoardScene extends Phaser.Scene {
     if (!waiting) return;
     const dispose = () => { cancel(); deadline?.remove(false); };
     this.cancelAudioCompletion = dispose;
+    this.recordPresentation("audio-tail-wait", String(AUDIO_TAIL_MAX_WAIT_MS));
     deadline = this.time.delayedCall(AUDIO_TAIL_MAX_WAIT_MS, () => {
       if (this.cancelAudioCompletion !== dispose) return;
+      this.recordPresentation("audio-tail-deadline");
       dispose();
       audioService.stopBoardSounds(this.audioOwner);
       finish();

@@ -104,6 +104,52 @@ function createHtmlService() {
 }
 
 describe("board audio service", () => {
+  it("keeps the fallback callback captured when the service is constructed", () => {
+    const playFallback = vi.fn();
+    const options = { createBoardBackend: () => null, playFallback };
+    const service = new AudioService(options);
+    service.configure(enabledSettings);
+    options.playFallback = vi.fn();
+    service.playBoardCue("tilePopA");
+    expect(playFallback).toHaveBeenCalledWith(presentationAudioUrl("tilePopA"), expect.any(Number));
+    expect(options.playFallback).not.toHaveBeenCalled();
+  });
+
+  it("does not report owner silence while replacing its last pooled HTML source", () => {
+    const { service, elements, createAudio } = createHtmlService();
+    const owner = Symbol("observed"), other = Symbol("other");
+    service.playBoardCue("tilePopA", { gain: 0.1 }, owner);
+    for (let index = 0; index < 15; index++) service.playBoardCue("tntBlast", { gain: 0.8 }, other);
+    const silent = vi.fn();
+    service.whenBoardSilent(silent, owner);
+    service.playBoardCue("tilePopB", { gain: 0.1 }, owner);
+    expect(silent).not.toHaveBeenCalled();
+    expect(createAudio).toHaveBeenCalledTimes(16);
+    expect(elements[0].play).toHaveBeenCalledTimes(2);
+    expect(elements.filter(element => element.onended !== null)).toHaveLength(16);
+    elements[0].onended?.();
+    expect(silent).toHaveBeenCalledTimes(1);
+    expect(elements.slice(1).every(element => element.onended !== null)).toBe(true);
+    service.stopBoardSounds();
+    expect(silent).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not start a replacement canceled by another owner's synchronous silence callback", () => {
+    const { service, elements } = createHtmlService();
+    const oldOwner = Symbol("old"), newOwner = Symbol("new");
+    service.playBoardCue("tilePopA", { gain: 0.1 }, oldOwner);
+    for (let index = 0; index < 15; index++) service.playBoardCue("tntBlast", { gain: 0.8 }, newOwner);
+    const dispose = vi.fn(() => service.stopBoardSounds(newOwner));
+    service.whenBoardSilent(dispose, oldOwner);
+    expect(service.playBoardCue("comboImpact", {}, newOwner)).toBe(false);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(elements.reduce((count, element) => count + element.play.mock.calls.length, 0)).toBe(16);
+    expect(elements.every(element => element.onended === null)).toBe(true);
+    const silent = vi.fn();
+    service.whenBoardSilent(silent);
+    expect(silent).toHaveBeenCalledTimes(1);
+  });
+
   it("reuses and resets a completed HTML player for a different cue and gain", () => {
     const { service, elements, createAudio } = createHtmlService();
     service.playBoardCue("tntBlast");
