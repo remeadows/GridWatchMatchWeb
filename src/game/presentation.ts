@@ -16,6 +16,7 @@ import {
   COMBO_BATCH_PARTICLE_CAP,
   COMBO_CHOREOGRAPHY_TIMING,
   COMBO_PROJECTILE_CAP,
+  MATCH_BODY_CUE_SPACING_MS,
   MATCH_IMPACT_MS,
   MATCH_POP_COMPRESSION_MS,
   MATCH_RECOGNITION_HOLD_MS,
@@ -217,7 +218,7 @@ export function createMatchAudioDispatch(): (groupId: string, atMs: number, vari
     const groupPops = groups.get(groupId) ?? 0;
     groups.set(groupId, groupPops + 1);
     const cues: MatchAudioCue[] = [];
-    if (groupPops === 0 && bodies < 4 && atMs - lastBodyAtMs >= 45) {
+    if (groupPops === 0 && bodies < 4 && atMs - lastBodyAtMs >= MATCH_BODY_CUE_SPACING_MS) {
       bodies++;
       lastBodyAtMs = atMs;
       cues.push({ key: "tileClusterBody", playback: { gain: 0.62, playbackRate: 1 } });

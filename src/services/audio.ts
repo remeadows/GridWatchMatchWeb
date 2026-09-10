@@ -153,7 +153,8 @@ export class AudioService {
       this.activeBoardSources = this.activeBoardSources.filter(entry => entry !== active);
       this.notifyBoardSilence();
     };
-    active.source = backend?.play(url, playback, ended) ?? this.playFallback(url, playback.gain, ended) ?? null;
+    // A suspended context or decode miss drops this cue; only absent Web Audio uses HTML.
+    active.source = backend ? backend.play(url, playback, ended) : this.playFallback(url, playback.gain, ended) ?? null;
     if (!active.source) ended();
     return true;
   }

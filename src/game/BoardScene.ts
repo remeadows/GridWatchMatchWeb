@@ -8,6 +8,7 @@ import {
   WIN_SEQUENCE_LEAD_IN_MS
 } from "../data/gameplayTiming";
 import {
+  AUDIO_TAIL_MAX_WAIT_MS,
   CASCADE_FALL_MAX_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_LANDING_SQUASH_MS,
@@ -427,6 +428,7 @@ export class BoardScene extends Phaser.Scene {
       (snapshot) => this.publishPresentationResourceCounts(snapshot)
     );
     this.events.once("shutdown", this.disposeVfx, this);
+    this.events.once(Phaser.Scenes.Events.DESTROY, this.disposeVfx, this);
     ensureVfxTextures(this);
     this.resetPresentationTrace();
     this.installDomPointerHandlers();
@@ -559,6 +561,7 @@ export class BoardScene extends Phaser.Scene {
     const completedAnimationId = this.activeAnimationId;
     if (completedAnimationId === null || this.cancelAudioCompletion) return;
     const finish = () => {
+      this.cancelAudioCompletion?.();
       this.cancelAudioCompletion = null;
       if (this.activeAnimationId !== completedAnimationId || !this.sys.isActive()) return;
       this.clearPlaybackWatchdog();
@@ -569,8 +572,17 @@ export class BoardScene extends Phaser.Scene {
     };
     if (this.reducedMotion) { finish(); return; }
     let waiting = true;
+    let deadline: Phaser.Time.TimerEvent | null = null;
     const cancel = audioService.whenBoardSilent(() => { waiting = false; finish(); }, this.audioOwner);
-    if (waiting) this.cancelAudioCompletion = cancel;
+    if (!waiting) return;
+    const dispose = () => { cancel(); deadline?.remove(false); };
+    this.cancelAudioCompletion = dispose;
+    deadline = this.time.delayedCall(AUDIO_TAIL_MAX_WAIT_MS, () => {
+      if (this.cancelAudioCompletion !== dispose) return;
+      dispose();
+      audioService.stopBoardSounds(this.audioOwner);
+      finish();
+    });
   }
 
   private cancelBoardAudio(): void {
@@ -3138,7 +3150,7 @@ export class BoardScene extends Phaser.Scene {
     audioService.unlockBoardSounds();
     if (!this.snapshot || !this.layer) return false;
     // Ignore new gestures while a committed swap is still settling/resolving.
-    if (this.drag || this.playback) return false;
+    if (this.drag || this.playback || this.activeAnimationId !== null || this.winPresentationActive) return false;
     const position = this.positionForPointer(pointer.x, pointer.y);
     if (!position) return false;
     const cell = this.snapshot.grid.get(position);
@@ -3525,7 +3537,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private activateBoosterAtPointer(booster: BoosterType, pointer: BoardPointer): boolean {
-    if (!this.snapshot || !this.onAction || this.playback) return false;
+    if (!this.snapshot || !this.onAction || this.playback || this.activeAnimationId !== null || this.winPresentationActive) return false;
     const position = this.positionForPointer(pointer.x, pointer.y);
     if (!position) return false;
     const cell = this.snapshot.grid.get(position);

@@ -87,6 +87,32 @@ function createService(backend: FakeBoardAudioBackend | null, playFallback = vi.
 }
 
 describe("board audio service", () => {
+  it.each(["suspended", "interrupted"])("releases a %s Web Audio cue without allocating HTML fallback players", (state) => {
+    const createBufferSource = vi.fn();
+    vi.stubGlobal("AudioContext", class {
+      state = state;
+      destination = {};
+      createBufferSource = createBufferSource;
+      createDynamicsCompressor() {
+        return { threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 0 },
+          attack: { value: 0 }, release: { value: 0 }, connect() {} };
+      }
+    });
+    try {
+      const playFallback = vi.fn();
+      const service = new AudioService({ playFallback });
+      service.configure(enabledSettings);
+      service.playBoardCue("comboImpact");
+      const complete = vi.fn();
+      service.whenBoardSilent(complete);
+      expect(complete).toHaveBeenCalledTimes(1);
+      service.stopBoardSounds();
+      expect(playFallback).not.toHaveBeenCalled();
+      expect(createBufferSource).not.toHaveBeenCalled();
+      expect(complete).toHaveBeenCalledTimes(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("routes decoded sounds through one shared compressor instead of clipping summed cue outputs", async () => {
     const destination = {};
     const compressor = { threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 0 },
@@ -187,6 +213,14 @@ describe("board audio service", () => {
     expect(cues.filter(cue => cue.key === "tilePopB")).toHaveLength(8);
     const nextWave = createMatchAudioDispatch();
     expect(nextWave("left", 0, variation).map(cue => cue.key)).toEqual(["tileClusterBody", "tilePopB"]);
+  });
+
+  it("spaces match bodies at the 45 ms boundary independently of their pop variations", () => {
+    const dispatch = createMatchAudioDispatch();
+    const variation: TilePopVariation = { sample: "tile_pop_a", playbackRate: 1 };
+    expect(dispatch("first", 0, variation).map(cue => cue.key)).toEqual(["tileClusterBody", "tilePopA"]);
+    expect(dispatch("early", 44, variation).map(cue => cue.key)).toEqual(["tilePopA"]);
+    expect(dispatch("boundary", 45, variation).map(cue => cue.key)).toEqual(["tileClusterBody", "tilePopA"]);
   });
 
   it("reclaims a stopped slot immediately even when WebAudio delivers ended asynchronously", () => {
