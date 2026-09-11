@@ -11,8 +11,12 @@ import { prefixRedirectLocation, redirectStatusFor, rewritePlayPath } from "./pl
 
 const ASSET_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+interface AssetsBinding {
+  fetch(request: Request): Promise<Response>;
+}
+
 interface Env {
-  ASSETS: Fetcher;
+  ASSETS: AssetsBinding;
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
