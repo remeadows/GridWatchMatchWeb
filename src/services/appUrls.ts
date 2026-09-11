@@ -7,7 +7,3 @@ function baseWithSlash(): string {
 export function apiUrl(endpoint: string): string {
   return `${baseWithSlash()}api/${endpoint.replace(/^\//, "")}`;
 }
-
-export function appReturnUrl(): string {
-  return new URL(baseWithSlash(), window.location.origin).toString();
-}

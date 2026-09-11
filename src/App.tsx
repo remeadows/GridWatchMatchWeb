@@ -10,6 +10,7 @@ import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionSte
 import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
+import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
@@ -1008,32 +1009,11 @@ function AccountScreen({ save, commitSave, auth }: { save: SaveState; commitSave
 }
 
 function OperatorIdentityPanel({ auth }: { auth: ReturnType<typeof useAuth> }) {
-  const [email, setEmail] = useState("");
   const [handleDraft, setHandleDraft] = useState("");
-  const [linkSent, setLinkSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const signedIn = !!auth.session;
-
-  const sendLink = async () => {
-    setBusy(true);
-    const err = await auth.signInWithEmail(email);
-    setBusy(false);
-    if (err) {
-      setNotice(err);
-    } else {
-      setLinkSent(true);
-      setNotice(null);
-    }
-  };
-
-  const oauth = async (provider: "google" | "github") => {
-    setBusy(true);
-    const err = await auth.signInWithProvider(provider);
-    setBusy(false);
-    if (err) setNotice(err);
-  };
 
   const submitHandle = async () => {
     setBusy(true);
@@ -1059,33 +1039,8 @@ function OperatorIdentityPanel({ auth }: { auth: ReturnType<typeof useAuth> }) {
           Connect an operator identity to sync progress with GridWatch Drift and the Command
           Nexus hub — one handle, every sector.
         </p>
-        {!linkSent ? (
-          <>
-            <label className="identity-row">
-              <span>Operator Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                autoComplete="email"
-              />
-            </label>
-            <div className="card-actions">
-              <button className="primary-action" type="button" disabled={busy || !email} onClick={() => void sendLink()}>
-                Send Magic Link
-              </button>
-              <button type="button" disabled={busy} onClick={() => void oauth("google")}>
-                Google
-              </button>
-              <button type="button" disabled={busy} onClick={() => void oauth("github")}>
-                GitHub
-              </button>
-            </div>
-          </>
-        ) : (
-          <p>A sign-in link was sent to {email}. Open it on this device to complete sign-in.</p>
-        )}
+        <p>Sign in once on the Nexus — the same account works in every GridWatch game.</p>
+        <a className="primary-action" href={accountKit.signInUrl()}>Sign in via Nexus</a>
         {notice && <p className="identity-notice" role="alert">{notice}</p>}
       </article>
     );

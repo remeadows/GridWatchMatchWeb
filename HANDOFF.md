@@ -2,6 +2,22 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11: Account kit adoption — sign in via Nexus
+
+- **Implementation**: kit v0.1.1 adopted. Single Supabase client owned by the
+  kit; `useAccount` sits behind `useAuth`; the account bar mounts in
+  `src/main.tsx`; the Account screen's sign-in action links to Nexus
+  (`OperatorIdentityPanel`, `src/App.tsx`). Providers are email magic link +
+  Google only — GitHub is omitted until the GitHub OAuth app's callback is
+  repaired. `.npmrc` restricts git dependencies with `allow-git=root`.
+- **Automated verification**: vitest 355/355, `tsc --noEmit` clean for both
+  the app and the worker, `npm run build` green, Playwright 172/172 on
+  chromium + mobile from the first-pass run, CI green on PR #52.
+- **Player acceptance**: none claimed yet — the Mac/iPhone pass is rollout
+  Task 9 Step 4.
+- **Deployment**: not deployed; deploy after Nexus PR #16 lands, per the
+  rollout order.
+
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
 PR 45 was merged externally at `2026-09-09T15:45:56Z` as `67e1c6b`, with all
