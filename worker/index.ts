@@ -7,6 +7,7 @@ import {
   validateSubmission,
   weeklyCategory,
 } from "./validation";
+import { redirectStatusFor, rewritePlayPath } from "./playPrefix";
 
 interface Env {
   ASSETS: Fetcher;
@@ -152,16 +153,23 @@ async function handleScore(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const rewrite = rewritePlayPath(url.pathname);
+    if (rewrite.kind === "redirect") {
+      return Response.redirect(new URL(rewrite.location + url.search, url).toString(), redirectStatusFor(request.method));
+    }
+    url.pathname = rewrite.pathname;
+    const inner = new Request(url.toString(), request);
+
     if (url.pathname === "/api/score") {
-      if (request.method !== "POST") return json(405, { error: "POST only." });
+      if (inner.method !== "POST") return json(405, { error: "POST only." });
       try {
-        return await handleScore(request, env);
+        return await handleScore(inner, env);
       } catch (err) {
         console.error("[score] failed:", err instanceof Error ? err.message : err);
         return json(502, { error: "Archive write failed." });
       }
     }
     if (url.pathname.startsWith("/api/")) return json(404, { error: "Unknown endpoint." });
-    return env.ASSETS.fetch(request);
+    return env.ASSETS.fetch(inner);
   },
 };
