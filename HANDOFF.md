@@ -13,10 +13,15 @@ Last updated: 2026-09-11
 - **Automated verification**: vitest 355/355, `tsc --noEmit` clean for both
   the app and the worker, `npm run build` green, Playwright 172/172 on
   chromium + mobile from the first-pass run, CI green on PR #52.
-- **Player acceptance**: none claimed yet — the Mac/iPhone pass is rollout
-  Task 9 Step 4.
-- **Deployment**: not deployed; deploy after Nexus PR #16 lands, per the
-  rollout order.
+- **Player acceptance**: Russ, 2026-09-11 evening, Mac (Chrome) and iPhone
+  (Safari) — signed in on Nexus via the shared bar, opened Match at
+  `/play/match/` already signed in with the same bar, no console CSP
+  violations under the now-enforcing games policy, sign-out from Match
+  propagated to Nexus. Gameplay acceptance for PR 47 remains as recorded below.
+- **Deployment**: deployed 2026-09-11 evening (after Nexus PR #16) — Worker
+  deployed from a fresh clone of main (`dcebb36`) with `npx wrangler deploy`.
+  Post-deploy: old host `/play/match/` 200, bundle contains the account bar
+  and links to the Nexus sign-in page, assets serve through the Nexus proxy.
 
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
