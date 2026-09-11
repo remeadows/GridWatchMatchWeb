@@ -1,6 +1,6 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-09
+Last updated: 2026-09-11
 
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
@@ -1091,6 +1091,33 @@ the database. Automatic deployment is deferred.
   inspection + live QA); `MAX_PLAY_ONS=20` is an arbitrary backstop.
 
 ---
+## 2026-09-11: Served Under `/play/match/` (Rollout Step 1, PR 50)
+
+Implementation (merged `57a4f80`, deployed 2026-09-11): Vite base `/play/match/`;
+`worker/playPrefix.ts` strips the prefix, 301s legacy GET/HEAD paths and 308s other
+methods into it, and re-prefixes ASSETS redirect Locations; `src/services/appUrls.ts`
+builds the score API and auth-return URLs from `BASE_URL`; Playwright navigates
+relative to the base. Also reachable at `https://nexus.warsignallabs.net/play/match/`
+with the Nexus session (the hub proxies the same path).
+
+Automated verification: vitest 355/355, root and worker typecheck clean, `npm run build`
+green, Playwright 172/172 on chromium + mobile (local), CI green on PR 50. Live curl
+checks after deploy: `/` → 301 `/play/match/`, legacy `POST /api/score` → 308,
+`/play/match/` 200 with prefixed assets, first JS asset 200.
+
+Player acceptance: Russ, Mac (Chrome) and iPhone (Safari) — signed in on Nexus,
+opened Match at `/play/match/` already signed in; no console CSP reports. Not yet
+claimed: a completed level posting a score through `/play/match/api/score` (200), and
+the signed-out reload check. Gameplay acceptance for PR 47 remains open as recorded
+below; this entry does not claim it.
+
+Deployment: Worker deployed from origin/main on 2026-09-11 (`npx wrangler deploy`).
+Old hostname still serves. The old `/api/score` verification recipe below (401/405/404
+at the host root) no longer applies at the root: the worker redirects every path outside
+`/play/match/` into it — `301` for `GET`/`HEAD`, `308` (method and body preserved) for
+`POST` and other methods. Re-run that recipe against `/play/match/api/score` instead,
+where the 401/405/404 expectations hold unchanged.
+
 
 ## Pre-Phase-3 status (historical)
 
