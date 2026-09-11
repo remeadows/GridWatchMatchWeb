@@ -76,7 +76,7 @@ button:disabled {
 }
 
 .app-shell {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--gw-account-bar-height, 0px));
   background:
     linear-gradient(125deg, color-mix(in srgb, var(--cyan) 7%, transparent), transparent 38%),
     linear-gradient(180deg, var(--bg-mid) 0%, var(--bg) 52%, var(--ink) 100%);
@@ -768,7 +768,7 @@ button:disabled {
 }
 
 .game-board-panel {
-  width: min(100%, clamp(450px, calc(100dvh - 230px), 640px));
+  width: min(100%, clamp(450px, calc(100dvh - 230px - var(--gw-account-bar-height, 0px)), 640px));
   aspect-ratio: 1;
   justify-self: center;
   border: 1px solid color-mix(in srgb, var(--accent), transparent 50%);

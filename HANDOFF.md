@@ -2,6 +2,13 @@
 
 Last updated: 2026-09-11
 
+## 2026-09-11: Account kit adoption — sign in via Nexus
+
+Match no longer offers in-app sign-in; the account bar's sign-in link sends
+players to Nexus's `/account/sign-in` flow, which returns them to
+`/play/match/`. Providers are email magic link + Google only. GitHub is
+omitted until the GitHub OAuth app's callback is repaired.
+
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
 PR 45 was merged externally at `2026-09-09T15:45:56Z` as `67e1c6b`, with all
