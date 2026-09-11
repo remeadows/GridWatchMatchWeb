@@ -1091,6 +1091,8 @@ the database. Automatic deployment is deferred.
   inspection + live QA); `MAX_PLAY_ONS=20` is an arbitrary backstop.
 
 ---
+## 🟢 2026-09-11: served under `/play/match/` (PR #50, deployed 2026-09-11) — Vite base `/play/match/`; `worker/playPrefix.ts` strips the prefix, 301s legacy GET/HEAD paths and 308s other methods into it, and re-prefixes ASSETS redirect Locations; `src/services/appUrls.ts` builds the score API and auth-return URLs from `BASE_URL`; Playwright navigates relative to the base. Verified live: `/` → 301 `/play/match/`, legacy `POST /api/score` → 308, assets prefixed, first JS asset 200. The old `/api/score` verification recipe below (401/405/404 at the host root) now returns 308 at the root — use `/play/match/api/score`. Also reachable at `https://nexus.warsignallabs.net/play/match/` with the Nexus session.
+
 
 ## Pre-Phase-3 status (historical)
 
