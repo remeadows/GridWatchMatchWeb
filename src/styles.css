@@ -84,7 +84,7 @@ button:disabled {
 
 .top-bar {
   position: sticky;
-  top: 0;
+  top: var(--gw-account-bar-height, 0);
   z-index: 30;
   display: grid;
   grid-template-columns: minmax(210px, 280px) minmax(0, 1fr) auto;
