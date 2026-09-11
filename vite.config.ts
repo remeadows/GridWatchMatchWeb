@@ -2,9 +2,9 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
-  // Served from the root of GridWatchMatchWeb.warsignallabs.net (Cloudflare Pages),
-  // so assets resolve at the host root.
-  base: "/",
+  // Mounted under /play/match/ so the same build serves on gridwatchmatchweb.warsignallabs.net
+  // (worker/playPrefix.ts strips the prefix) and behind the Nexus /play/ proxy.
+  base: "/play/match/",
   plugins: [react()],
   build: {
     modulePreload: {

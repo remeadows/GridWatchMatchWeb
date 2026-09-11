@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../services/supabase";
 import { validateHandle } from "../services/handle";
+import { appReturnUrl } from "../services/appUrls";
 
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
@@ -50,7 +51,7 @@ export function useAuth() {
   const signInWithEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: appReturnUrl() },
     });
     return error ? error.message : null;
   }, []);
@@ -59,7 +60,7 @@ export function useAuth() {
     async (provider: "google" | "github") => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo: window.location.origin },
+        options: { redirectTo: appReturnUrl() },
       });
       return error ? error.message : null;
     },
