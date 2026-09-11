@@ -1113,7 +1113,10 @@ below; this entry does not claim it.
 
 Deployment: Worker deployed from origin/main on 2026-09-11 (`npx wrangler deploy`).
 Old hostname still serves. The old `/api/score` verification recipe below (401/405/404
-at the host root) now returns 308 at the root — use `/play/match/api/score`.
+at the host root) no longer applies at the root: the worker redirects every path outside
+`/play/match/` into it — `301` for `GET`/`HEAD`, `308` (method and body preserved) for
+`POST` and other methods. Re-run that recipe against `/play/match/api/score` instead,
+where the 401/405/404 expectations hold unchanged.
 
 
 ## Pre-Phase-3 status (historical)
