@@ -18,6 +18,12 @@ Last updated: 2026-09-11
 - **Deployment**: not deployed; deploy after Nexus PR #16 lands, per the
   rollout order.
 
+### 2026-09-11 evening: step 2 deployed
+
+Player acceptance: Russ, Mac (Chrome) and iPhone (Safari) — signed in on Nexus via the shared bar, opened Match at `/play/match/` already signed in with the same bar, no console CSP violations under the now-enforcing games policy, sign-out from Match propagated to Nexus. Gameplay acceptance for PR 47 remains as recorded below.
+
+Deployment: Worker deployed from a fresh clone of main (`dcebb36`) with `npx wrangler deploy`, 2026-09-11. Post-deploy: old host `/play/match/` 200, bundle contains the account bar and links to the Nexus sign-in page, assets serve through the Nexus proxy.
+
 ## 2026-09-09: Gameplay Draft PR 47; Capture Security Repair
 
 PR 45 was merged externally at `2026-09-09T15:45:56Z` as `67e1c6b`, with all
