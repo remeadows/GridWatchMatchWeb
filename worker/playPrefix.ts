@@ -17,3 +17,16 @@ export function rewritePlayPath(pathname: string): PlayPathRewrite {
 export function redirectStatusFor(method: string): 301 | 308 {
   return method === "GET" || method === "HEAD" ? 301 : 308;
 }
+
+// ASSETS.fetch redirects (e.g. its default auto-trailing-slash handling) are generated in
+// the stripped namespace, since we strip PLAY_PREFIX before calling it. Route those
+// Location headers back through the prefix so a redirect behind the Nexus proxy doesn't
+// land the player outside /play/match. Only root-relative locations (a single leading
+// "/", not "//...") that aren't already under the prefix get rewritten; anything absolute
+// or protocol-relative is left untouched.
+export function prefixRedirectLocation(location: string): string {
+  const isRootRelative = location.startsWith("/") && !location.startsWith("//");
+  if (!isRootRelative) return location;
+  if (location === PLAY_PREFIX || location.startsWith(`${PLAY_PREFIX}/`)) return location;
+  return `${PLAY_PREFIX}${location}`;
+}

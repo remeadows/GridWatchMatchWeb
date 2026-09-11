@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PLAY_PREFIX, redirectStatusFor, rewritePlayPath } from "../../worker/playPrefix";
+import { PLAY_PREFIX, prefixRedirectLocation, redirectStatusFor, rewritePlayPath } from "../../worker/playPrefix";
 
 describe("rewritePlayPath", () => {
   it("serves paths under the prefix with the prefix stripped", () => {
@@ -33,5 +33,26 @@ describe("rewritePlayPath", () => {
     expect(redirectStatusFor("HEAD")).toBe(301);
     expect(redirectStatusFor("POST")).toBe(308);
     expect(redirectStatusFor("PUT")).toBe(308);
+  });
+});
+
+describe("prefixRedirectLocation", () => {
+  it("prefixes a root-relative location that is not already under the prefix", () => {
+    expect(prefixRedirectLocation("/")).toBe("/play/match/");
+    expect(prefixRedirectLocation("/foo")).toBe("/play/match/foo");
+  });
+
+  it("leaves a location already under the prefix unchanged", () => {
+    expect(prefixRedirectLocation("/play/match/x")).toBe("/play/match/x");
+  });
+
+  it("leaves an absolute URL unchanged", () => {
+    expect(prefixRedirectLocation("https://gridwatchmatchweb.warsignallabs.net/")).toBe(
+      "https://gridwatchmatchweb.warsignallabs.net/",
+    );
+  });
+
+  it("leaves a protocol-relative location unchanged", () => {
+    expect(prefixRedirectLocation("//host")).toBe("//host");
   });
 });

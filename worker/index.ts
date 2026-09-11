@@ -7,7 +7,9 @@ import {
   validateSubmission,
   weeklyCategory,
 } from "./validation";
-import { redirectStatusFor, rewritePlayPath } from "./playPrefix";
+import { prefixRedirectLocation, redirectStatusFor, rewritePlayPath } from "./playPrefix";
+
+const ASSET_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 interface Env {
   ASSETS: Fetcher;
@@ -170,6 +172,14 @@ export default {
       }
     }
     if (url.pathname.startsWith("/api/")) return json(404, { error: "Unknown endpoint." });
-    return env.ASSETS.fetch(inner);
+
+    const assetResponse = await env.ASSETS.fetch(inner);
+    const location = assetResponse.headers.get("Location");
+    if (ASSET_REDIRECT_STATUSES.has(assetResponse.status) && location) {
+      const headers = new Headers(assetResponse.headers);
+      headers.set("Location", prefixRedirectLocation(location));
+      return new Response(null, { status: assetResponse.status, headers });
+    }
+    return assetResponse;
   },
 };
