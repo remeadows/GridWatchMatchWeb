@@ -15,14 +15,14 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("boots from a non-root deep-link path via SPA fallback", async ({ page }) => {
-  // App is served at the host root (base "/") on Cloudflare Pages; deep links
-  // to a sub-path must still boot via the SPA history fallback.
-  await page.goto("/GridWatchMatchWeb/?gwTestMode=1");
+  // App is mounted at /play/match/; deep links below that base must still boot via
+  // the SPA history fallback (vite preview locally, the worker's ASSETS in production).
+  await page.goto("./GridWatchMatchWeb/?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
 });
 
 test("home presents the active operation and agent as a command deck", async ({ page }) => {
-  await page.goto("/?gwTestMode=1");
+  await page.goto("./?gwTestMode=1");
 
   const deck = page.getByTestId("home-command-deck");
   await expect(deck).toBeVisible();
@@ -35,7 +35,7 @@ test("home presents the active operation and agent as a command deck", async ({ 
 });
 
 test("navigates Home to Operations to Level 1 and applies a deterministic swap", async ({ page }) => {
-  await page.goto("/?gwTestMode=1");
+  await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Operations", exact: true }).click();
   await page.getByRole("button", { name: "Open Levels" }).first().click();
   await page.getByRole("button", { name: "Level 1 Ready" }).click();
@@ -46,7 +46,7 @@ test("navigates Home to Operations to Level 1 and applies a deterministic swap",
 });
 
 test("dragging a board tile into a deterministic match applies a swap", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
 
   await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
@@ -57,7 +57,7 @@ test("dragging a board tile into a deterministic match applies a swap", async ({
 });
 
 test("level 6 cascades preserve surviving tile sprites across automatic matches", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=6");
+  await page.goto("./?gwTestMode=1&level=6");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
 
@@ -88,7 +88,7 @@ test("level 6 cascades preserve surviving tile sprites across automatic matches"
 });
 
 test("match pops burst with particles", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const burstCountBefore = await matchBurstCount(page);
@@ -100,7 +100,7 @@ test("match pops burst with particles", async ({ page }) => {
 });
 
 test("handles fail, Play On decline path, forced win, and next level unlock", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await page.getByTestId("qa-fail").click();
   await expect(page.getByText("Mission at risk")).toBeVisible();
@@ -114,7 +114,7 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
 });
 
 test("animated win destroys the board before showing the result modal", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
 
@@ -162,7 +162,7 @@ test("animated win destroys the board before showing the result modal", async ({
 });
 
 test("starts terminal rows only after the winning board reaches its settled boundary", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=5");
+  await page.goto("./?gwTestMode=1&level=5");
   await waitForBoardReady(page);
   await page.getByTestId("qa-setup-winning-rocket-combo").click();
   await expect(page.getByText("Clear 1: 0/1")).toBeVisible();
@@ -193,7 +193,7 @@ test("starts terminal rows only after the winning board reaches its settled boun
 });
 
 test("finishes a winning rocket combo before the terminal row sequence", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=5");
+  await page.goto("./?gwTestMode=1&level=5");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
 
@@ -221,7 +221,7 @@ test("finishes a winning rocket combo before the terminal row sequence", async (
 });
 
 test("boss timer fail is surfaced", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=10");
+  await page.goto("./?gwTestMode=1&level=10");
   await expect(page.getByText("Breach")).toBeVisible();
   await page.getByTestId("qa-boss-timeout").click();
   await expect(page.getByText("Grid compromised")).toBeVisible();
@@ -229,7 +229,7 @@ test("boss timer fail is surfaced", async ({ page }) => {
 });
 
 test("booster tray requires a deliberate board target", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   const booster = page.getByTestId("booster-tnt");
   await expect(booster.locator("strong")).toHaveText("3");
@@ -246,7 +246,7 @@ test("booster tray requires a deliberate board target", async ({ page }) => {
 });
 
 test("booster tap clears use the tile pop animation path", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const popCountBefore = await tilePopCount(page);
@@ -261,7 +261,7 @@ test("booster tap clears use the tile pop animation path", async ({ page }) => {
 });
 
 test("clicking a booster starts power-up fx before cascade", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const popCountBefore = await tilePopCount(page);
@@ -280,7 +280,7 @@ test("clicking a booster starts power-up fx before cascade", async ({ page }) =>
 });
 
 test("TNT booster detonates with shockwave effects", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const detonationCountBefore = await tntDetonationCount(page);
@@ -294,7 +294,7 @@ test("TNT booster detonates with shockwave effects", async ({ page }) => {
 });
 
 test("rocket booster launches projectile heads", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const launchCountBefore = await rocketLaunchCount(page);
@@ -308,7 +308,7 @@ test("rocket booster launches projectile heads", async ({ page }) => {
 });
 
 test("propeller booster drone flies and strikes", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const strikeCountBefore = await propellerStrikeCount(page);
@@ -322,7 +322,7 @@ test("propeller booster drone flies and strikes", async ({ page }) => {
 });
 
 test("lightBall booster zaps its targets", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const zapCountBefore = await lightBallZapCount(page);
@@ -336,7 +336,7 @@ test("lightBall booster zaps its targets", async ({ page }) => {
 });
 
 test("dragging a booster onto the board consumes inventory and activates at drop", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();
   await waitForBoardReady(page);
   const booster = page.getByTestId("booster-rocket");
@@ -352,7 +352,7 @@ test("dragging a booster onto the board consumes inventory and activates at drop
 });
 
 test("store stub never grants coins", async ({ page }) => {
-  await page.goto("/?gwTestMode=1");
+  await page.goto("./?gwTestMode=1");
   await expect(page.getByLabel("0 coins")).toBeVisible();
   await page.getByRole("button", { name: "Store" }).click();
   await page.getByRole("button", { name: "$1.99" }).click();
@@ -361,7 +361,7 @@ test("store stub never grants coins", async ({ page }) => {
 });
 
 test("settings and intel review state persist", async ({ page }) => {
-  await page.goto("/?gwTestMode=1");
+  await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel("Reduced Motion").check();
   await expect(page.getByLabel("Reduced Motion")).toBeChecked();
@@ -377,7 +377,7 @@ test("settings and intel review state persist", async ({ page }) => {
 });
 
 test("board and HUD do not overlap at active viewport", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   const hud = await page.locator(".game-hud").boundingBox();
   const objectives = await page.locator(".objective-row").boundingBox();
   const board = await page.getByTestId("board-canvas").boundingBox();
@@ -389,7 +389,7 @@ test("board and HUD do not overlap at active viewport", async ({ page }) => {
 });
 
 async function clearStorage(page: Page): Promise<void> {
-  await page.goto("/");
+  await page.goto("./");
   await page.evaluate(async () => {
     localStorage.clear();
     await new Promise<void>((resolve) => {

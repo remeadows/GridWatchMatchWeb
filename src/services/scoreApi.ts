@@ -1,3 +1,5 @@
+import { apiUrl } from "./appUrls";
+
 export interface RunTelemetry {
   tilesCleared: number;
   powerUpEvents: number;
@@ -22,7 +24,7 @@ export async function submitScore(
   telemetry: RunTelemetry,
   actionLog: unknown[],
 ): Promise<SubmitResult> {
-  const res = await fetch("/api/score", {
+  const res = await fetch(apiUrl("score"), {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${accessToken}` },
     body: JSON.stringify({ levelId, telemetry, actionLog }),

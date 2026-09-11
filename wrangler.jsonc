@@ -6,7 +6,9 @@
   "assets": {
     "directory": "dist",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"],
+    // Every request passes through the worker so /play/match/* can be stripped before
+    // ASSETS and legacy root paths can be redirected into the prefix (2026-09-10).
+    "run_worker_first": true,
     "not_found_handling": "single-page-application"
   },
   // Custom domain cut over from the old Cloudflare Pages project 2026-07-14 (Russ-

@@ -52,7 +52,7 @@ test("each cascade recognizes the landed board and holds open cells before the n
 });
 
 async function open(page: Page) {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
 }
 

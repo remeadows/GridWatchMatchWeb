@@ -58,7 +58,7 @@ test("boss clock does not charge forced playback", async ({ page }) => {
 });
 
 test("a hidden terminal sequence waits to resume before showing the result", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
   await page.getByTestId("qa-win-animated").click();
   await waitForTrace(page, "win-sequence-start");
@@ -80,7 +80,7 @@ async function setHidden(page: Page, hidden: boolean) {
 }
 
 test("score waits for visible clears instead of jumping to the final total", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
   const score = page.locator(".game-hud > div").filter({ has: page.locator("span", { hasText: /^Score$/ }) }).locator("strong");
   await page.getByTestId("qa-swap").click();
@@ -146,7 +146,7 @@ async function traceKinds(page: Page) {
 }
 
 test("a new scene waits for current level data instead of replaying the previous action", async ({ page }) => {
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
   await page.getByTestId("qa-setup-winning-rocket-combo").click();
   await page.getByTestId("qa-trigger-winning-rocket-combo").click();
@@ -187,7 +187,7 @@ async function waitForTrace(page: Page, kind: string) {
 
 async function openFixture(page: Page, level: LevelDefinition) {
   await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await page.waitForFunction(() => (window as Window & { __gwBoardReady?: boolean }).__gwBoardReady);
 }
 

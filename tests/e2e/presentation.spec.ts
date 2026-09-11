@@ -39,7 +39,7 @@ interface PresentationResourceSnapshot {
 test.describe("piece rendering and board scale", () => {
   test("keeps the desktop board large while all rows and booster artwork remain reachable", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
 
     const board = await page.getByTestId("board-canvas").boundingBox();
     const tray = page.locator(".booster-tray");
@@ -60,7 +60,7 @@ test.describe("piece rendering and board scale", () => {
 
   test("keeps the iPhone board, seventh row, and booster tray reachable without overlap", async ({ page }) => {
     await page.setViewportSize({ width: 393, height: 852 });
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
 
     const board = page.getByTestId("board-canvas");
     const tray = page.locator(".booster-tray");
@@ -77,7 +77,7 @@ test.describe("piece rendering and board scale", () => {
 
 test.describe("locked cell readability", () => {
   test("marks Level 7 design locks with explicit containment hardware", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=7");
+    await page.goto("./?gwTestMode=1&level=7");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -96,7 +96,7 @@ test.describe("locked cell readability", () => {
 
 test.describe("ordered cascade playback", () => {
   test("preserves an empty gravity boundary without inventing a second fall", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
     await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
@@ -117,7 +117,7 @@ test.describe("ordered cascade playback", () => {
   });
 
   test("reveals a created rocket before the same occupant falls and is tapped", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await dragBoardCells(page, { row: 2, col: 3 }, { row: 3, col: 3 });
     await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
@@ -137,7 +137,7 @@ test.describe("ordered cascade playback", () => {
   });
 
   test("preserves all remaining stages when the viewport resizes during a cascade", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
     await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
@@ -152,7 +152,7 @@ test.describe("ordered cascade playback", () => {
   });
 
   test("renders all Level 1 waves with their actual intermediate occupant IDs", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
     await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
@@ -187,7 +187,7 @@ test.describe("ordered cascade playback", () => {
 
 test.describe("normal presentation timeline", () => {
   test("records a paced scene-clock swap, impact, cascade, and completion sequence", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -218,7 +218,7 @@ test.describe("normal presentation timeline", () => {
   });
 
   test("returns a live invalid swap to the unchanged board before completing", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
     const stateBefore = await comboPreviewState(page);
@@ -238,10 +238,10 @@ test.describe("normal presentation timeline", () => {
   });
 
   test("reduced motion completes without moving or popping presentation beats", async ({ page }) => {
-    await page.goto("/?gwTestMode=1");
+    await page.goto("./?gwTestMode=1");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Reduced Motion").check();
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -259,10 +259,10 @@ test.describe("normal presentation timeline", () => {
   });
 
   test("reduced motion emits one impact cue for a chained cascade", async ({ page }) => {
-    await page.goto("/?gwTestMode=1");
+    await page.goto("./?gwTestMode=1");
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByLabel("Reduced Motion").check();
-    await page.goto("/?gwTestMode=1&level=6");
+    await page.goto("./?gwTestMode=1&level=6");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -288,7 +288,7 @@ test.describe("normal presentation timeline", () => {
 
 test.describe("standard match impact", () => {
   test("groups one clear wave and lets bounded debris overlap the cascade", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -321,7 +321,7 @@ test.describe("standard match impact", () => {
 
 test.describe("power-up creation", () => {
   test("stages a created propeller before it becomes stable", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -351,7 +351,7 @@ test.describe("single power-up tile contact", () => {
       for (const row of level.cellMap) for (const cell of row) cell.overlay = "encryptedVolume_3";
       await route.fulfill({ response, json: level });
     });
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await page.getByTestId("booster-tnt").click();
     await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
@@ -371,7 +371,7 @@ test.describe("single power-up tile contact", () => {
     ["propeller", "propeller-impact"], ["lightBall", "lightBall-target-impact"]
   ]) {
     test(`${booster} hides each piece on its actual effect-contact frame`, async ({ page }) => {
-      await page.goto("/?gwTestMode=1&level=1");
+      await page.goto("./?gwTestMode=1&level=1");
       await waitForBoardReady(page);
       await page.getByTestId(`booster-${booster}`).click();
       await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
@@ -393,7 +393,7 @@ test.describe("single power-up tile contact", () => {
 
 test.describe("single TNT", () => {
   test("arms, detonates, and drives radial tile impacts before cascade", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -440,7 +440,7 @@ test.describe("single TNT", () => {
 
 test.describe("single rocket", () => {
   test("launches two heads and clears each lane tile at its projectile pass", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -471,7 +471,7 @@ test.describe("single rocket", () => {
 
 test.describe("single propeller", () => {
   test("lifts, marks its affected target, strikes it, then resolves secondary impacts", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -498,7 +498,7 @@ test.describe("single propeller", () => {
 
 test.describe("single light ball", () => {
   test("dims, batches target arcs, releases once, and restores before cascade", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
     await page.getByTestId("booster-lightBall").click();
@@ -562,7 +562,7 @@ test.describe("engine-driven power-up chains", () => {
   test("plays a secondary TNT after a tapped rocket without inventing a combo", async ({ page }) => {
     const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
     await page.route("**/levels/level_001.json", route => route.fulfill({ json: specimen.level }));
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
     await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 3 }));
     await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
@@ -626,7 +626,7 @@ test.describe("engine-driven power-up chains", () => {
 async function playRecordedPowerUpAction(page: Page, level: LevelDefinition, action: BoardAction) {
   const resolution = new BoardEngine(level, levelSeed(level.id)).applyWithResolution(action);
   await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
-  await page.goto("/?gwTestMode=1&level=1");
+  await page.goto("./?gwTestMode=1&level=1");
   await waitForBoardReady(page);
   if (action.kind === "swap") await dragBoardCells(page, action.from, action.to);
   else if (action.kind === "tap") await clickBoardPoint(page, await boardCellPoint(page, action.at));
@@ -661,7 +661,7 @@ async function playRecordedPowerUpAction(page: Page, level: LevelDefinition, act
 test.describe("power-up combo choreography", () => {
   for (const combo of powerUpCombos) {
     test(`${combo} previews one authored charge and impact`, async ({ page }) => {
-      await page.goto("/?gwTestMode=1&level=1");
+      await page.goto("./?gwTestMode=1&level=1");
       await page.getByTestId("board-canvas").waitFor({ state: "visible" });
       await waitForBoardReady(page);
       const stateBefore = await comboPreviewState(page);
@@ -699,7 +699,7 @@ test.describe("power-up combo choreography", () => {
 
 test.describe("presentation budget and cleanup", () => {
   test("budget caps the heaviest board-wide effect on each viewport", async ({ page }, testInfo) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -715,7 +715,7 @@ test.describe("presentation budget and cleanup", () => {
 
   test("cleanup empties the registry after every single and combo effect tail", async ({ page }) => {
     for (const effect of presentationEffects) {
-      await page.goto("/?gwTestMode=1&level=1");
+      await page.goto("./?gwTestMode=1&level=1");
       await page.getByTestId("board-canvas").waitFor({ state: "visible" });
       await waitForBoardReady(page);
       await previewPresentationEffect(page, effect);
@@ -733,7 +733,7 @@ test.describe("presentation budget and cleanup", () => {
     page.on("pageerror", (error) => pageErrors.push(error));
 
     for (const effect of presentationEffects) {
-      await page.goto("/?gwTestMode=1&level=1");
+      await page.goto("./?gwTestMode=1&level=1");
       await page.getByTestId("board-canvas").waitFor({ state: "visible" });
       await waitForBoardReady(page);
       await startPresentationEffect(page, effect);
@@ -774,7 +774,7 @@ test.describe("reduced motion presentation budget", () => {
     });
 
     for (const effect of presentationEffects) {
-      await page.goto("/?gwTestMode=1&level=1");
+      await page.goto("./?gwTestMode=1&level=1");
       await page.getByTestId("board-canvas").waitFor({ state: "visible" });
       await waitForBoardReady(page);
       await previewPresentationEffect(page, effect);
@@ -806,7 +806,7 @@ test.describe("reduced motion presentation budget", () => {
 
 test.describe("test-mode presentation hooks", () => {
   test("rejects non-exact test mode and exposes no preview globals in production mode", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -826,7 +826,7 @@ test.describe("test-mode presentation hooks", () => {
     expect(staleHookResult.threw).toBe(true);
     expect(staleHookResult.message).toContain("exact gwTestMode=1");
 
-    await page.goto("/");
+    await page.goto("./");
     await page.getByRole("button", { name: "Operations", exact: true }).click();
     await page.getByRole("button", { name: "Open Levels" }).first().click();
     await page.getByRole("button", { name: "Level 1 Ready" }).click();
@@ -856,7 +856,7 @@ test.describe("test-mode presentation hooks", () => {
 
 test.describe("audio cue ordering", () => {
   test("cues normal-match audio from the same scene beats as impact and landing", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=1");
+    await page.goto("./?gwTestMode=1&level=1");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 
@@ -880,7 +880,7 @@ test.describe("audio cue ordering", () => {
   });
 
   test("cues cascade chain escalation when the next cascade starts", async ({ page }) => {
-    await page.goto("/?gwTestMode=1&level=6");
+    await page.goto("./?gwTestMode=1&level=6");
     await page.getByTestId("board-canvas").waitFor({ state: "visible" });
     await waitForBoardReady(page);
 

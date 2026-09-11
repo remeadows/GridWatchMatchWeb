@@ -7,9 +7,16 @@ import {
   validateSubmission,
   weeklyCategory,
 } from "./validation";
+import { prefixRedirectLocation, redirectStatusFor, rewritePlayPath } from "./playPrefix";
+
+const ASSET_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+interface AssetsBinding {
+  fetch(request: Request): Promise<Response>;
+}
 
 interface Env {
-  ASSETS: Fetcher;
+  ASSETS: AssetsBinding;
   SUPABASE_URL: string;
   SUPABASE_ANON_KEY: string;
   SUPABASE_SERVICE_ROLE_KEY: string;
@@ -152,16 +159,31 @@ async function handleScore(request: Request, env: Env): Promise<Response> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const rewrite = rewritePlayPath(url.pathname);
+    if (rewrite.kind === "redirect") {
+      return Response.redirect(new URL(rewrite.location + url.search, url).toString(), redirectStatusFor(request.method));
+    }
+    url.pathname = rewrite.pathname;
+    const inner = new Request(url.toString(), request);
+
     if (url.pathname === "/api/score") {
-      if (request.method !== "POST") return json(405, { error: "POST only." });
+      if (inner.method !== "POST") return json(405, { error: "POST only." });
       try {
-        return await handleScore(request, env);
+        return await handleScore(inner, env);
       } catch (err) {
         console.error("[score] failed:", err instanceof Error ? err.message : err);
         return json(502, { error: "Archive write failed." });
       }
     }
     if (url.pathname.startsWith("/api/")) return json(404, { error: "Unknown endpoint." });
-    return env.ASSETS.fetch(request);
+
+    const assetResponse = await env.ASSETS.fetch(inner);
+    const location = assetResponse.headers.get("Location");
+    if (ASSET_REDIRECT_STATUSES.has(assetResponse.status) && location) {
+      const headers = new Headers(assetResponse.headers);
+      headers.set("Location", prefixRedirectLocation(location));
+      return new Response(null, { status: assetResponse.status, headers });
+    }
+    return assetResponse;
   },
 };
