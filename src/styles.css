@@ -75,6 +75,23 @@ button:disabled {
   font-weight: 800;
 }
 
+a.primary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 0 14px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.primary-action:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
 .app-shell {
   min-height: calc(100vh - var(--gw-account-bar-height, 0px));
   background:
