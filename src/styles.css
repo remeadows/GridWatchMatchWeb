@@ -790,6 +790,12 @@ a.primary-action:focus-visible {
    * 2px narrower than this width. The floor is 452px so the canvas itself never
    * drops below 450px: with the 40px shared account bar mounted, a 720px-tall
    * desktop viewport lands exactly on the floor (720 - 230 - 40 = 450).
+   *
+   * Like any floor, this can exceed the preferred budget: at exactly 720px the
+   * panel is 2px taller than (100dvh - 230px - bar), the same overshoot the old
+   * 450px floor produced at 718px. The game page scrolls vertically anyway (the
+   * HUD, tray and intel below the board are not part of the 230px figure), so
+   * the 2px is absorbed by that existing slack rather than by the parent.
    */
   width: min(100%, clamp(452px, calc(100dvh - 230px - var(--gw-account-bar-height, 0px)), 640px));
   aspect-ratio: 1;
