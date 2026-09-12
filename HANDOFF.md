@@ -1,6 +1,31 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-11
+Last updated: 2026-09-12
+
+## 2026-09-12: Account kit v0.1.2 — header polish + hardening
+
+- **Implementation**: dependency bump only (PR #54 @ `87c3052`; kit tag
+  `v0.1.2` = `2065040`). The shared bar keeps its menu open across token
+  refreshes, closes on Escape/outside-click (Escape returns focus to the
+  chip), carries `role="navigation"` + menu ARIA, guards double mount/unmount,
+  keeps the last known handle when a profile read fails, and shows a
+  `role="alert"` notice when sign-out fails. `kit.signOut()`/`getProfile()`
+  now reject on a returned Supabase error; `useAccount` (behind `useAuth`)
+  absorbs both, so `void auth.signOut()` in `App.tsx` stays safe.
+- **npm gotcha** (documented in `.npmrc`): npm 12 `allow-git=root` refuses a
+  fresh `npm install` re-resolution of the git dep (`EALLOWGIT`); bump the tag
+  with a one-off `npm install --allow-git=all`. CI's `npm ci` under `root`
+  still passes.
+- **Automated verification**: vitest 356/356, `tsc --noEmit` clean for app and
+  worker, `npm run build` green, CI green. Playwright 1.63.0 (browsers had to be
+  reinstalled): 170/172 on chromium + mobile — the 2 failures are
+  `presentation.spec.ts:40` (desktop board 448 px vs the 450 px floor) on both
+  projects, reproduced identically on main with kit v0.1.1, so pre-existing
+  and unrelated to this bump; tracked as a separate task.
+- **Player acceptance**: Russ, 2026-09-12, Mac + iPhone — logins work after
+  the deploy.
+- **Deployment**: deployed 2026-09-12 from a fresh clone of main with
+  `npx wrangler deploy`; live `/play/match/` bundle contains the v0.1.2 notice class.
 
 ## 2026-09-11: Account kit adoption — sign in via Nexus
 
