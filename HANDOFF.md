@@ -12,7 +12,7 @@ Last updated: 2026-09-12
   `role="alert"` notice when sign-out fails. `kit.signOut()`/`getProfile()`
   now reject on a returned Supabase error; `useAccount` (behind `useAuth`)
   absorbs both, so `void auth.signOut()` in `App.tsx` stays safe.
-- **npm gotcha** (documented in `.npmrc`): npm 12 `allow-git=root` refuses a
+- **npm gotcha** (documented in `.npmrc`): npm 12.0.2 (node 24.16.0) `allow-git=root` refuses a
   fresh `npm install` re-resolution of the git dep (`EALLOWGIT`); bump the tag
   with a one-off `npm install --allow-git=all`. CI's `npm ci` under `root`
   still passes.
