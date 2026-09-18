@@ -14,7 +14,9 @@ import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
+import { createCloudSync } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
+import { applyCloudPayload, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
 import {
   areaProgressLabel,
   awardLevelCompletion,
@@ -57,15 +59,51 @@ export default function App() {
   const appliedInitialRoute = useRef(false);
   const auth = useAuth();
 
+  const saveRef = useRef<SaveState | null>(null);
+  const reconciledFor = useRef<string | null>(null);
+
+  const applyCloud = useCallback((slot: CloudSlot, payload: unknown) => {
+    const current = saveRef.current;
+    if (!current) return;
+    const next = applyCloudPayload(current, slot, payload);
+    saveRef.current = next;
+    setSave(next);
+    void persistSaveState(next);
+  }, []);
+
+  const cloudSync = useMemo(
+    () => createCloudSync({
+      saves: accountKit.saves,
+      enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
+      onUseCloud: applyCloud,
+    }),
+    [applyCloud],
+  );
+
   useEffect(() => {
     let active = true;
     void loadSaveState().then((loaded) => {
-      if (active) setSave(loaded);
+      if (active) { saveRef.current = loaded; setSave(loaded); }
     });
     return () => {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!save || auth.loading) return;
+    const userId = auth.session?.user.id ?? null;
+    if (!userId || reconciledFor.current === userId) return;
+    reconciledFor.current = userId;
+    let active = true;
+    void cloudSync.reconcileAll(save).then((reconciled) => {
+      if (!active || reconciled === saveRef.current) return;
+      saveRef.current = reconciled;
+      setSave(reconciled);
+      void persistSaveState(reconciled);
+    });
+    return () => { active = false; };
+  }, [save, auth.loading, auth.session, cloudSync]);
 
   useEffect(() => {
     if (!save || appliedInitialRoute.current) return;
@@ -85,9 +123,12 @@ export default function App() {
   }, [save, screen.name]);
 
   const commitSave = useCallback((next: SaveState) => {
+    const previous = saveRef.current;
+    saveRef.current = next;
     setSave(next);
     void persistSaveState(next);
-  }, []);
+    cloudSync.storeChanges(previous, next);
+  }, [cloudSync]);
 
   if (!save) {
     return (

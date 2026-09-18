@@ -1,6 +1,11 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-12
+Last updated: 2026-09-18
+
+## 🟡 2026-09-18: cloud saves 4a — Match wired to kit v0.2.0 saves (PR pending)
+
+Two cloud slots projected from the unchanged local SaveState v1: `campaign` (all but version/settings) and `settings` (`src/state/cloudSaves.ts`). `src/services/cloudSync.ts` runs `reconcile` for both slots once the session is known (per user id) and `store` on every `commitSave` for the slots that changed; "Use cloud" answers are applied through `applyCloudPayload` + persist. Cloud saves are active only on the Nexus origin (`cloudSavesEnabled`, lifted in 4b). Playwright `tests/e2e/cloud-saves.spec.ts` fakes `/api/saves` and a stored Supabase session.
+Deploy after Nexus has the migration + secret + `/api/saves` live. Acceptance: Mac + iPhone (plan Task 11).
 
 ## 2026-09-12: Account kit v0.1.2 — header polish + hardening
 
