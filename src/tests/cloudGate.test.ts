@@ -136,8 +136,9 @@ describe("createCloudGate", () => {
 });
 
 /** The app has exactly one way in: the same exact `?gwTestMode=1` query the board's test hooks are
- *  gated on (see BoardScene.setBoardReadyFlag). Anything else is the 30 s production default, so a
- *  shipped build cannot be talked into a hot retry loop by a crafted link. */
+ *  gated on (see BoardScene.setBoardReadyFlag). Anything else is the 30 s default. It is a runtime
+ *  hook, so it is reachable on any build, production included; the impact is bounded to one
+ *  reconcile per online/visibility/commit event. */
 describe("cloudRetryThrottleMs", () => {
   it("reads an override only under the exact gwTestMode=1 query", () => {
     expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=1500")).toBe(1_500);
