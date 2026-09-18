@@ -13,4 +13,7 @@ describe("account kit wiring", () => {
     expect(readPreviewOrigin("https://preview.example.dev/path?x=1")).toBe("https://preview.example.dev");
     expect(readPreviewOrigin("http://localhost:5173/")).toBe("http://localhost:5173");
   });
+  it("enables the kit saves client for the two Match slots", () => {
+    expect(accountKit.saves?.game).toEqual({ gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1 });
+  });
 });

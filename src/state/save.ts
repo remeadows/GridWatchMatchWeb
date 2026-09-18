@@ -80,7 +80,7 @@ export async function resetSaveState(): Promise<SaveState> {
   return fresh;
 }
 
-function normalizeSave(value: Partial<SaveState>): SaveState {
+export function normalizeSave(value: Partial<SaveState>): SaveState {
   const defaults = defaultSaveState();
   return {
     ...defaults,
