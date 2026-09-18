@@ -25,26 +25,40 @@ interface FakeSavesApi {
   gets: string[];
   /** When set, every PUT is answered with this status instead of being applied. 503 is retried by
    *  the kit and leaves its sync record dirty; a plain 4xx is terminal and leaves it CLEAN, which
-   *  is what isolates the app's own unsynced flag. */
+   *  is what isolates the app's own unsynced flag. Read when the PUT ARRIVES, so arming it while an
+   *  earlier PUT is still held open cannot retroactively fail that one. */
   failPuts: number | null;
+  /** Per-slot GET failure status, so one slot can error while the other answers a real row. */
+  failGets: Record<string, number | undefined>;
+  /** Responses held open, so a test can act in the UI while a request is genuinely in flight.
+   *  Mutable rather than constructor-only: a scenario often needs to hold only a LATER phase's
+   *  requests (e.g. the reconcile after a reload, not the one that set the scene up). */
+  getDelayMs: number;
+  putDelayMs: number;
 }
 
 function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options: { getDelayMs?: number } = {}): FakeSavesApi {
-  const api: FakeSavesApi = { puts: [], gets: [], failPuts: null };
+  const api: FakeSavesApi = { puts: [], gets: [], failPuts: null, failGets: {}, getDelayMs: options.getDelayMs ?? 0, putDelayMs: 0 };
   page.route("**/api/saves/match/*", async (route) => {
     const request = route.request();
     const slot = new URL(request.url()).pathname.split("/").pop()!;
     if (request.method() === "GET") {
       api.gets.push(slot);
+      const failStatus = api.failGets[slot];
       // Held open so a test can act in the UI while the reconcile is genuinely in flight.
-      if (options.getDelayMs) await new Promise((resolve) => setTimeout(resolve, options.getDelayMs));
+      if (api.getDelayMs) await new Promise((resolve) => setTimeout(resolve, api.getDelayMs));
+      if (failStatus !== undefined) {
+        return route.fulfill({ status: failStatus, contentType: "application/json", body: JSON.stringify({ error: "load_failed" }) });
+      }
       const row = rows[slot];
       return route.fulfill(row ? { status: 200, contentType: "application/json", body: JSON.stringify(row) } : { status: 404, contentType: "application/json", body: JSON.stringify({ error: "no_save" }) });
     }
     const body = request.postDataJSON() as Record<string, unknown>;
     api.puts.push({ slot, body });
-    if (api.failPuts !== null) {
-      return route.fulfill({ status: api.failPuts, contentType: "application/json", body: JSON.stringify({ error: "upload_failed" }) });
+    const failStatus = api.failPuts; // decided on arrival, before the hold below
+    if (api.putDelayMs) await new Promise((resolve) => setTimeout(resolve, api.putDelayMs));
+    if (failStatus !== null) {
+      return route.fulfill({ status: failStatus, contentType: "application/json", body: JSON.stringify({ error: "upload_failed" }) });
     }
     const current = rows[slot];
     const base = body.baseRevision as number;
@@ -287,6 +301,20 @@ test("unsynced local progress survives a reload and prompts instead of being rep
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByLabel(/Voice Lines/)).not.toBeChecked();
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+
+  // And it STAYS resolved. A second reload reconciles against the revision the resolution created,
+  // so the kept value is still what is shown and there is nothing left to re-send: a flag that
+  // lingered past its own `stored` would show up right here as a redundant PUT (or, if the cloud had
+  // moved again, as a prompt whose "Keep this one" would push this same payload up a second time).
+  api.puts.length = 0;
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Voice Lines/)).not.toBeChecked();
+  await expect(savePrompt(page)).toHaveCount(0);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
+  expect(rows.settings!.revision).toBe(3);
+  expect(await unsyncedFlags(page)).toEqual([]);
 });
 
 test("unsynced local progress can still be abandoned: 'Use cloud' takes the cloud copy and clears the flag", async ({ page }) => {
@@ -322,6 +350,159 @@ test("a 503 upload leaves the slot flagged and the change still prompts after a 
   await dialog.getByRole("button", { name: "Keep this one" }).click();
   await expect(dialog).toBeHidden();
   await expect.poll(() => api.puts.filter((p) => p.slot === "settings" && p.body.baseRevision === 2).length, { timeout: 10_000 }).toBe(1);
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+});
+
+/** Another device moved `settings` on to a revision whose content differs from anything local. */
+const movedSettingsRow = (): Row => ({
+  slot: "settings", schemaVersion: 1, revision: 2, updatedAt: "2026-09-17T18:00:00Z",
+  payload: { musicEnabled: true, sfxEnabled: true, voiceEnabled: false, reducedMotion: false },
+});
+
+test("a commit made during a reconcile that UPLOADS is still sent, and stays flagged until it lands", async ({ page }) => {
+  test.setTimeout(60_000);
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  // Leaves the app with: cloud `settings` at revision 1, the kit's own record
+  // { revision: 1, dirty: false } (403 is terminal for it), Voice Lines off locally, and the slot
+  // flagged. The cloud has NOT moved, so the next reconcile hands the kit a real local copy with
+  // localChanged, its record goes dirty at the SAME revision as the cloud — the `restore_dirty`
+  // branch — and the kit UPLOADS, rather than prompting.
+  const api = await heldLocalChange(page, rows, 403);
+  api.gets.length = 0;
+  api.getDelayMs = 3_000; // hold the post-reload GETs open so a real commit lands mid-reconcile
+
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await expect.poll(() => api.gets.slice().sort()).toEqual(["campaign", "settings"]);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Sound Effects/).click(); // a real commitSave, mid-reconcile, held by the gate
+
+  // Exactly two PUTs for this slot: the kit's upload of the PRE-commit projection, then the
+  // settle-time flush carrying the mid-flight commit on the revision that upload just created.
+  await expect.poll(() => api.puts.filter((p) => p.slot === "settings").length, { timeout: 20_000 }).toBe(2);
+  await page.waitForTimeout(1_500); // ...and no third
+  const settingsPuts = api.puts.filter((p) => p.slot === "settings");
+  expect(settingsPuts).toHaveLength(2);
+  expect(settingsPuts[0].body.baseRevision).toBe(1);
+  expect(settingsPuts[0].body.payload).toMatchObject({ sfxEnabled: true, voiceEnabled: false });
+  expect(settingsPuts[1].body.baseRevision).toBe(2);
+  expect(settingsPuts[1].body.payload).toMatchObject({ sfxEnabled: false, voiceEnabled: false });
+  expect(api.puts.some((p) => p.slot === "campaign")).toBe(false);
+  // The cloud row now equals what the device holds. The old rule cleared the flag and SKIPPED the
+  // flush for any uploaded slot, so this commit existed nowhere but this tab, with nothing marking
+  // it: the cloud stayed at revision 2 holding the pre-commit projection.
+  expect(rows.settings!.revision).toBe(3);
+  expect(rows.settings!.payload).toMatchObject({ musicEnabled: false, sfxEnabled: false, voiceEnabled: false });
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+
+  // Both changes are what survives a reload — and the settled cloud row needs no further traffic.
+  api.getDelayMs = 0;
+  api.puts.length = 0;
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked();
+  await expect(page.getByLabel(/Voice Lines/)).not.toBeChecked();
+  await expect(savePrompt(page)).toHaveCount(0);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
+});
+
+test("a run that failed on one slot still clears the flag on the slot the cloud replaced", async ({ page }) => {
+  // The gate throttles re-arming a failed run for RECONCILE_RETRY_THROTTLE_MS (30 s), and the
+  // retry half of this scenario has to wait that out for real.
+  test.setTimeout(120_000);
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  const api = fakeSavesApi(page, rows, { getDelayMs: 1_500 });
+  // One slot errors while the other answers a real row. A 500 is transient for the kit, so its
+  // bounded retry (3 attempts, 500 ms + 1 500 ms backoff) makes this leg several seconds long —
+  // and reconcileAll awaits BOTH slots, so the fold only lands once that leg has given up.
+  api.failGets.campaign = 500;
+
+  await page.goto("./?gwTestMode=1");
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await expect.poll(() => [...new Set(api.gets)].sort()).toEqual(["campaign", "settings"]);
+  // A real commit, mid-reconcile, to the slot the cloud is about to replace. This is what SETS the
+  // flag; the device was pristine when the reconcile started, so the kit was handed `null` for that
+  // slot and answers `use_cloud` — the in-flight edit is dropped by design.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Voice Lines/).click();
+  expect(await unsyncedFlags(page)).toEqual(["settings"]);
+
+  // Music off is the cloud row's own value, so it is the signal that the fold landed.
+  await expect(page.getByLabel(/Music/)).not.toBeChecked({ timeout: 20_000 });
+  await expect(page.getByLabel(/Voice Lines/)).toBeChecked();
+  // `settings` IS synced — the cloud demonstrably holds it — even though `campaign` errored and the
+  // run therefore never flushes. Clearing used to sit BELOW the run-level flush decision, so this
+  // flag stayed set: a stale flag, later good for a redundant upload or a misleading prompt.
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+  expect(api.puts).toEqual([]);
+  await expect(savePrompt(page)).toHaveCount(0);
+
+  // The errored slot is retried later. `online` re-arms the gate, which refuses until its throttle
+  // has elapsed, so the event is offered repeatedly rather than once.
+  const campaignGets = api.gets.filter((slot) => slot === "campaign").length;
+  api.failGets.campaign = undefined;
+  api.getDelayMs = 0;
+  await expect.poll(async () => {
+    await page.evaluate(() => window.dispatchEvent(new Event("online")));
+    return api.gets.filter((slot) => slot === "campaign").length > campaignGets;
+  }, { timeout: 75_000, intervals: [2_000] }).toBe(true);
+  // Settled this time, so the gate releases stores again and the next commit goes straight up.
+  await page.getByLabel(/Reduced Motion/).click();
+  await expect.poll(() => api.puts.length, { timeout: 10_000 }).toBe(1);
+  expect(api.puts[0].slot).toBe("settings");
+  expect(api.puts[0].body.baseRevision).toBe(1);
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+  await expect(savePrompt(page)).toHaveCount(0);
+});
+
+test("an earlier PUT's success does not clear the flag of a later commit whose own PUT fails", async ({ page }) => {
+  test.setTimeout(60_000);
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = {};
+  const api = fakeSavesApi(page, rows);
+  await page.goto("./?gwTestMode=1");
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await page.waitForTimeout(1_500); // pristine device, no cloud rows: the reconcile stores nothing
+  expect(api.puts).toEqual([]);
+
+  api.putDelayMs = 4_000; // hold PUT1's REPLY open, so commit 2 lands while PUT1 is still in flight
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Music/).click();                                // commit 1
+  await expect.poll(() => api.puts.length, { timeout: 10_000 }).toBe(1); // PUT1 sent, reply held
+  api.putDelayMs = 0;
+  api.failPuts = 403;                             // terminal for the kit: its record stays CLEAN
+  await page.getByLabel(/Sound Effects/).click();                        // commit 2
+
+  // PUT1's `stored` reply lands while commit 2 is still queued behind it in the kit's per-slot
+  // chain; PUT2 then fails terminally. Clearing on a `stored` reply alone cleared the WHOLE slot,
+  // leaving commit 2 local-only with no flag at all.
+  await expect.poll(() => api.puts.length, { timeout: 30_000 }).toBe(2);
+  await page.waitForTimeout(2_000);
+  expect(api.puts[1].slot).toBe("settings");
+  expect(api.puts[1].body.baseRevision).toBe(1);                         // PUT1 did land
+  expect(rows.settings!.revision).toBe(1);
+  expect(rows.settings!.payload).toMatchObject({ musicEnabled: false, sfxEnabled: true });
+  expect(await unsyncedFlags(page)).toEqual(["settings"]);
+  await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked();
+
+  // The flag is the only thing left: the kit's record is clean at revision 1, so on a cloud that
+  // has moved on, an unflagged slot would be replaced silently.
+  rows.settings = movedSettingsRow();
+  api.failPuts = null;
+  api.puts.length = 0;
+  await page.reload();
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog).toContainText("Newer save in the cloud from another device");
+  await dialog.getByRole("button", { name: "Keep this one" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => api.puts.filter((p) => p.slot === "settings").length, { timeout: 10_000 }).toBe(1);
+  expect(api.puts[0].body.baseRevision).toBe(2);
+  expect(api.puts[0].body.payload).toMatchObject({ musicEnabled: false, sfxEnabled: false });
+  expect(rows.settings!.revision).toBe(3);
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
 });
 
