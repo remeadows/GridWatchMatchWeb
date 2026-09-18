@@ -14,6 +14,7 @@ import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
+import { createCloudGate, type CloudGate } from "./services/cloudGate";
 import { createCloudSync, foldOutcomes } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
 import { applyCloudPayload, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
@@ -62,13 +63,16 @@ export default function App() {
   const hasSave = save !== null;
 
   const saveRef = useRef<SaveState | null>(null);
-  // The reconcile run is keyed on the USER ID — never on the session object (every Supabase auth
-  // emission is a fresh object) and never on `save` (which changes on every commit). "done" is
-  // latched only after a run in which no slot errored; sign-out clears it. `token` identifies the
-  // run that owns the latch: a superseded run (sign-out, or sign-out then back in as the same user
-  // while its GETs are still in flight) still applies its outcomes, but must not report its status
-  // over the run that replaced it.
-  const reconcileRun = useRef<{ userId: string | null; status: "idle" | "running" | "done"; token: number }>({ userId: null, status: "idle", token: 0 });
+  // Lets commitSave and the retry listeners read the current user without being re-created.
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = userId;
+  // All the store-ordering rules live in the gate (src/services/cloudGate.ts), keyed on the USER ID
+  // — never on the session object (a fresh object on every auth emission) and never on `save`.
+  // Lazily initialised through a ref, not useMemo, so it is the same instance for the component's
+  // whole life even when React re-runs the render body (StrictMode, a discarded render).
+  const gateRef = useRef<CloudGate<SaveState> | null>(null);
+  if (gateRef.current === null) gateRef.current = createCloudGate<SaveState>();
+  const gate = gateRef.current;
   const [reconcileNonce, setReconcileNonce] = useState(0);
 
   const applyCloud = useCallback((slot: CloudSlot, payload: unknown) => {
@@ -104,14 +108,11 @@ export default function App() {
   // throwing the answer away would leave the app holding the local save at the cloud's base
   // revision — and the next store would silently replace the cloud row with it. Hence: no abort
   // flag, and the outcomes are folded onto saveRef.current (the CURRENT state) rather than onto the
-  // snapshot the run started with.
+  // snapshot the run started with. Whether this run may then flush is the gate's call, not ours.
   useEffect(() => {
     if (!hasSave || auth.loading) return;
-    const run = reconcileRun.current;
-    if (!userId) { reconcileRun.current = { userId: null, status: "idle", token: run.token + 1 }; return; }
-    if (run.userId === userId && run.status !== "idle") return; // already running, or done for this user
-    const token = run.token + 1;
-    reconcileRun.current = { userId, status: "running", token };
+    const token = gate.begin(userId, Date.now()); // null userId resets the gate (sign-out)
+    if (token === null) return;
     const startedWith = saveRef.current as SaveState;
     void cloudSync.reconcileAll(startedWith).then((outcomes) => {
       const current = saveRef.current as SaveState;
@@ -121,21 +122,28 @@ export default function App() {
         setSave(next);
         void persistSaveState(next);
       }
-      if (reconcileRun.current.token === token) reconcileRun.current = { userId, status: failed ? "idle" : "done", token };
-      // Edits made while the run was in flight (commitSave held them back, see below) go up now —
-      // except for slots the cloud just replaced, whose local edit is deliberately dropped.
-      cloudSync.storeChanges(startedWith, next, replaced);
+      const { flushBase } = gate.settle(token, startedWith, failed);
+      // Only a run that is still current AND did not fail gets to flush. The base is the state
+      // before the FIRST commit the gate held back (pre-run ones included), so nothing is lost —
+      // except slots the cloud just replaced, whose in-flight local edit is deliberately dropped.
+      if (flushBase) cloudSync.storeChanges(flushBase, next, replaced);
     });
     // No cleanup: aborting the run is exactly the bug this guards against.
-  }, [hasSave, auth.loading, userId, cloudSync, reconcileNonce]);
+  }, [hasSave, auth.loading, userId, cloudSync, gate, reconcileNonce]);
 
-  // A run that ended with an errored slot stays "idle" so it can be retried when the box is back
-  // online; the deps above never change on their own, so the nonce is what re-arms the effect.
+  // A run that ended with an errored slot leaves the gate idle with its stores still held, so it
+  // has to be re-armed: back online, tab brought to the front, or the next commit (below). The
+  // effect's deps never change on their own, so the nonce is the only way in. The gate throttles.
   useEffect(() => {
-    const retry = () => { if (reconcileRun.current.status === "idle") setReconcileNonce((n) => n + 1); };
+    const retry = () => { if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1); };
+    const onVisibility = () => { if (document.visibilityState === "visible") retry(); };
     window.addEventListener("online", retry);
-    return () => window.removeEventListener("online", retry);
-  }, []);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [gate]);
 
   useEffect(() => {
     if (!save || appliedInitialRoute.current) return;
@@ -159,12 +167,18 @@ export default function App() {
     saveRef.current = next;
     setSave(next);
     void persistSaveState(next);
-    // No cloud store leaves the app while a reconcile is in flight: the kit serializes stores behind
-    // the reconcile per slot, so one issued now would flush straight afterwards on the just-confirmed
-    // base revision and replace the cloud row with this pre-reconcile projection — no 409, no prompt.
-    // The run flushes whatever changed during its flight when it settles.
-    if (reconcileRun.current.status !== "running") cloudSync.storeChanges(previous, next);
-  }, [cloudSync]);
+    // A cloud store leaves the app only once a reconcile has settled successfully for THIS user.
+    // Anything earlier — gate idle, run in flight, signed out, or a reconcile that errored — is
+    // held: the kit reads baseRevision at flush time inside its per-slot serialized chain, so a
+    // store issued now would queue behind the reconcile and then flush on the base that the
+    // reconcile's own confirmed() just wrote, replacing the cloud row with no 409 and no prompt.
+    if (gate.canStore(userIdRef.current)) {
+      cloudSync.storeChanges(previous, next);
+      return;
+    }
+    gate.noteUnsent(previous);
+    if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1);
+  }, [cloudSync, gate]);
 
   if (!save) {
     return (
