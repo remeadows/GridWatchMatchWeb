@@ -62,37 +62,44 @@ test.beforeEach(async ({ page }) => {
   await clearStorage(page);
 });
 
-test("first signed-in load with no cloud row uploads both slots as revision 1", async ({ page }) => {
+test("a pristine first signed-in load uploads nothing; the first real change uploads that slot at revision 0", async ({ page }) => {
   await seedSession(page);
   const puts = fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
-  await expect.poll(() => puts.map((p) => p.slot).sort(), { timeout: 10_000 }).toEqual(["campaign", "settings"]);
-  for (const put of puts) expect(put.body.baseRevision).toBe(0);
+  // A brand-new device's local save is bit-for-bit the default: the kit treats that as "no local
+  // save" for both slots, so with no cloud row either, reconcile is "nothing" for both — no PUT.
+  await page.waitForTimeout(1_500);
+  expect(puts).toEqual([]);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Music/).click();
+  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(1);
+  expect(puts[0].slot).toBe("settings");
+  expect(puts[0].body.baseRevision).toBe(0);
 });
 
 test("a newer cloud row replaces an untouched local save", async ({ page }) => {
   await seedSession(page);
   fakeSavesApi(page, { campaign: campaignRow(250) });
   await page.goto("./?gwTestMode=1");
-  // The kit has no local sync record yet on a fresh browser, so it cannot assume the local
-  // (untouched) default is worthless — it always asks before overwriting. Answer "Use cloud".
-  const dialog = page.locator("dialog.gw-save-prompt");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.getByRole("button", { name: "Use cloud" }).click();
+  // The device is pristine (bit-for-bit default), so the kit treats it as "no local save to
+  // protect" and adopts the existing cloud row silently — no conflict prompt.
   await expect(page.getByText("250", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator("dialog.gw-save-prompt")).toHaveCount(0);
 });
 
 test("a settings change stores only the settings slot", async ({ page }) => {
   await seedSession(page);
   const puts = fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
-  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(2);
+  await page.waitForTimeout(500);
+  expect(puts).toEqual([]); // pristine device: reconcile uploads nothing for either slot
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/Music/).click();
-  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(3);
-  expect(puts[2].slot).toBe("settings");
-  expect((puts[2].body.payload as { musicEnabled: boolean }).musicEnabled).toBe(false);
+  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(1);
+  expect(puts[0].slot).toBe("settings");
+  expect((puts[0].body.payload as { musicEnabled: boolean }).musicEnabled).toBe(false);
+  expect(puts.some((p) => p.slot === "campaign")).toBe(false); // campaign stayed pristine, never stored
 });
 
 test("a conflicting store shows the prompt; 'Use cloud' applies the cloud copy, 'Keep this one' re-sends", async ({ page }) => {
@@ -100,12 +107,16 @@ test("a conflicting store shows the prompt; 'Use cloud' applies the cloud copy, 
   const rows: Record<string, Row | undefined> = {};
   const puts = fakeSavesApi(page, rows);
   await page.goto("./?gwTestMode=1");
-  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(2);
-  // Give the campaign slot a real local change first: a fresh local save is bit-for-bit the
-  // default, so "Reset Local Save" alone would be a no-op diff and send nothing.
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(puts).toEqual([]); // pristine device, no cloud row yet: reconcile uploads nothing
+  // Give the campaign slot a real local change and let it sync, so the device becomes a known,
+  // non-pristine peer before the conflict setup below.
   await page.getByRole("button", { name: "Intel", exact: true }).click();
   await page.getByRole("button", { name: "Mark Reviewed" }).first().click();
-  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(3);
+  await expect.poll(() => puts.length, { timeout: 10_000 }).toBe(1);
+  expect(puts[0].slot).toBe("campaign");
+  expect(puts[0].body.baseRevision).toBe(0);
   // Another device moved the campaign on.
   rows.campaign = { ...campaignRow(900), revision: 5 };
   await page.getByRole("button", { name: "Settings", exact: true }).click();

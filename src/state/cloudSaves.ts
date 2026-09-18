@@ -41,6 +41,14 @@ export function changedSlots(previous: SaveState | null, next: SaveState): Cloud
   return CLOUD_SLOTS.filter((slot) => previous === null || JSON.stringify(projection(previous, slot)) !== JSON.stringify(projection(next, slot)));
 }
 
+/** True when this slot's projection is bit-for-bit the default — i.e. there is no real local
+ *  save for the kit to protect. A brand-new device is always at the defaults, so treating a
+ *  pristine projection as "no local save" lets the kit adopt an existing cloud row silently
+ *  instead of prompting (and risking "Keep this one" overwriting real cloud progress). */
+export function isPristine(save: SaveState, slot: CloudSlot): boolean {
+  return JSON.stringify(projection(save, slot)) === JSON.stringify(projection(defaultSaveState(), slot));
+}
+
 /** 4a: cloud saves only on the Nexus origin. 4b lifts this when the old hostname gets carry-over. */
 export function cloudSavesEnabled(origin: string, nexusOrigin: string): boolean {
   return origin === nexusOrigin;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, projection, toCampaignPayload, toSettingsPayload } from "../state/cloudSaves";
+import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, isPristine, projection, toCampaignPayload, toSettingsPayload } from "../state/cloudSaves";
 import { defaultSaveState, type SaveState } from "../state/save";
 
 function played(): SaveState {
@@ -60,5 +60,19 @@ describe("slot projections", () => {
     expect(cloudSavesEnabled("https://nexus.warsignallabs.net", "https://nexus.warsignallabs.net")).toBe(true);
     expect(cloudSavesEnabled("https://gridwatchmatchweb.warsignallabs.net", "https://nexus.warsignallabs.net")).toBe(false);
     expect(cloudSavesEnabled("http://127.0.0.1:4173", "http://127.0.0.1:4173")).toBe(true);
+  });
+  it("treats a bit-for-bit default projection as pristine (no local save to protect)", () => {
+    const defaults = defaultSaveState();
+    expect(isPristine(defaults, "campaign")).toBe(true);
+    expect(isPristine(defaults, "settings")).toBe(true);
+
+    const withCoins = { ...defaultSaveState(), coins: 1 };
+    expect(isPristine(withCoins, "campaign")).toBe(false);
+    expect(isPristine(withCoins, "settings")).toBe(true); // settings untouched
+
+    const toggled = defaultSaveState();
+    toggled.settings.musicEnabled = false;
+    expect(isPristine(toggled, "settings")).toBe(false);
+    expect(isPristine(toggled, "campaign")).toBe(true); // campaign untouched
   });
 });

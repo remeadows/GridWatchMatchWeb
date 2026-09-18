@@ -1,5 +1,5 @@
 import type { ReconcileResult, SavesClient } from "@gridwatch/account-kit";
-import { applyCloudPayload, changedSlots, CLOUD_SLOTS, freshSlot, projection, type CloudSlot } from "../state/cloudSaves";
+import { applyCloudPayload, changedSlots, CLOUD_SLOTS, freshSlot, isPristine, projection, type CloudSlot } from "../state/cloudSaves";
 import type { SaveState } from "../state/save";
 
 export interface CloudSync {
@@ -31,8 +31,11 @@ export function createCloudSync({ saves, enabled, onUseCloud }: CloudSyncOptions
       if (!active) return save;
       let results: ReconcileResult[];
       try {
-        // Both slots at once: identical prompts share one dialog in the kit.
-        results = await Promise.all(CLOUD_SLOTS.map((slot) => active.reconcile(slot, projection(save, slot))));
+        // Both slots at once: identical prompts share one dialog in the kit. A pristine slot has
+        // no real local save to protect, so it's handed to the kit as `null` — that lets a new
+        // device adopt an existing cloud row silently instead of risking "Keep this one"
+        // overwriting real cloud progress with an untouched default.
+        results = await Promise.all(CLOUD_SLOTS.map((slot) => active.reconcile(slot, isPristine(save, slot) ? null : projection(save, slot))));
       } catch (error) {
         console.warn("[cloud-saves] reconcile failed:", error instanceof Error ? error.message : String(error));
         return save;

@@ -25,10 +25,27 @@ describe("createCloudSync", () => {
     const result = await sync.reconcileAll(local);
     expect(reconcile).toHaveBeenCalledTimes(2);
     expect(reconcile.mock.calls.map((c) => c[0])).toEqual(["campaign", "settings"]);
-    expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(local));
-    expect(reconcile.mock.calls[1][1]).toEqual(toSettingsPayload(local));
+    expect(reconcile.mock.calls[0][1]).toBeNull(); // campaign untouched → pristine → null
+    expect(reconcile.mock.calls[1][1]).toEqual(toSettingsPayload(local)); // settings changed → non-pristine
     expect(result.coins).toBe(99);
     expect(result.settings.musicEnabled).toBe(true); // "Start fresh" on settings → defaults
+  });
+  it("hands the kit null for a pristine slot instead of the default projection", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const defaults = defaultSaveState();
+    await sync.reconcileAll(defaults);
+    expect(reconcile.mock.calls[0][1]).toBeNull(); // campaign
+    expect(reconcile.mock.calls[1][1]).toBeNull(); // settings
+  });
+  it("hands the kit the real projection only for the slot that actually changed", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const played = defaultSaveState();
+    played.coins = 40; // campaign changed, settings still default
+    await sync.reconcileAll(played);
+    expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(played)); // campaign
+    expect(reconcile.mock.calls[1][1]).toBeNull(); // settings still pristine
   });
   it("returns the input untouched for current/nothing/signed_out/uploaded/error", async () => {
     const { saves, reconcile } = fakeSaves();
