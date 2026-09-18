@@ -10,6 +10,12 @@ function fakeSaves() {
   const saves = { game: { gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1 }, load: vi.fn(), store, reconcile, dispose: vi.fn() } as unknown as SavesClient;
   return { saves, reconcile, store };
 }
+
+function makeSync(saves: SavesClient | undefined, enabled = true) {
+  const onUseCloud = vi.fn();
+  const onStored = vi.fn();
+  return { sync: createCloudSync({ saves, enabled, onUseCloud, onStored }), onUseCloud, onStored };
+}
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 const cloudSave = (payload: Record<string, unknown>, revision = 2) => ({ revision, schemaVersion: 1, payload, updatedAt: "t" });
@@ -71,6 +77,29 @@ describe("foldOutcomes", () => {
     expect(folded.next).toBe(current);
   });
 
+  it("lists the slots the cloud accepted in `uploaded`, separately from `replaced`", () => {
+    const current = defaultSaveState();
+    const folded = foldOutcomes(current, [
+      { slot: "campaign", result: { status: "uploaded", revision: 1 } },
+      { slot: "settings", result: { status: "stored", revision: 4 } },
+    ]);
+    expect(folded.uploaded).toEqual(["campaign", "settings"]);
+    expect(folded.replaced).toEqual([]);
+    expect(folded.next).toBe(current); // an upload does not change local state
+    expect(folded.failed).toBe(false);
+  });
+
+  it("leaves `uploaded` empty for outcomes that are not proof of an upload", () => {
+    const current = defaultSaveState();
+    const payload = { ...toCampaignPayload(defaultSaveState()), coins: 3 };
+    const folded = foldOutcomes(current, [
+      { slot: "campaign", result: { status: "use_cloud", save: cloudSave(payload) } },
+      { slot: "settings", result: { status: "current" } },
+    ]);
+    expect(folded.uploaded).toEqual([]);
+    expect(folded.replaced).toEqual(["campaign"]);
+  });
+
   it("applies onto the CURRENT state, not the snapshot the reconcile started with", () => {
     // The run started from the defaults; while the GETs were in flight the player earned coins.
     const current = defaultSaveState();
@@ -89,10 +118,10 @@ describe("createCloudSync", () => {
     reconcile.mockImplementation(async (slot) => slot === "campaign"
       ? { status: "use_cloud", save: cloudSave(cloudCampaign) }
       : { status: "fresh" });
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const { sync } = makeSync(saves);
     const local = defaultSaveState();
     local.settings.musicEnabled = false;
-    const outcomes = await sync.reconcileAll(local);
+    const outcomes = await sync.reconcileAll(local, []);
     expect(reconcile).toHaveBeenCalledTimes(2);
     expect(reconcile.mock.calls.map((c) => c[0])).toEqual(["campaign", "settings"]);
     expect(reconcile.mock.calls[0][1]).toBeNull(); // campaign untouched → pristine → null
@@ -107,29 +136,29 @@ describe("createCloudSync", () => {
 
   it("hands the kit null for a pristine slot instead of the default projection", async () => {
     const { saves, reconcile } = fakeSaves();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
-    await sync.reconcileAll(defaultSaveState());
+    const { sync } = makeSync(saves);
+    await sync.reconcileAll(defaultSaveState(), []);
     expect(reconcile.mock.calls[0][1]).toBeNull(); // campaign
     expect(reconcile.mock.calls[1][1]).toBeNull(); // settings
   });
 
   it("hands the kit the real projection only for the slot that actually changed", async () => {
     const { saves, reconcile } = fakeSaves();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const { sync } = makeSync(saves);
     const played = defaultSaveState();
     played.coins = 40; // campaign changed, settings still default
-    await sync.reconcileAll(played);
+    await sync.reconcileAll(played, []);
     expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(played)); // campaign
     expect(reconcile.mock.calls[1][1]).toBeNull(); // settings still pristine
   });
 
   it("reports non-replacing statuses as-is so nothing is folded", async () => {
     const { saves, reconcile } = fakeSaves();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const { sync } = makeSync(saves);
     const local = defaultSaveState();
     for (const status of ["current", "nothing", "signed_out"] as const) {
       reconcile.mockResolvedValue({ status });
-      const outcomes = await sync.reconcileAll(local);
+      const outcomes = await sync.reconcileAll(local, []);
       expect(outcomes.map((o) => o.result.status)).toEqual([status, status]);
       const folded = foldOutcomes(local, outcomes);
       expect(folded.next).toBe(local);
@@ -139,10 +168,10 @@ describe("createCloudSync", () => {
 
   it("never rejects: a throwing client resolves to an error outcome for every slot", async () => {
     const { saves, reconcile } = fakeSaves();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const { sync } = makeSync(saves);
     const local = defaultSaveState();
     reconcile.mockRejectedValue(new Error("boom"));
-    const outcomes = await sync.reconcileAll(local);
+    const outcomes = await sync.reconcileAll(local, []);
     expect(outcomes.map((o) => o.slot)).toEqual(["campaign", "settings"]);
     for (const outcome of outcomes) {
       expect(outcome.result).toEqual({ status: "error", error: { code: "network", message: "boom" } });
@@ -152,8 +181,7 @@ describe("createCloudSync", () => {
 
   it("stores only changed slots and applies a use_cloud answer through onUseCloud", async () => {
     const { saves, store } = fakeSaves();
-    const onUseCloud = vi.fn();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud });
+    const { sync, onUseCloud, onStored } = makeSync(saves);
     const before = defaultSaveState();
     const after = { ...before, coins: 5 };
     const cloudCampaign = { ...toCampaignPayload(before), coins: 77 };
@@ -163,11 +191,62 @@ describe("createCloudSync", () => {
     expect(store).toHaveBeenCalledTimes(1);
     expect(store.mock.calls[0]).toEqual(["campaign", toCampaignPayload(after)]);
     expect(onUseCloud).toHaveBeenCalledWith("campaign", cloudCampaign);
+    expect(onStored).not.toHaveBeenCalled(); // a use_cloud store is NOT proof of upload
+  });
+
+  it("sends a flagged slot as a real local copy with localChanged, even when it is pristine", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const pristine = defaultSaveState();
+    // `campaign` was deliberately RESET to the defaults while unsynced: bit-for-bit pristine, but
+    // the flag says the cloud has never confirmed it, so it must go up as a real local copy.
+    await sync.reconcileAll(pristine, ["campaign"]);
+    expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(pristine));
+    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: true });
+    expect(reconcile.mock.calls[1][1]).toBeNull(); // settings not flagged and pristine → still null
+    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: false });
+  });
+
+  it("passes localChanged false for a slot with real local changes that are already synced", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const played = defaultSaveState();
+    played.coins = 40;
+    await sync.reconcileAll(played, ["settings"]);
+    expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(played));
+    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: false }); // changed, but synced
+    expect(reconcile.mock.calls[1][1]).toEqual(toSettingsPayload(played)); // flagged → non-null
+    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: true });
+  });
+
+  it("reports a stored slot through onStored, and only for `stored`", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const before = defaultSaveState();
+    const after = { ...before, coins: 5, settings: { ...before.settings, musicEnabled: false } };
+    store.mockImplementation(async (slot) => slot === "campaign"
+      ? { status: "stored", revision: 2, updatedAt: "t" }
+      : { status: "error", error: { code: "upstream", message: "503" } });
+    sync.storeChanges(before, after);
+    await tick();
+    expect(store).toHaveBeenCalledTimes(2);
+    expect(onStored.mock.calls).toEqual([["campaign"]]); // settings errored → still unsynced
+  });
+
+  it("does not report a signed_out store as stored", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const before = defaultSaveState();
+    store.mockResolvedValue({ status: "signed_out" });
+    sync.storeChanges(before, { ...before, coins: 5 });
+    await tick();
+    expect(store).toHaveBeenCalledTimes(1);
+    expect(onStored).not.toHaveBeenCalled();
   });
 
   it("never stores a skipped slot, even when it changed", async () => {
     const { saves, store } = fakeSaves();
-    const sync = createCloudSync({ saves, enabled: true, onUseCloud: vi.fn() });
+    const { sync } = makeSync(saves);
     const before = defaultSaveState();
     const after = { ...before, coins: 5, settings: { ...before.settings, musicEnabled: false } };
     sync.storeChanges(before, after, ["campaign"]);
@@ -179,11 +258,11 @@ describe("createCloudSync", () => {
   it("does nothing when disabled or without a saves client", async () => {
     const { saves, store, reconcile } = fakeSaves();
     const local = defaultSaveState();
-    const disabled = createCloudSync({ saves, enabled: false, onUseCloud: vi.fn() });
-    expect(await disabled.reconcileAll(local)).toEqual([]);
+    const { sync: disabled } = makeSync(saves, false);
+    expect(await disabled.reconcileAll(local, [])).toEqual([]);
     disabled.storeChanges(null, local);
-    const none = createCloudSync({ saves: undefined, enabled: true, onUseCloud: vi.fn() });
-    expect(await none.reconcileAll(local)).toEqual([]);
+    const { sync: none } = makeSync(undefined);
+    expect(await none.reconcileAll(local, [])).toEqual([]);
     none.storeChanges(null, local);
     await tick();
     expect(store).not.toHaveBeenCalled();

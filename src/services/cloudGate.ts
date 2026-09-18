@@ -35,8 +35,9 @@ export interface CloudGate<S> {
   settle(token: number, startedWith: S, failed: boolean): CloudGateSettlement<S>;
   /** True only when the gate is "done" for exactly this (non-null) user id. */
   canStore(userId: string | null): boolean;
-  /** Called by `commitSave` for every commit that was NOT stored. First unsent commit wins. */
-  noteUnsent(previous: S | null): void;
+  /** Called by `commitSave` for every commit that was NOT stored. First unsent commit wins.
+   *  Non-nullable: the caller guards, so `flushBase` being null can only ever mean "do not flush". */
+  noteUnsent(previous: S): void;
   /** True when an idle gate for a signed-in user may attempt a reconcile now. */
   shouldRetry(userId: string | null, now: number): boolean;
 }
@@ -45,7 +46,7 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
   let currentUserId: string | null = null;
   let status: CloudGateStatus = "idle";
   let token = 0;
-  let pendingBase: S | null = null;
+  let pendingBase: S | undefined;
   let hasPending = false;
   /** When the last run for `currentUserId` was started; null means "never attempted". */
   let lastAttemptAt: number | null = null;
@@ -55,7 +56,7 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
     return currentUserId === userId && lastAttemptAt !== null && now - lastAttemptAt < retryThrottleMs;
   }
 
-  function pend(previous: S | null): void {
+  function pend(previous: S): void {
     if (hasPending) return; // first unsent commit wins: later ones must not move the base forward
     pendingBase = previous;
     hasPending = true;
@@ -99,8 +100,8 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
       }
       status = "done";
       lastAttemptAt = null;
-      const flushBase = hasPending ? pendingBase : startedWith;
-      pendingBase = null;
+      const flushBase = hasPending && pendingBase !== undefined ? pendingBase : startedWith;
+      pendingBase = undefined;
       hasPending = false;
       return { flushBase };
     },

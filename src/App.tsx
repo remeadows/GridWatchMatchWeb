@@ -17,7 +17,8 @@ import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { createCloudGate, type CloudGate } from "./services/cloudGate";
 import { createCloudSync, foldOutcomes } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
-import { applyCloudPayload, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
+import { applyCloudPayload, changedSlots, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
+import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
 import {
   areaProgressLabel,
   awardLevelCompletion,
@@ -64,6 +65,10 @@ export default function App() {
 
   const saveRef = useRef<SaveState | null>(null);
   // Lets commitSave and the retry listeners read the current user without being re-created.
+  // This write MUST stay in the render body and NOT move into an effect: it is what makes
+  // gate.canStore(...) go false the instant a sign-out renders. An effect runs after the commit,
+  // so a commitSave fired from an event handler in between would still see the old user id and
+  // push that user's save into the new (or absent) session.
   const userIdRef = useRef<string | null>(null);
   userIdRef.current = userId;
   // All the store-ordering rules live in the gate (src/services/cloudGate.ts), keyed on the USER ID
@@ -82,6 +87,10 @@ export default function App() {
     saveRef.current = next;
     setSave(next);
     void persistSaveState(next);
+    // The player chose the cloud copy, so whatever local work this slot was holding is gone by
+    // their own decision — the flag has nothing left to protect. Cleared here rather than in
+    // storeChanges so it only happens once the cloud payload is actually applied.
+    clearUnsynced([slot]);
   }, []);
 
   const cloudSync = useMemo(
@@ -89,6 +98,7 @@ export default function App() {
       saves: accountKit.saves,
       enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
       onUseCloud: applyCloud,
+      onStored: (slot) => clearUnsynced([slot]), // a `stored` reply is the only proof of upload
     }),
     [applyCloud],
   );
@@ -114,19 +124,24 @@ export default function App() {
     const token = gate.begin(userId, Date.now()); // null userId resets the gate (sign-out)
     if (token === null) return;
     const startedWith = saveRef.current as SaveState;
-    void cloudSync.reconcileAll(startedWith).then((outcomes) => {
+    void cloudSync.reconcileAll(startedWith, readUnsynced()).then((outcomes) => {
       const current = saveRef.current as SaveState;
-      const { next, replaced, failed } = foldOutcomes(current, outcomes);
+      const { next, replaced, uploaded, failed } = foldOutcomes(current, outcomes);
       if (next !== current) {
         saveRef.current = next;
         setSave(next);
         void persistSaveState(next);
       }
       const { flushBase } = gate.settle(token, startedWith, failed);
-      // Only a run that is still current AND did not fail gets to flush. The base is the state
-      // before the FIRST commit the gate held back (pre-run ones included), so nothing is lost —
-      // except slots the cloud just replaced, whose in-flight local edit is deliberately dropped.
-      if (flushBase) cloudSync.storeChanges(flushBase, next, replaced);
+      if (!flushBase) return; // superseded or failed: the flags stay set, nothing goes up
+      // Settled clean: the cloud either took these slots or replaced them, so they are synced.
+      const settled = [...replaced, ...uploaded];
+      clearUnsynced(settled);
+      // The base is the state before the FIRST commit the gate held back (pre-run ones included),
+      // so nothing is lost — except slots the cloud just replaced, whose in-flight local edit is
+      // deliberately dropped. Slots the reconcile already uploaded are skipped too: re-sending
+      // them would be a redundant PUT on the revision the kit has just confirmed.
+      cloudSync.storeChanges(flushBase, next, settled);
     });
     // No cleanup: aborting the run is exactly the bug this guards against.
   }, [hasSave, auth.loading, userId, cloudSync, gate, reconcileNonce]);
@@ -164,6 +179,9 @@ export default function App() {
 
   const commitSave = useCallback((next: SaveState) => {
     const previous = saveRef.current;
+    // Flagged FIRST, before any local persist or cloud call: a crash, a reload or a killed tab
+    // between the commit and a confirmed upload must still leave this slot marked unsynced.
+    if (previous) markUnsynced(changedSlots(previous, next));
     saveRef.current = next;
     setSave(next);
     void persistSaveState(next);
@@ -176,7 +194,7 @@ export default function App() {
       cloudSync.storeChanges(previous, next);
       return;
     }
-    gate.noteUnsent(previous);
+    if (previous) gate.noteUnsent(previous);
     if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1);
   }, [cloudSync, gate]);
 
@@ -690,12 +708,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [commitSave, level, tickBossClock]);
 
   const drainQueue = useCallback(() => {
-    const gate = lifecycleRef.current;
-    let next = gate.next();
+    const lifecycleGate = lifecycleRef.current;
+    let next = lifecycleGate.next();
     while (next) {
-      setQueueDepth(gate.queueDepth);
+      setQueueDepth(lifecycleGate.queueDepth);
       if (applyAction(next)) return;
-      next = gate.next();
+      next = lifecycleGate.next();
     }
     tickBossClock();
   }, [applyAction, tickBossClock]);
