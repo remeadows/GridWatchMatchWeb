@@ -2,11 +2,54 @@ import type { ReconcileResult, SavesClient } from "@gridwatch/account-kit";
 import { applyCloudPayload, changedSlots, CLOUD_SLOTS, freshSlot, isPristine, projection, type CloudSlot } from "../state/cloudSaves";
 import type { SaveState } from "../state/save";
 
+export interface SlotOutcome {
+  slot: CloudSlot;
+  result: ReconcileResult;
+}
+
+export interface FoldedOutcomes {
+  next: SaveState;
+  replaced: CloudSlot[];
+  failed: boolean;
+}
+
+/** Pure. Applies `use_cloud` (applyCloudPayload) and `fresh` (freshSlot) onto `current` — the state
+ *  as it is *now*, never the snapshot the reconcile started from, so a reconcile result is applied
+ *  even when the player changed something mid-flight. Returns `current` by identity when nothing was
+ *  replaced. `failed` is true when any outcome has status "error". */
+export function foldOutcomes(current: SaveState, outcomes: readonly SlotOutcome[]): FoldedOutcomes {
+  let next = current;
+  const replaced: CloudSlot[] = [];
+  let failed = false;
+  for (const { slot, result } of outcomes) {
+    switch (result.status) {
+      case "use_cloud":
+        next = applyCloudPayload(next, slot, result.save.payload);
+        replaced.push(slot);
+        break;
+      case "fresh":
+        next = freshSlot(next, slot);
+        replaced.push(slot);
+        break;
+      case "error":
+        failed = true;
+        break;
+      default:
+        break;
+    }
+  }
+  return { next, replaced, failed };
+}
+
 export interface CloudSync {
-  /** Once the session and the local save are both known (and again when the user changes). */
-  reconcileAll(save: SaveState): Promise<SaveState>;
-  /** After every local commit; applies "Use cloud" answers through onUseCloud. */
-  storeChanges(previous: SaveState | null, next: SaveState): void;
+  /** Once the session and the local save are both known (and again when the user changes).
+   *  Never rejects: disabled / no client resolves to `[]`, and a client call that throws resolves
+   *  to an "error" outcome for every slot. The caller folds the outcomes itself — the result of a
+   *  reconcile is never discarded. */
+  reconcileAll(save: SaveState): Promise<SlotOutcome[]>;
+  /** After every local commit, and once when a reconcile settles. Slots listed in `skip` are never
+   *  stored. Applies "Use cloud" answers through onUseCloud. */
+  storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
 }
 
 export interface CloudSyncOptions {
@@ -18,35 +61,26 @@ export interface CloudSyncOptions {
 export function createCloudSync({ saves, enabled, onUseCloud }: CloudSyncOptions): CloudSync {
   const active = enabled && saves ? saves : null;
 
-  function fold(save: SaveState, slot: CloudSlot, result: ReconcileResult): SaveState {
-    switch (result.status) {
-      case "use_cloud": return applyCloudPayload(save, slot, result.save.payload);
-      case "fresh": return freshSlot(save, slot);
-      default: return save;
-    }
-  }
-
   return {
     async reconcileAll(save) {
-      if (!active) return save;
-      let results: ReconcileResult[];
+      if (!active) return [];
       try {
         // Both slots at once: identical prompts share one dialog in the kit. A pristine slot has
         // no real local save to protect, so it's handed to the kit as `null` — that lets a new
         // device adopt an existing cloud row silently instead of risking "Keep this one"
         // overwriting real cloud progress with an untouched default.
-        results = await Promise.all(CLOUD_SLOTS.map((slot) => active.reconcile(slot, isPristine(save, slot) ? null : projection(save, slot))));
+        const results = await Promise.all(CLOUD_SLOTS.map((slot) => active.reconcile(slot, isPristine(save, slot) ? null : projection(save, slot))));
+        return CLOUD_SLOTS.map((slot, index) => ({ slot, result: results[index] }));
       } catch (error) {
-        console.warn("[cloud-saves] reconcile failed:", error instanceof Error ? error.message : String(error));
-        return save;
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn("[cloud-saves] reconcile failed:", message);
+        return CLOUD_SLOTS.map((slot): SlotOutcome => ({ slot, result: { status: "error", error: { code: "network", message } } }));
       }
-      let next = save;
-      CLOUD_SLOTS.forEach((slot, index) => { next = fold(next, slot, results[index]); });
-      return results.every((r) => r.status !== "use_cloud" && r.status !== "fresh") ? save : next;
     },
-    storeChanges(previous, next) {
+    storeChanges(previous, next, skip = []) {
       if (!active) return;
       for (const slot of changedSlots(previous, next)) {
+        if (skip.includes(slot)) continue;
         active.store(slot, projection(next, slot)).then((result) => {
           if (result.status === "use_cloud") onUseCloud(slot, result.save.payload);
           else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);

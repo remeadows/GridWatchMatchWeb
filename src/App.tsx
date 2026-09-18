@@ -14,7 +14,7 @@ import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
-import { createCloudSync } from "./services/cloudSync";
+import { createCloudSync, foldOutcomes } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
 import { applyCloudPayload, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
 import {
@@ -58,9 +58,18 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const appliedInitialRoute = useRef(false);
   const auth = useAuth();
+  const userId = auth.session?.user.id ?? null;
+  const hasSave = save !== null;
 
   const saveRef = useRef<SaveState | null>(null);
-  const reconciledFor = useRef<string | null>(null);
+  // The reconcile run is keyed on the USER ID — never on the session object (every Supabase auth
+  // emission is a fresh object) and never on `save` (which changes on every commit). "done" is
+  // latched only after a run in which no slot errored; sign-out clears it. `token` identifies the
+  // run that owns the latch: a superseded run (sign-out, or sign-out then back in as the same user
+  // while its GETs are still in flight) still applies its outcomes, but must not report its status
+  // over the run that replaced it.
+  const reconcileRun = useRef<{ userId: string | null; status: "idle" | "running" | "done"; token: number }>({ userId: null, status: "idle", token: 0 });
+  const [reconcileNonce, setReconcileNonce] = useState(0);
 
   const applyCloud = useCallback((slot: CloudSlot, payload: unknown) => {
     const current = saveRef.current;
@@ -90,20 +99,43 @@ export default function App() {
     };
   }, []);
 
+  // A reconcile result is NEVER discarded. The kit has already written its sync record by the time
+  // it answers (a "use cloud" answer means "this device is clean at the cloud revision"), so
+  // throwing the answer away would leave the app holding the local save at the cloud's base
+  // revision — and the next store would silently replace the cloud row with it. Hence: no abort
+  // flag, and the outcomes are folded onto saveRef.current (the CURRENT state) rather than onto the
+  // snapshot the run started with.
   useEffect(() => {
-    if (!save || auth.loading) return;
-    const userId = auth.session?.user.id ?? null;
-    if (!userId || reconciledFor.current === userId) return;
-    reconciledFor.current = userId;
-    let active = true;
-    void cloudSync.reconcileAll(save).then((reconciled) => {
-      if (!active || reconciled === saveRef.current) return;
-      saveRef.current = reconciled;
-      setSave(reconciled);
-      void persistSaveState(reconciled);
+    if (!hasSave || auth.loading) return;
+    const run = reconcileRun.current;
+    if (!userId) { reconcileRun.current = { userId: null, status: "idle", token: run.token + 1 }; return; }
+    if (run.userId === userId && run.status !== "idle") return; // already running, or done for this user
+    const token = run.token + 1;
+    reconcileRun.current = { userId, status: "running", token };
+    const startedWith = saveRef.current as SaveState;
+    void cloudSync.reconcileAll(startedWith).then((outcomes) => {
+      const current = saveRef.current as SaveState;
+      const { next, replaced, failed } = foldOutcomes(current, outcomes);
+      if (next !== current) {
+        saveRef.current = next;
+        setSave(next);
+        void persistSaveState(next);
+      }
+      if (reconcileRun.current.token === token) reconcileRun.current = { userId, status: failed ? "idle" : "done", token };
+      // Edits made while the run was in flight (commitSave held them back, see below) go up now —
+      // except for slots the cloud just replaced, whose local edit is deliberately dropped.
+      cloudSync.storeChanges(startedWith, next, replaced);
     });
-    return () => { active = false; };
-  }, [save, auth.loading, auth.session, cloudSync]);
+    // No cleanup: aborting the run is exactly the bug this guards against.
+  }, [hasSave, auth.loading, userId, cloudSync, reconcileNonce]);
+
+  // A run that ended with an errored slot stays "idle" so it can be retried when the box is back
+  // online; the deps above never change on their own, so the nonce is what re-arms the effect.
+  useEffect(() => {
+    const retry = () => { if (reconcileRun.current.status === "idle") setReconcileNonce((n) => n + 1); };
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, []);
 
   useEffect(() => {
     if (!save || appliedInitialRoute.current) return;
@@ -127,7 +159,11 @@ export default function App() {
     saveRef.current = next;
     setSave(next);
     void persistSaveState(next);
-    cloudSync.storeChanges(previous, next);
+    // No cloud store leaves the app while a reconcile is in flight: the kit serializes stores behind
+    // the reconcile per slot, so one issued now would flush straight afterwards on the just-confirmed
+    // base revision and replace the cloud row with this pre-reconcile projection — no 409, no prompt.
+    // The run flushes whatever changed during its flight when it settles.
+    if (reconcileRun.current.status !== "running") cloudSync.storeChanges(previous, next);
   }, [cloudSync]);
 
   if (!save) {
