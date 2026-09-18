@@ -15,7 +15,7 @@ import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { createCloudGate, type CloudGate } from "./services/cloudGate";
-import { createCloudSync, foldOutcomes } from "./services/cloudSync";
+import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
 import { applyCloudPayload, changedSlots, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
 import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
@@ -98,7 +98,17 @@ export default function App() {
       saves: accountKit.saves,
       enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
       onUseCloud: applyCloud,
-      onStored: (slot) => clearUnsynced([slot]), // a `stored` reply is the only proof of upload
+      // A `stored` reply proves the cloud took THAT payload — not that it holds whatever the slot
+      // holds now. The kit debounces stores by 750 ms and serializes them per slot, so a commit made
+      // at t+800 becomes a fresh entry queued BEHIND the one now in flight; when that first reply
+      // lands at ~t+900 the second commit is still unsent. Clearing on the reply alone stripped the
+      // only protection that commit had — if its own PUT then failed terminally (403) or the tab
+      // closed, it was local-only with no flag, and the next sign-in with a moved cloud replaced it
+      // silently. So the flag is cleared only on proof that what the cloud took IS what is here.
+      onStored: (slot, payload) => {
+        const current = saveRef.current;
+        if (current && isCurrentProjection(current, slot, payload)) clearUnsynced([slot]);
+      },
     }),
     [applyCloud],
   );
@@ -132,16 +142,22 @@ export default function App() {
         setSave(next);
         void persistSaveState(next);
       }
+      // Which slots the cloud provably holds is a per-slot FACT about what this run did, not a
+      // consequence of the run-level flush decision — so it is computed and applied ABOVE the gate.
+      // A run that failed (ANY slot errored) or was superseded still replaced or uploaded the slots
+      // it did; leaving those flagged is a stale flag, which later costs a redundant upload or, far
+      // worse, a misleading conflict prompt whose "Keep this one" pushes OLD content over a newer
+      // cloud row. The gate governs the FLUSH only.
+      const { clear, skip } = settledSlots({ startedWith, next, replaced, uploaded });
+      clearUnsynced(clear);
       const { flushBase } = gate.settle(token, startedWith, failed);
-      if (!flushBase) return; // superseded or failed: the flags stay set, nothing goes up
-      // Settled clean: the cloud either took these slots or replaced them, so they are synced.
-      const settled = [...replaced, ...uploaded];
-      clearUnsynced(settled);
-      // The base is the state before the FIRST commit the gate held back (pre-run ones included),
-      // so nothing is lost — except slots the cloud just replaced, whose in-flight local edit is
-      // deliberately dropped. Slots the reconcile already uploaded are skipped too: re-sending
-      // them would be a redundant PUT on the revision the kit has just confirmed.
-      cloudSync.storeChanges(flushBase, next, settled);
+      if (!flushBase) return; // superseded or failed: nothing goes up
+      // The base is the state before the FIRST commit the gate held back (pre-run ones included), so
+      // nothing is lost — except the slots above, which the cloud demonstrably already holds at this
+      // exact projection (a replaced slot's in-flight local edit is deliberately dropped). A slot
+      // the kit uploaded that CHANGED mid-flight is pointedly not in `skip`: this flush is the only
+      // route that commit has out of the gate.
+      cloudSync.storeChanges(flushBase, next, skip);
     });
     // No cleanup: aborting the run is exactly the bug this guards against.
   }, [hasSave, auth.loading, userId, cloudSync, gate, reconcileNonce]);

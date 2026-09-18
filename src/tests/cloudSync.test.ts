@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SavesClient } from "@gridwatch/account-kit";
-import { createCloudSync, foldOutcomes, type SlotOutcome } from "../services/cloudSync";
-import { toCampaignPayload, toSettingsPayload } from "../state/cloudSaves";
-import { defaultSaveState } from "../state/save";
+import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type SlotOutcome } from "../services/cloudSync";
+import { projection, toCampaignPayload, toSettingsPayload } from "../state/cloudSaves";
+import { defaultSaveState, normalizeSave, type SaveState } from "../state/save";
 
 function fakeSaves() {
   const reconcile = vi.fn<SavesClient["reconcile"]>(async () => ({ status: "current" }));
@@ -108,6 +108,112 @@ describe("foldOutcomes", () => {
     expect(folded.next.settings.musicEnabled).toBe(false);
     expect(folded.next.coins).toBe(999); // the unrelated slot's newer value survives
     expect(folded.replaced).toEqual(["settings"]);
+  });
+});
+
+describe("settledSlots", () => {
+  /** The state the reconcile run started from — the snapshot the kit uploaded a projection of. */
+  const startedWith = defaultSaveState();
+  const withCoins = (base: SaveState, coins: number): SaveState => normalizeSave({ ...base, coins });
+  const withMusic = (base: SaveState, musicEnabled: boolean): SaveState =>
+    normalizeSave({ ...base, settings: { ...base.settings, musicEnabled } });
+
+  it("clears and skips a replaced slot unconditionally", () => {
+    // foldOutcomes applied the cloud payload onto the CURRENT state, so the cloud provably holds this
+    // slot however much the player committed mid-flight — that edit is dropped by the player's own
+    // choice, and the flag has nothing left to protect.
+    const next = withCoins(startedWith, 250);
+    expect(settledSlots({ startedWith, next, replaced: ["campaign"], uploaded: [] }))
+      .toEqual({ clear: ["campaign"], skip: ["campaign"] });
+  });
+
+  it("clears and skips an uploaded slot that did not change since the snapshot the kit sent", () => {
+    expect(settledSlots({ startedWith, next: startedWith, replaced: [], uploaded: ["settings"] }))
+      .toEqual({ clear: ["settings"], skip: ["settings"] });
+    // A structurally equal but distinct object is still "did not change".
+    expect(settledSlots({ startedWith, next: normalizeSave({ ...startedWith }), replaced: [], uploaded: ["settings"] }))
+      .toEqual({ clear: ["settings"], skip: ["settings"] });
+  });
+
+  it("neither clears nor skips an uploaded slot that CHANGED since the snapshot the kit sent", () => {
+    // The kit sent projection(startedWith); this commit landed while that PUT was in flight, so the
+    // cloud does not hold it. Its only route out is the settle-time flush, and it must stay flagged
+    // until its own `stored` reply — skipping and clearing here is exactly how it went missing.
+    const next = withMusic(startedWith, false);
+    expect(settledSlots({ startedWith, next, replaced: [], uploaded: ["settings"] }))
+      .toEqual({ clear: [], skip: [] });
+  });
+
+  it("neither clears nor skips a slot that was neither replaced nor uploaded", () => {
+    const next = withCoins(startedWith, 9);
+    expect(settledSlots({ startedWith, next, replaced: [], uploaded: [] })).toEqual({ clear: [], skip: [] });
+    expect(settledSlots({ startedWith, next: startedWith, replaced: [], uploaded: [] })).toEqual({ clear: [], skip: [] });
+  });
+
+  it("decides each slot on its own: a replaced slot settles while a changed uploaded slot does not", () => {
+    const next = withMusic(withCoins(startedWith, 250), false);
+    expect(settledSlots({ startedWith, next, replaced: ["campaign"], uploaded: ["settings"] }))
+      .toEqual({ clear: ["campaign"], skip: ["campaign"] });
+  });
+
+  it("returns slots in CLOUD_SLOTS order, in two independent arrays, without mutating its inputs", () => {
+    const replaced = ["settings", "campaign"] as const;
+    const result = settledSlots({ startedWith, next: startedWith, replaced, uploaded: [] });
+    expect(result.clear).toEqual(["campaign", "settings"]);
+    expect(result.skip).toEqual(["campaign", "settings"]);
+    expect(result.skip).not.toBe(result.clear);
+    expect(replaced).toEqual(["settings", "campaign"]);
+  });
+});
+
+describe("isCurrentProjection", () => {
+  it("is true when the payload is exactly what the slot projects right now", () => {
+    const save = defaultSaveState();
+    save.coins = 12;
+    save.settings.musicEnabled = false;
+    expect(isCurrentProjection(save, "campaign", projection(save, "campaign"))).toBe(true);
+    expect(isCurrentProjection(save, "settings", projection(save, "settings"))).toBe(true);
+  });
+
+  it("is false once a later commit changed that slot, and stays true for the untouched one", () => {
+    const sent = defaultSaveState();
+    const settingsPayload = projection(sent, "settings");
+    const campaignPayload = projection(sent, "campaign");
+    const afterCommit = normalizeSave({ ...sent, settings: { ...sent.settings, voiceEnabled: false } });
+    expect(isCurrentProjection(afterCommit, "settings", settingsPayload)).toBe(false);
+    expect(isCurrentProjection(afterCommit, "campaign", campaignPayload)).toBe(true);
+  });
+
+  it("does not depend on the order the save's own keys were built in", () => {
+    // normalizeSave spreads the defaults FIRST, so every save the app holds projects its keys in the
+    // defaults' order regardless of how the caller's literal was written.
+    const scrambled = normalizeSave({
+      settings: { reducedMotion: false, voiceEnabled: true, sfxEnabled: true, musicEnabled: false },
+      coins: 5,
+    });
+    const canonical = normalizeSave({
+      coins: 5,
+      settings: { musicEnabled: false, sfxEnabled: true, voiceEnabled: true, reducedMotion: false },
+    });
+    expect(isCurrentProjection(scrambled, "settings", projection(canonical, "settings"))).toBe(true);
+    expect(isCurrentProjection(scrambled, "campaign", projection(canonical, "campaign"))).toBe(true);
+  });
+
+  it("is false for a payload whose keys are reordered, and for a non-object payload", () => {
+    // Same JSON.stringify idiom changedSlots/isPristine already use: it compares bytes, so a
+    // reordered payload reads as "not current". Conservative in the safe direction — a kept flag
+    // costs a redundant upload or one extra prompt, never a lost commit. Nothing inside the app can
+    // produce a reordered projection (see the test above); only a foreign payload could.
+    const save = defaultSaveState();
+    const ordered = projection(save, "settings");
+    const reordered = {
+      reducedMotion: ordered.reducedMotion, voiceEnabled: ordered.voiceEnabled,
+      sfxEnabled: ordered.sfxEnabled, musicEnabled: ordered.musicEnabled,
+    };
+    expect(reordered).toEqual(ordered);
+    expect(isCurrentProjection(save, "settings", reordered)).toBe(false);
+    expect(isCurrentProjection(save, "settings", null)).toBe(false);
+    expect(isCurrentProjection(save, "settings", undefined)).toBe(false);
   });
 });
 
@@ -230,7 +336,24 @@ describe("createCloudSync", () => {
     sync.storeChanges(before, after);
     await tick();
     expect(store).toHaveBeenCalledTimes(2);
-    expect(onStored.mock.calls).toEqual([["campaign"]]); // settings errored → still unsynced
+    expect(onStored.mock.calls).toEqual([["campaign", toCampaignPayload(after)]]); // settings errored → still unsynced
+  });
+
+  it("hands onStored the exact payload it stored, so the caller can check it is still current", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const before = defaultSaveState();
+    const after = { ...before, coins: 5, settings: { ...before.settings, musicEnabled: false } };
+    sync.storeChanges(before, after);
+    await tick();
+    expect(onStored.mock.calls).toEqual([
+      ["campaign", toCampaignPayload(after)],
+      ["settings", toSettingsPayload(after)],
+    ]);
+    // Not a re-projection taken at reply time: the very object that went to the wire. A commit made
+    // between the store and its reply must therefore be visible as a difference to the caller.
+    expect(onStored.mock.calls[0][1]).toBe(store.mock.calls[0][1]);
+    expect(onStored.mock.calls[1][1]).toBe(store.mock.calls[1][1]);
   });
 
   it("does not report a signed_out store as stored", async () => {
