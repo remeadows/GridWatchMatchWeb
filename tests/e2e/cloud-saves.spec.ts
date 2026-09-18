@@ -23,23 +23,29 @@ interface FakeSavesApi {
   puts: Array<{ slot: string; body: Record<string, unknown> }>;
   /** Every GET the app sent, by slot, in arrival order. */
   gets: string[];
+  /** When set, every PUT is answered with this status instead of being applied. 503 is retried by
+   *  the kit and leaves its sync record dirty; a plain 4xx is terminal and leaves it CLEAN, which
+   *  is what isolates the app's own unsynced flag. */
+  failPuts: number | null;
 }
 
 function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options: { getDelayMs?: number } = {}): FakeSavesApi {
-  const puts: FakeSavesApi["puts"] = [];
-  const gets: string[] = [];
+  const api: FakeSavesApi = { puts: [], gets: [], failPuts: null };
   page.route("**/api/saves/match/*", async (route) => {
     const request = route.request();
     const slot = new URL(request.url()).pathname.split("/").pop()!;
     if (request.method() === "GET") {
-      gets.push(slot);
+      api.gets.push(slot);
       // Held open so a test can act in the UI while the reconcile is genuinely in flight.
       if (options.getDelayMs) await new Promise((resolve) => setTimeout(resolve, options.getDelayMs));
       const row = rows[slot];
       return route.fulfill(row ? { status: 200, contentType: "application/json", body: JSON.stringify(row) } : { status: 404, contentType: "application/json", body: JSON.stringify({ error: "no_save" }) });
     }
     const body = request.postDataJSON() as Record<string, unknown>;
-    puts.push({ slot, body });
+    api.puts.push({ slot, body });
+    if (api.failPuts !== null) {
+      return route.fulfill({ status: api.failPuts, contentType: "application/json", body: JSON.stringify({ error: "upload_failed" }) });
+    }
     const current = rows[slot];
     const base = body.baseRevision as number;
     if ((current?.revision ?? 0) !== base) {
@@ -48,7 +54,23 @@ function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options
     rows[slot] = { slot, schemaVersion: 1, revision: base + 1, payload: body.payload as Record<string, unknown>, updatedAt: new Date().toISOString() };
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ revision: base + 1, updatedAt: rows[slot]!.updatedAt }) });
   });
-  return { puts, gets };
+  return api;
+}
+
+const UNSYNCED_KEY = "gridwatch-match-web.cloud-unsynced.v1";
+
+/** The app's persisted per-slot "the cloud has never confirmed this" flags. */
+function unsyncedFlags(page: Page): Promise<string[]> {
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      return Object.keys(parsed).filter((slot) => parsed[slot] === true).sort();
+    } catch {
+      return [];
+    }
+  }, UNSYNCED_KEY);
 }
 
 async function clearStorage(page: Page): Promise<void> {
@@ -202,6 +224,105 @@ test("a conflicting store shows the prompt; 'Use cloud' applies the cloud copy, 
   await expect(dialog).toBeHidden();
   await expect.poll(() => puts.filter((p) => p.slot === "campaign" && p.body.baseRevision === 9).length, { timeout: 10_000 }).toBe(1);
   expect(rows.campaign!.revision).toBe(10);
+});
+
+/**
+ * Shared setup for the unsynced-flag scenarios.
+ *
+ * Leaves the app: signed in, settled, local `settings` adopted from cloud revision 1, then a real
+ * local change (Voice Lines off) whose upload FAILED — so the app's unsynced flag is set while the
+ * player's change exists only on this device. `failStatus` decides what the kit itself remembers:
+ * 503 is retried and leaves its record dirty; 403 is terminal and leaves it CLEAN, which is the
+ * case where the app's own flag is the only thing standing between the player and a silent
+ * replacement.
+ */
+async function heldLocalChange(page: Page, rows: Record<string, Row | undefined>, failStatus: number) {
+  const api = fakeSavesApi(page, rows);
+  await page.goto("./?gwTestMode=1");
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await page.waitForTimeout(1_500); // pristine device adopts the cloud settings row, stores nothing
+  expect(api.puts).toEqual([]);
+  expect(await unsyncedFlags(page)).toEqual([]);
+
+  api.failPuts = failStatus;
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Voice Lines/).click();
+  await expect.poll(() => api.puts.length, { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(3_000); // let the kit exhaust its bounded retries and give up
+  // The change was never confirmed by the cloud, so the flag stays set — across the reload below.
+  expect(await unsyncedFlags(page)).toEqual(["settings"]);
+  expect(await page.getByLabel(/Voice Lines/).isChecked()).toBe(false);
+
+  api.failPuts = null;
+  api.puts.length = 0; // only the post-reload PUTs matter from here
+  return api;
+}
+
+const newerSettingsRow = (): Row => ({
+  slot: "settings", schemaVersion: 1, revision: 2, updatedAt: "2026-09-17T12:00:00Z",
+  payload: { musicEnabled: false, sfxEnabled: false, voiceEnabled: true, reducedMotion: false },
+});
+
+test("unsynced local progress survives a reload and prompts instead of being replaced", async ({ page }) => {
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  // 403: terminal for the kit, so ITS record stays { revision: 1, dirty: false }. Without the app's
+  // persisted flag the next reconcile would answer use_cloud and the held change would vanish.
+  const api = await heldLocalChange(page, rows, 403);
+  rows.settings = newerSettingsRow(); // another device moved the cloud on while we were failing
+
+  await page.reload();
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog).toContainText("Newer save in the cloud from another device");
+  await dialog.getByRole("button", { name: "Keep this one" }).click();
+  await expect(dialog).toBeHidden();
+
+  await expect.poll(() => api.puts.filter((p) => p.slot === "settings").length, { timeout: 10_000 }).toBe(1);
+  expect(api.puts[0].body.baseRevision).toBe(2); // the cloud revision the prompt was raised against
+  expect((api.puts[0].body.payload as { voiceEnabled: boolean }).voiceEnabled).toBe(false);
+  expect(rows.settings!.revision).toBe(3);
+  expect(api.puts.some((p) => p.slot === "campaign")).toBe(false);
+  // The player's change survived, and the slot is synced again.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Voice Lines/)).not.toBeChecked();
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+});
+
+test("unsynced local progress can still be abandoned: 'Use cloud' takes the cloud copy and clears the flag", async ({ page }) => {
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  const api = await heldLocalChange(page, rows, 403);
+  rows.settings = newerSettingsRow();
+
+  await page.reload();
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: "Use cloud" }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Voice Lines/)).toBeChecked();       // the cloud value
+  await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked(); // ...all of it
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]); // nothing is pushed when the local copy was abandoned
+  expect(rows.settings!.revision).toBe(2);
+});
+
+test("a 503 upload leaves the slot flagged and the change still prompts after a reload", async ({ page }) => {
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  const api = await heldLocalChange(page, rows, 503); // retried by the kit, record left dirty
+  rows.settings = newerSettingsRow();
+
+  await page.reload();
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await dialog.getByRole("button", { name: "Keep this one" }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(() => api.puts.filter((p) => p.slot === "settings" && p.body.baseRevision === 2).length, { timeout: 10_000 }).toBe(1);
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
 });
 
 test("signed out stays local-only: no saves requests at all", async ({ page }) => {
