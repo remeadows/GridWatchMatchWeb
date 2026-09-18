@@ -113,7 +113,7 @@ export interface CloudSync {
    *  stored. A `use_cloud` answer goes to onUseCloud with its payload and with whether anything else
    *  for that slot was still outstanding; a `stored` reply — proof the cloud took THAT payload —
    *  goes to onStored together with the payload that was stored, but only once nothing else it
-   *  issued for that slot is still outstanding. */
+   *  issued for that slot is still outstanding. Never throws, and never rejects. */
   storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
 }
 
@@ -172,6 +172,9 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
    */
   const outstanding = new Map<CloudSlot, number>();
   const outstandingFor = (slot: CloudSlot): number => outstanding.get(slot) ?? 0;
+  const release = (slot: CloudSlot): void => { outstanding.set(slot, Math.max(0, outstandingFor(slot) - 1)); };
+  const warnThrew = (error: unknown): void =>
+    console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error));
 
   return {
     async reconcileAll(save, unsynced) {
@@ -211,12 +214,27 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
         // `next` later would compare the payload with itself and always look current.
         const payload = projection(next, slot);
         outstanding.set(slot, outstandingFor(slot) + 1);
-        active.store(slot, payload)
+        let pending: ReturnType<SavesClient["store"]>;
+        try {
+          pending = active.store(slot, payload);
+        } catch (error) {
+          // `store()` is contracted never to reject, but a synchronous throw (a bad slot name, a
+          // disposed client, a caller-supplied dependency blowing up before the first await) settles
+          // no promise at all, so the `.finally` below would never run: the count has to be released
+          // right here or the slot's flag is unclearable for the life of the page. Swallowed rather
+          // than rethrown for the same reason the rejection below is — by the time commitSave gets
+          // here the local save is already committed and persisted, so a cloud-only failure must not
+          // abort the rest of the commit path (including the OTHER slot's store).
+          release(slot);
+          warnThrew(error);
+          continue;
+        }
+        pending
           // Decremented however the promise settles — stored, use_cloud, signed_out, error or a
           // throw — and BEFORE the handler below reads the count, so the count it sees is "everything
           // else still in the air for this slot", excluding this reply itself. A leaked count here
           // would wedge the slot's flag as permanently unclearable for the life of the page.
-          .finally(() => outstanding.set(slot, Math.max(0, outstandingFor(slot) - 1)))
+          .finally(() => release(slot))
           .then((result) => {
             if (result.status === "stored") {
               if (outstandingFor(slot) === 0) onStored(slot, payload);
@@ -226,7 +244,7 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
               // copy the player rejected, with the flag the only thing left saying so.
               onUseCloud(slot, result.save.payload, outstandingFor(slot) === 0);
             } else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);
-          }).catch((error: unknown) => console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error)));
+          }).catch((error: unknown) => warnThrew(error));
       }
     },
   };

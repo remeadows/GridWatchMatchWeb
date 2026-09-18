@@ -7,12 +7,16 @@ export const RETRY_THROTTLE_PARAM = "gwCloudRetryThrottleMs";
 /**
  * The throttle window `createCloudGate` should use for this page load.
  *
- * Test-only escape hatch: 30 s of real waiting is the right production answer (an errored reconcile
- * must not turn `online` / `visibilitychange` into a request loop) but it makes the retry leg of an
- * e2e scenario a ~35 s sleep. Gated on the exact `?gwTestMode=1` query the rest of the app's test
- * hooks use (see `BoardScene.setBoardReadyFlag`), so a production build always gets the default and
- * a crafted link cannot shorten it. A missing, empty, non-numeric, negative or non-finite value is
- * the default too — this only ever narrows to a real number the caller asked for.
+ * Test hook: 30 s of real waiting is the right production answer (an errored reconcile must not turn
+ * `online` / `visibilitychange` into a request loop) but it makes the retry leg of an e2e scenario a
+ * ~35 s sleep. Gated on the exact `?gwTestMode=1` query the rest of the app's test hooks use (see
+ * `BoardScene.setBoardReadyFlag`). That is a RUNTIME query parameter, not a build-time flag, so it
+ * is reachable on any build, production included — anyone can append it to a URL. Deliberate, and
+ * consistent with the existing gwTestMode hooks: the impact is bounded to letting the gate
+ * re-ATTEMPT a reconcile sooner, and a reconcile is still only ever armed by an online /
+ * visibilitychange / commit event, i.e. at most one reconcile per event. It cannot bypass the gate,
+ * unhold a store, or change what is sent. A missing, empty, non-numeric, negative or non-finite
+ * value is the default too — this only ever narrows to a real number the caller asked for.
  *
  * Pure and string-in so it is directly testable, and so the caller keeps the `window` guard.
  */
@@ -94,6 +98,15 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
     },
 
     begin(userId, now) {
+      // `pendingBase` is deliberately NOT cleared on a user change (neither by the sign-out branch
+      // below nor when a different id arrives): a commit that was never sent is still unsent, and
+      // whose session it was made under does not change that. Benign because the base only decides
+      // WHICH SLOTS the eventual flush diffs — the payload it sends is the CURRENT projection, never
+      // the remembered snapshot — so the worst case is another account's flush re-sending a slot
+      // that did not really change for it. Slot selection is covered from both ends: `skip` keeps a
+      // slot the cloud demonstrably already holds out of the flush, and anything that does go up
+      // meets the kit's per-slot ownership record and its take-over / conflict prompts before it can
+      // overwrite the new account's row.
       if (userId === null) {
         // Sign-out. Bumping the token supersedes any run in flight, so it can neither latch "done"
         // nor flush. Unsent commits stay pending — they are still unsent.

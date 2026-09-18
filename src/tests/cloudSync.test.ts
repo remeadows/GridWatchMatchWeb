@@ -592,6 +592,38 @@ describe("createCloudSync outstanding stores", () => {
     expect([...flagged]).toEqual(["settings"]);
   });
 
+  it("releases the count and swallows a synchronous throw from store()", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const settings1 = deferred<StoreResult>();
+      store.mockImplementationOnce(() => { throw new Error("store exploded"); })
+        .mockReturnValueOnce(settings1.promise);
+      // One commit touching both slots. `campaign` throws synchronously: that must not escape into
+      // commitSave (the local save is already committed and persisted by then, so a cloud-only
+      // failure would abort the rest of the commit path) and must not cost `settings` its store.
+      expect(() => sync.storeChanges(A, normalizeSave({ ...C, coins: 5 }))).not.toThrow();
+      expect(store.mock.calls.map((call) => call[0])).toEqual(["campaign", "settings"]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      settings1.resolve(stored(1));
+      await tick();
+      expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+
+      // The throw took a count for `campaign` that no promise will ever settle, so it has to be
+      // released synchronously — otherwise this next store's own reply could never clear the slot.
+      const campaign2 = deferred<StoreResult>();
+      store.mockReturnValueOnce(campaign2.promise);
+      sync.storeChanges(A, normalizeSave({ ...A, coins: 9 }));
+      campaign2.resolve(stored(2));
+      await tick();
+      expect(onStored).toHaveBeenCalledTimes(2);
+      expect(onStored.mock.calls[1][0]).toBe("campaign");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("counts per slot: an outstanding campaign store does not hold back a settled settings store", async () => {
     const { saves, store } = fakeSaves();
     const { sync, onStored } = makeSync(saves);

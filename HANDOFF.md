@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-18
 
-## 🟡 2026-09-18: cloud saves 4a — Match wired to kit v0.2.0 saves (PR pending)
+## 🟡 2026-09-18: cloud saves 4a — Match wired to the kit saves client (PR pending)
 
 Two cloud slots projected from the unchanged local SaveState v1: `campaign` (all but version/settings) and `settings` (`src/state/cloudSaves.ts`). `src/services/cloudSync.ts` runs `reconcile` for both slots once the session is known (per user id) and `store` on every `commitSave` for the slots that changed; "Use cloud" answers are applied through `applyCloudPayload` + persist. Cloud saves are active only on the Nexus origin (`cloudSavesEnabled`, lifted in 4b). Playwright `tests/e2e/cloud-saves.spec.ts` fakes `/api/saves` and a stored Supabase session.
 A slot whose projection is bit-for-bit the default (`isPristine`) is treated as "no local save" and reconciled as `null`, so a brand-new device with cloud progress adopts the cloud row silently instead of showing the conflict prompt (which risked "Keep this one" overwriting real cloud progress with an untouched default).

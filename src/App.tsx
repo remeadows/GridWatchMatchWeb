@@ -15,7 +15,7 @@ import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
-import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots } from "./services/cloudSync";
+import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
 import { applyCloudPayload, changedSlots, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
 import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
@@ -55,6 +55,21 @@ interface BoosterDragState {
   y: number;
 }
 
+/**
+ * `persistSaveState` writes localStorage (and IndexedDB), either of which can reject — quota, a
+ * privacy mode, storage disabled. The cloud paths below call it without awaiting, so without this
+ * the rejection is an unhandled promise rejection; the app itself is fine (the state is already in
+ * `saveRef`/`setSave`, and the unsynced flag is set BEFORE any of this), so it is a warning, not a
+ * failure. Warned once per page load: a storage that fails once fails on every commit, and a
+ * per-commit warning buries the console without adding anything.
+ */
+let warnedPersistFailure = false;
+function warnPersistFailed(error: unknown): void {
+  if (warnedPersistFailure) return;
+  warnedPersistFailure = true;
+  console.warn("[cloud-saves] could not persist the local save:", error instanceof Error ? error.message : String(error));
+}
+
 export default function App() {
   const [save, setSave] = useState<SaveState | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
@@ -76,8 +91,11 @@ export default function App() {
   // Lazily initialised through a ref, not useMemo, so it is the same instance for the component's
   // whole life even when React re-runs the render body (StrictMode, a discarded render).
   // The retry throttle comes from the URL so an e2e scenario can exercise the retry path without a
-  // 30 s real-time sleep; `cloudRetryThrottleMs` ignores anything but the exact `?gwTestMode=1`
-  // query, so a shipped build is always the 30 s default.
+  // 30 s real-time sleep. `?gwTestMode=1` is a RUNTIME query parameter, not a build-time flag, so
+  // this hook is reachable on a production build too — the same as the app's other gwTestMode hooks,
+  // and deliberately so. The impact is bounded: the only thing a shortened window can do is let the
+  // gate re-attempt a reconcile sooner, and a reconcile is still armed only by an online /
+  // visibilitychange / commit event, i.e. at most one reconcile per event.
   const gateRef = useRef<CloudGate<SaveState> | null>(null);
   if (gateRef.current === null) {
     gateRef.current = createCloudGate<SaveState>(
@@ -93,7 +111,7 @@ export default function App() {
     const next = applyCloudPayload(current, slot, payload);
     saveRef.current = next;
     setSave(next);
-    void persistSaveState(next);
+    void persistSaveState(next).catch(warnPersistFailed);
     // The player chose the cloud copy, so whatever local work this slot was holding is gone by
     // their own decision — the flag has nothing left to protect. Cleared here rather than in
     // storeChanges so it only happens once the cloud payload is actually applied.
@@ -108,8 +126,13 @@ export default function App() {
     if (settled) clearUnsynced([slot]);
   }, []);
 
-  const cloudSync = useMemo(
-    () => createCloudSync({
+  // Same reasoning as the gate above: `createCloudSync` holds mutable per-slot bookkeeping (its
+  // outstanding-store counts), so it must be ONE instance for the component's whole life. A useMemo
+  // is a cache, not a guarantee — React may discard and re-run a render — and a fresh instance would
+  // silently reset the counts that guard the unsynced flag.
+  const cloudSyncRef = useRef<CloudSync | null>(null);
+  if (cloudSyncRef.current === null) {
+    cloudSyncRef.current = createCloudSync({
       saves: accountKit.saves,
       enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
       onUseCloud: applyCloud,
@@ -126,13 +149,21 @@ export default function App() {
       // cloudSync's, because a matching payload can be stale the moment a queued store lands (B, C,
       // then B again: PUT1's reply matches the current B while PUT2 is about to publish C). onStored
       // is not even called until that is true, so this stays a plain freshness check.
+      //
+      // Cross-account safety: this clear is not keyed on a user id, so in principle a reply for the
+      // previous account could clear a flag the next account now owns. It is safe only because every
+      // kit path that can produce a `stored` reply goes through the kit's `confirmed()`, which writes
+      // the per-slot OWNER record alongside the revision — so the next account's reconcile sees a
+      // slot owned by someone else and prompts (take over / start fresh) rather than trusting either
+      // the flag or the kit's clean record. The flag is a within-account freshness signal; ownership
+      // is what protects across accounts.
       onStored: (slot, payload) => {
         const current = saveRef.current;
         if (current && isCurrentProjection(current, slot, payload)) clearUnsynced([slot]);
       },
-    }),
-    [applyCloud],
-  );
+    });
+  }
+  const cloudSync = cloudSyncRef.current;
 
   useEffect(() => {
     let active = true;
@@ -161,7 +192,7 @@ export default function App() {
       if (next !== current) {
         saveRef.current = next;
         setSave(next);
-        void persistSaveState(next);
+        void persistSaveState(next).catch(warnPersistFailed);
       }
       // Which slots the cloud provably holds is a per-slot FACT about what this run did, not a
       // consequence of the run-level flush decision — so it is computed and applied ABOVE the gate.
@@ -169,6 +200,14 @@ export default function App() {
       // it did; leaving those flagged is a stale flag, which later costs a redundant upload or, far
       // worse, a misleading conflict prompt whose "Keep this one" pushes OLD content over a newer
       // cloud row. The gate governs the FLUSH only.
+      //
+      // Unlike the store path's `use_cloud` clear, this one has NO outstanding-store check, and does
+      // not need one: the gate holds every store until a reconcile has settled successfully, so a
+      // store can only be in flight at settle time if an EARLIER run already latched "done" for a
+      // user, issued a store, and then the gate went idle again — which for the same user means a
+      // sign-out (`begin(null)`) followed by a sign-in, both inside the kit's 750 ms store debounce.
+      // Sign-in is a full-page redirect, so that window cannot be met. If sign-in ever becomes
+      // in-page, this clear needs the same guard the store path now has.
       const { clear, skip } = settledSlots({ startedWith, next, replaced, uploaded });
       clearUnsynced(clear);
       const { flushBase } = gate.settle(token, startedWith, failed);

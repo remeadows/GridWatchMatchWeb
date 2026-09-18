@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { RETRY_THROTTLE_PARAM } from "../../src/services/cloudGate";
 
 const USER_ID = "00000000-0000-4000-8000-000000000001";
 const SESSION_KEY = "sb-mggxfzzxrpjgpzhwiwqi-auth-token";
@@ -429,10 +430,10 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   api.failGets.campaign = 500;
 
   // The gate throttles re-arming a failed run, and the retry leg below has to wait that out for
-  // real. `gwCloudRetryThrottleMs` is the test-only override (exact `gwTestMode=1` only, see
+  // real. `RETRY_THROTTLE_PARAM` is the throttle override (exact `gwTestMode=1` only, see
   // cloudGate.cloudRetryThrottleMs): 1.5 s exercises the same throttle-then-allow path as the 30 s
   // production default without 30 s of sleeping.
-  await page.goto("./?gwTestMode=1&gwCloudRetryThrottleMs=1500");
+  await page.goto(`./?gwTestMode=1&${RETRY_THROTTLE_PARAM}=1500`);
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await expect.poll(() => [...new Set(api.gets)].sort()).toEqual(["campaign", "settings"]);
   // A real commit, mid-reconcile, to the slot the cloud is about to replace. This is what SETS the
