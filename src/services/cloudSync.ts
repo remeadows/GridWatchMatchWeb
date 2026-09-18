@@ -111,7 +111,8 @@ export interface CloudSync {
   reconcileAll(save: SaveState, unsynced: readonly CloudSlot[]): Promise<SlotOutcome[]>;
   /** After every local commit, and once when a reconcile settles. Slots listed in `skip` are never
    *  stored. A `use_cloud` answer goes to onUseCloud; a `stored` reply — proof the cloud took THAT
-   *  payload — goes to onStored together with the payload that was stored. */
+   *  payload — goes to onStored together with the payload that was stored, but only once nothing
+   *  else it issued for that slot is still outstanding. */
   storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
 }
 
@@ -124,12 +125,41 @@ export interface CloudSyncOptions {
    *  offered again next reconcile. The payload is handed over because the reply proves only that
    *  the cloud took *that*: a commit made while the PUT was in flight (the kit debounces by 750 ms
    *  and serializes per slot) is still unsent, so the receiver must compare before it clears
-   *  anything. See `isCurrentProjection`. */
+   *  anything. See `isCurrentProjection`.
+   *
+   *  Not called at all while ANY other store for the same slot is still outstanding — see
+   *  `createCloudSync`. So the receiver's own check stays a pure "is this payload current?"
+   *  question, and the two halves of the freshness predicate are each owned by the module that can
+   *  actually answer them: this one knows what is in flight, the caller knows what is on screen. */
   onStored: (slot: CloudSlot, payload: Record<string, unknown>) => void;
 }
 
 export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudSyncOptions): CloudSync {
   const active = enabled && saves ? saves : null;
+
+  /**
+   * How many stores this module has issued for each slot that have not settled yet.
+   *
+   * A `stored` reply whose payload equals the current projection is NOT proof that the cloud holds
+   * the slot, because that match is point-in-time and the kit serializes stores per slot:
+   *
+   *   commit1 -> B  (PUT1, slow reply)
+   *   commit2 -> C  (>750 ms later, so a new PUT2 queued behind PUT1)
+   *   commit3 -> B  (PUT3 queued behind PUT2)
+   *
+   * PUT1's reply arrives while PUT2 and PUT3 are still queued. Its payload is B, which IS what the
+   * device holds — so a payload-only check clears the flag. PUT2 then moves the cloud to C with the
+   * flag already clear, and if PUT3 dies terminally (403, or conflicts exhausted) the device holds
+   * B, the cloud holds C, and nothing marks the slot as local-only: the next sign-in against the
+   * moved cloud replaces B silently. So a reply counts only when nothing else for that slot is
+   * still in the air.
+   *
+   * Deliberately a plain in-memory count, not persisted: the flag it guards is only ever CLEARED
+   * here, so losing the count on reload just means the flag stays set — the safe direction, costing
+   * at worst a redundant upload or one extra prompt.
+   */
+  const outstanding = new Map<CloudSlot, number>();
+  const outstandingFor = (slot: CloudSlot): number => outstanding.get(slot) ?? 0;
 
   return {
     async reconcileAll(save, unsynced) {
@@ -168,11 +198,19 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
         // compare what the cloud took against what the device holds at REPLY time, so re-projecting
         // `next` later would compare the payload with itself and always look current.
         const payload = projection(next, slot);
-        active.store(slot, payload).then((result) => {
-          if (result.status === "stored") onStored(slot, payload);
-          else if (result.status === "use_cloud") onUseCloud(slot, result.save.payload);
-          else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);
-        }).catch((error: unknown) => console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error)));
+        outstanding.set(slot, outstandingFor(slot) + 1);
+        active.store(slot, payload)
+          // Decremented however the promise settles — stored, use_cloud, signed_out, error or a
+          // throw — and BEFORE the handler below reads the count, so the count it sees is "everything
+          // else still in the air for this slot", excluding this reply itself. A leaked count here
+          // would wedge the slot's flag as permanently unclearable for the life of the page.
+          .finally(() => outstanding.set(slot, Math.max(0, outstandingFor(slot) - 1)))
+          .then((result) => {
+            if (result.status === "stored") {
+              if (outstandingFor(slot) === 0) onStored(slot, payload);
+            } else if (result.status === "use_cloud") onUseCloud(slot, result.save.payload);
+            else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);
+          }).catch((error: unknown) => console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error)));
       }
     },
   };

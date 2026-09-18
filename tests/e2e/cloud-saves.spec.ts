@@ -370,13 +370,23 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
   // branch — and the kit UPLOADS, rather than prompting.
   const api = await heldLocalChange(page, rows, 403);
   api.gets.length = 0;
-  api.getDelayMs = 3_000; // hold the post-reload GETs open so a real commit lands mid-reconcile
+  // Hold the post-reload GETs open so a real commit lands mid-reconcile. 4 s, not 3 s: the two
+  // clicks below happen inside this window and the pin after them has to be reliable on the slower
+  // mobile project too — lengthening the hold is the cheap half of that trade.
+  api.getDelayMs = 4_000;
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await expect.poll(() => api.gets.slice().sort()).toEqual(["campaign", "settings"]);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/Sound Effects/).click(); // a real commitSave, mid-reconcile, held by the gate
+
+  // The pin that this scenario is actually testing what it says: the GETs are STILL held, so the
+  // reconcile has not settled and the gate cannot have let anything out. Without this, a hold that
+  // expired early (or a reconcile that never held at all) would turn the whole test into an
+  // ordinary post-settle commit and the two PUTs below would still line up.
+  expect(api.puts.filter((p) => p.slot === "settings")).toEqual([]);
+  expect(api.puts).toEqual([]);
 
   // Exactly two PUTs for this slot: the kit's upload of the PRE-commit projection, then the
   // settle-time flush carrying the mid-flight commit on the revision that upload just created.
@@ -409,9 +419,7 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
 });
 
 test("a run that failed on one slot still clears the flag on the slot the cloud replaced", async ({ page }) => {
-  // The gate throttles re-arming a failed run for RECONCILE_RETRY_THROTTLE_MS (30 s), and the
-  // retry half of this scenario has to wait that out for real.
-  test.setTimeout(120_000);
+  test.setTimeout(60_000);
   await seedSession(page);
   const rows: Record<string, Row | undefined> = { settings: settingsRow() };
   const api = fakeSavesApi(page, rows, { getDelayMs: 1_500 });
@@ -420,7 +428,11 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   // and reconcileAll awaits BOTH slots, so the fold only lands once that leg has given up.
   api.failGets.campaign = 500;
 
-  await page.goto("./?gwTestMode=1");
+  // The gate throttles re-arming a failed run, and the retry leg below has to wait that out for
+  // real. `gwCloudRetryThrottleMs` is the test-only override (exact `gwTestMode=1` only, see
+  // cloudGate.cloudRetryThrottleMs): 1.5 s exercises the same throttle-then-allow path as the 30 s
+  // production default without 30 s of sleeping.
+  await page.goto("./?gwTestMode=1&gwCloudRetryThrottleMs=1500");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await expect.poll(() => [...new Set(api.gets)].sort()).toEqual(["campaign", "settings"]);
   // A real commit, mid-reconcile, to the slot the cloud is about to replace. This is what SETS the
@@ -448,12 +460,28 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   await expect.poll(async () => {
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     return api.gets.filter((slot) => slot === "campaign").length > campaignGets;
-  }, { timeout: 75_000, intervals: [2_000] }).toBe(true);
-  // Settled this time, so the gate releases stores again and the next commit goes straight up.
+  }, { timeout: 20_000, intervals: [2_000] }).toBe(true);
+
+  // The settle comes FIRST, and it flushes on its own: the mid-reconcile Voice Lines commit was
+  // held by the failed run, so run 2's settle sends it before the test touches anything. Asserting
+  // it explicitly is what keeps the click's PUT below unambiguous — measuring "one PUT" after the
+  // click used to measure THIS one, and a poll could land between the two.
+  await expect.poll(() => api.puts.length, { timeout: 20_000 }).toBe(1);
+  expect(api.puts[0].slot).toBe("settings");
+  expect(api.puts[0].body.baseRevision).toBe(1); // the revision the run-1 use_cloud recorded
+  expect(rows.settings!.revision).toBe(2);
+  api.puts.length = 0;
+
+  // Settled this time, so the gate releases stores again and the next commit goes straight up — on
+  // the revision that flush just created.
   await page.getByLabel(/Reduced Motion/).click();
   await expect.poll(() => api.puts.length, { timeout: 10_000 }).toBe(1);
   expect(api.puts[0].slot).toBe("settings");
-  expect(api.puts[0].body.baseRevision).toBe(1);
+  expect(api.puts[0].body.baseRevision).toBe(2);
+  expect((api.puts[0].body.payload as { reducedMotion: boolean }).reducedMotion).toBe(true);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toHaveLength(1); // ...and exactly one, not a second attempt behind it
+  expect(rows.settings!.revision).toBe(3);
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
   await expect(savePrompt(page)).toHaveCount(0);
 });

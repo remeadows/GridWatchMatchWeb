@@ -1,6 +1,32 @@
 /** How long an idle gate waits before another reconcile attempt for the same user. */
 export const RECONCILE_RETRY_THROTTLE_MS = 30_000;
 
+/** Query parameter carrying the test-only throttle override, in milliseconds. */
+export const RETRY_THROTTLE_PARAM = "gwCloudRetryThrottleMs";
+
+/**
+ * The throttle window `createCloudGate` should use for this page load.
+ *
+ * Test-only escape hatch: 30 s of real waiting is the right production answer (an errored reconcile
+ * must not turn `online` / `visibilitychange` into a request loop) but it makes the retry leg of an
+ * e2e scenario a ~35 s sleep. Gated on the exact `?gwTestMode=1` query the rest of the app's test
+ * hooks use (see `BoardScene.setBoardReadyFlag`), so a production build always gets the default and
+ * a crafted link cannot shorten it. A missing, empty, non-numeric, negative or non-finite value is
+ * the default too — this only ever narrows to a real number the caller asked for.
+ *
+ * Pure and string-in so it is directly testable, and so the caller keeps the `window` guard.
+ */
+export function cloudRetryThrottleMs(search: string | undefined): number {
+  if (!search) return RECONCILE_RETRY_THROTTLE_MS;
+  const params = new URLSearchParams(search);
+  if (params.get("gwTestMode") !== "1") return RECONCILE_RETRY_THROTTLE_MS;
+  const raw = params.get(RETRY_THROTTLE_PARAM);
+  if (raw === null || raw.trim() === "") return RECONCILE_RETRY_THROTTLE_MS;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return RECONCILE_RETRY_THROTTLE_MS;
+  return value;
+}
+
 export type CloudGateStatus = "idle" | "running" | "done";
 
 export interface CloudGateSettlement<S> {

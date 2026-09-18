@@ -14,7 +14,7 @@ import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
-import { createCloudGate, type CloudGate } from "./services/cloudGate";
+import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
 import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
 import { applyCloudPayload, changedSlots, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
@@ -75,8 +75,15 @@ export default function App() {
   // — never on the session object (a fresh object on every auth emission) and never on `save`.
   // Lazily initialised through a ref, not useMemo, so it is the same instance for the component's
   // whole life even when React re-runs the render body (StrictMode, a discarded render).
+  // The retry throttle comes from the URL so an e2e scenario can exercise the retry path without a
+  // 30 s real-time sleep; `cloudRetryThrottleMs` ignores anything but the exact `?gwTestMode=1`
+  // query, so a shipped build is always the 30 s default.
   const gateRef = useRef<CloudGate<SaveState> | null>(null);
-  if (gateRef.current === null) gateRef.current = createCloudGate<SaveState>();
+  if (gateRef.current === null) {
+    gateRef.current = createCloudGate<SaveState>(
+      cloudRetryThrottleMs(typeof window === "undefined" ? undefined : window.location.search),
+    );
+  }
   const gate = gateRef.current;
   const [reconcileNonce, setReconcileNonce] = useState(0);
 
@@ -105,6 +112,12 @@ export default function App() {
       // only protection that commit had — if its own PUT then failed terminally (403) or the tab
       // closed, it was local-only with no flag, and the next sign-in with a moved cloud replaced it
       // silently. So the flag is cleared only on proof that what the cloud took IS what is here.
+      //
+      // "Is what is here" is the half this call site can answer, and the ONLY half it answers. The
+      // other half — that no later store for the slot is still queued behind this reply — is
+      // cloudSync's, because a matching payload can be stale the moment a queued store lands (B, C,
+      // then B again: PUT1's reply matches the current B while PUT2 is about to publish C). onStored
+      // is not even called until that is true, so this stays a plain freshness check.
       onStored: (slot, payload) => {
         const current = saveRef.current;
         if (current && isCurrentProjection(current, slot, payload)) clearUnsynced([slot]);

@@ -18,6 +18,18 @@ function makeSync(saves: SavesClient | undefined, enabled = true) {
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+type StoreResult = Awaited<ReturnType<SavesClient["store"]>>;
+
+/** A store promise the test settles by hand, so several stores for one slot can genuinely overlap. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+const stored = (revision: number): StoreResult => ({ status: "stored", revision, updatedAt: "t" });
+
 const cloudSave = (payload: Record<string, unknown>, revision = 2) => ({ revision, schemaVersion: 1, payload, updatedAt: "t" });
 
 describe("foldOutcomes", () => {
@@ -390,5 +402,131 @@ describe("createCloudSync", () => {
     await tick();
     expect(store).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `onStored` is the app's only proof that the cloud holds a slot, and the app clears the slot's
+ * unsynced flag on it. A payload that matches the current projection is not enough on its own: the
+ * match is point-in-time, and the kit serializes stores per slot, so a LATER store that is still
+ * queued can move the cloud away again after the match was observed. These tests pin the second
+ * half of the predicate — nothing else for that slot may still be outstanding.
+ */
+describe("createCloudSync outstanding stores", () => {
+  const settingsOnly = (base: SaveState, settings: Partial<SaveState["settings"]>): SaveState =>
+    normalizeSave({ ...base, settings: { ...base.settings, ...settings } });
+
+  /** A = the defaults, B = music off, C = music off + sfx off. B and C differ only in `settings`. */
+  const A = defaultSaveState();
+  const B = settingsOnly(A, { musicEnabled: false });
+  const C = settingsOnly(B, { sfxEnabled: false });
+
+  it("does not report PUT1's stored reply when a later store for the same slot is still outstanding", async () => {
+    // commit1 A->B (PUT1, slow reply); commit2 B->C queued behind it; commit3 C->B queued behind
+    // that. PUT1's reply lands last-but-two and its payload IS the current projection (B again) —
+    // the point-in-time check passes. Clearing there is the bug: PUT2 then puts the cloud at C, and
+    // when PUT3 fails terminally the device holds B, the cloud holds C, and nothing is flagged.
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    const put3 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise).mockReturnValueOnce(put3.promise);
+
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+    sync.storeChanges(C, B);
+    expect(store).toHaveBeenCalledTimes(3);
+    expect(store.mock.calls.map((call) => call[0])).toEqual(["settings", "settings", "settings"]);
+
+    put1.resolve(stored(1));
+    await tick();
+    expect(onStored).not.toHaveBeenCalled(); // PUT2 and PUT3 still outstanding
+
+    put2.resolve(stored(2));
+    await tick();
+    expect(onStored).not.toHaveBeenCalled(); // PUT3 still outstanding
+
+    put3.reject(new Error("403 forbidden")); // terminal: the kit gives up, the cloud keeps C
+    await tick();
+    expect(onStored).not.toHaveBeenCalled();
+  });
+
+  it("reports a lone store whose payload the cloud took", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise);
+    sync.storeChanges(A, B);
+    put1.resolve(stored(1));
+    await tick();
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(B)]]);
+  });
+
+  it("reports only the LAST of two overlapping stores, on its own reply", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+
+    put1.resolve(stored(1));
+    await tick();
+    expect(onStored).not.toHaveBeenCalled();
+
+    put2.resolve(stored(2));
+    await tick();
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+  });
+
+  it("counts down on an error result, so a later store is still reported", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+    put1.resolve({ status: "error", error: { code: "upstream", message: "503" } });
+    await tick();
+    expect(onStored).not.toHaveBeenCalled();
+    put2.resolve(stored(1));
+    await tick();
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+  });
+
+  it("counts down on a thrown rejection, so a later store is still reported", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+    put1.reject(new Error("network down"));
+    await tick();
+    expect(onStored).not.toHaveBeenCalled();
+    put2.resolve(stored(1));
+    await tick();
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+  });
+
+  it("counts per slot: an outstanding campaign store does not hold back a settled settings store", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync, onStored } = makeSync(saves);
+    const campaign = deferred<StoreResult>();
+    const settings = deferred<StoreResult>();
+    // One commit changing BOTH slots: campaign is stored first (CLOUD_SLOTS order), settings second.
+    store.mockReturnValueOnce(campaign.promise).mockReturnValueOnce(settings.promise);
+    sync.storeChanges(A, normalizeSave({ ...B, coins: 5 }));
+    expect(store.mock.calls.map((call) => call[0])).toEqual(["campaign", "settings"]);
+    settings.resolve(stored(1));
+    await tick();
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(B)]]);
+    campaign.resolve(stored(1));
+    await tick();
+    expect(onStored).toHaveBeenCalledTimes(2);
   });
 });

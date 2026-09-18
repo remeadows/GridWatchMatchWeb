@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createCloudGate, RECONCILE_RETRY_THROTTLE_MS } from "../services/cloudGate";
+import { cloudRetryThrottleMs, createCloudGate, RECONCILE_RETRY_THROTTLE_MS } from "../services/cloudGate";
 
 // The gate is pure bookkeeping over opaque snapshots, so the tests use plain string states.
 type S = string;
@@ -132,5 +132,37 @@ describe("createCloudGate", () => {
     gate.settle(token, "s0", true);
     expect(gate.shouldRetry(USER, T0 + 4_999)).toBe(false);
     expect(gate.shouldRetry(USER, T0 + 5_000)).toBe(true);
+  });
+});
+
+/** The app has exactly one way in: the same exact `?gwTestMode=1` query the board's test hooks are
+ *  gated on (see BoardScene.setBoardReadyFlag). Anything else is the 30 s production default, so a
+ *  shipped build cannot be talked into a hot retry loop by a crafted link. */
+describe("cloudRetryThrottleMs", () => {
+  it("reads an override only under the exact gwTestMode=1 query", () => {
+    expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=1500")).toBe(1_500);
+    expect(cloudRetryThrottleMs("gwTestMode=1&gwCloudRetryThrottleMs=0")).toBe(0);
+    // No flag, or a flag that is not exactly "1": the override is ignored outright.
+    expect(cloudRetryThrottleMs("?gwCloudRetryThrottleMs=1500")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode=true&gwCloudRetryThrottleMs=1500")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode&gwCloudRetryThrottleMs=1500")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+  });
+
+  it("falls back to the default for a missing, unparseable or negative value", () => {
+    expect(cloudRetryThrottleMs("?gwTestMode=1")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=soon")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=-1")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=Infinity")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs("")).toBe(RECONCILE_RETRY_THROTTLE_MS);
+    expect(cloudRetryThrottleMs(undefined)).toBe(RECONCILE_RETRY_THROTTLE_MS);
+  });
+
+  it("is what the gate then throttles by", () => {
+    const gate = createCloudGate<S>(cloudRetryThrottleMs("?gwTestMode=1&gwCloudRetryThrottleMs=1500"));
+    const token = gate.begin(USER, T0)!;
+    gate.settle(token, "s0", true);
+    expect(gate.shouldRetry(USER, T0 + 1_499)).toBe(false);
+    expect(gate.shouldRetry(USER, T0 + 1_500)).toBe(true);
   });
 });
