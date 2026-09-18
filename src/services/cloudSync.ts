@@ -110,16 +110,28 @@ export interface CloudSync {
    *  reconcile is never discarded. */
   reconcileAll(save: SaveState, unsynced: readonly CloudSlot[]): Promise<SlotOutcome[]>;
   /** After every local commit, and once when a reconcile settles. Slots listed in `skip` are never
-   *  stored. A `use_cloud` answer goes to onUseCloud; a `stored` reply — proof the cloud took THAT
-   *  payload — goes to onStored together with the payload that was stored, but only once nothing
-   *  else it issued for that slot is still outstanding. */
+   *  stored. A `use_cloud` answer goes to onUseCloud with its payload and with whether anything else
+   *  for that slot was still outstanding; a `stored` reply — proof the cloud took THAT payload —
+   *  goes to onStored together with the payload that was stored, but only once nothing else it
+   *  issued for that slot is still outstanding. */
   storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
 }
 
 export interface CloudSyncOptions {
   saves: SavesClient | undefined;
   enabled: boolean;
-  onUseCloud: (slot: CloudSlot, payload: unknown) => void;
+  /** A `use_cloud` answer to a store: the player resolved the kit's conflict prompt by taking the
+   *  cloud copy. The payload is ALWAYS applied — a kit answer is never discarded, and by the time it
+   *  answers the kit has already written its own record at the cloud revision, so holding the
+   *  payload back would leave the app on a local copy the next store would silently push up.
+   *
+   *  `settled` is the conditional half, and it governs only the FLAG. It is true when nothing else
+   *  this module issued for the slot is still outstanding. When it is false, another store is queued
+   *  behind the answer and will flush on the revision the answer just confirmed — landing the very
+   *  copy the player rejected — so the slot is genuinely out of sync and must stay flagged. The flag
+   *  then stays set even though the applied payload just replaced that commit's content: intended,
+   *  and the next reconcile repairs the slot through `restore_dirty`. */
+  onUseCloud: (slot: CloudSlot, payload: unknown, settled: boolean) => void;
   /** Called with a slot the cloud has definitely accepted (`stored`) AND the exact payload it
    *  accepted, never for `use_cloud`, `signed_out` or `error` — those leave the slot unsynced and
    *  offered again next reconcile. The payload is handed over because the reply proves only that
@@ -208,8 +220,12 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
           .then((result) => {
             if (result.status === "stored") {
               if (outstandingFor(slot) === 0) onStored(slot, payload);
-            } else if (result.status === "use_cloud") onUseCloud(slot, result.save.payload);
-            else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);
+            } else if (result.status === "use_cloud") {
+              // Payload unconditionally, clear only when nothing else for this slot is in the air:
+              // a queued store flushes on the revision this answer just confirmed and would land the
+              // copy the player rejected, with the flag the only thing left saying so.
+              onUseCloud(slot, result.save.payload, outstandingFor(slot) === 0);
+            } else if (result.status === "error") console.warn(`[cloud-saves] store ${slot} failed:`, result.error.message);
           }).catch((error: unknown) => console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error)));
       }
     },

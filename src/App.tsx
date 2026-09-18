@@ -87,7 +87,7 @@ export default function App() {
   const gate = gateRef.current;
   const [reconcileNonce, setReconcileNonce] = useState(0);
 
-  const applyCloud = useCallback((slot: CloudSlot, payload: unknown) => {
+  const applyCloud = useCallback((slot: CloudSlot, payload: unknown, settled: boolean) => {
     const current = saveRef.current;
     if (!current) return;
     const next = applyCloudPayload(current, slot, payload);
@@ -97,7 +97,15 @@ export default function App() {
     // The player chose the cloud copy, so whatever local work this slot was holding is gone by
     // their own decision — the flag has nothing left to protect. Cleared here rather than in
     // storeChanges so it only happens once the cloud payload is actually applied.
-    clearUnsynced([slot]);
+    //
+    // ...but ONLY when this answer was the last word for the slot. `settled` false means another
+    // store is queued behind it and will flush on the revision this answer just confirmed, landing
+    // the copy the player rejected — a 200 with no 409 and no prompt. Clearing here would leave the
+    // device on the cloud copy, the cloud on the rejected commit, and the kit's own record clean, so
+    // the next reconcile answers `current` and nothing ever repairs it. Keeping the flag set even
+    // though the payload just replaced that commit's content is the intended outcome: the next
+    // reconcile sends the slot as a real local copy and the kit resolves it (`restore_dirty`).
+    if (settled) clearUnsynced([slot]);
   }, []);
 
   const cloudSync = useMemo(

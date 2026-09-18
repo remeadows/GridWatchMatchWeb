@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SavesClient } from "@gridwatch/account-kit";
 import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type SlotOutcome } from "../services/cloudSync";
-import { projection, toCampaignPayload, toSettingsPayload } from "../state/cloudSaves";
+import { applyCloudPayload, projection, toCampaignPayload, toSettingsPayload, type CloudSlot } from "../state/cloudSaves";
 import { defaultSaveState, normalizeSave, type SaveState } from "../state/save";
 
 function fakeSaves() {
@@ -308,7 +308,7 @@ describe("createCloudSync", () => {
     await tick();
     expect(store).toHaveBeenCalledTimes(1);
     expect(store.mock.calls[0]).toEqual(["campaign", toCampaignPayload(after)]);
-    expect(onUseCloud).toHaveBeenCalledWith("campaign", cloudCampaign);
+    expect(onUseCloud).toHaveBeenCalledWith("campaign", cloudCampaign, true);
     expect(onStored).not.toHaveBeenCalled(); // a use_cloud store is NOT proof of upload
   });
 
@@ -511,6 +511,85 @@ describe("createCloudSync outstanding stores", () => {
     put2.resolve(stored(1));
     await tick();
     expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+  });
+
+  it("applies a use_cloud answer but signals no clear while another store for the slot is outstanding", async () => {
+    // commit1 A->B (PUT1); its 409 opens the kit's conflict prompt. An animation-driven commit2
+    // B->C (no user input needed) queues PUT2 behind it. The player answers "Use cloud": the cloud
+    // payload MUST still be applied — a kit answer is never discarded — but the flag must NOT be
+    // cleared. PUT2 then flushes on the revision the answer just confirmed and lands C, the copy the
+    // player rejected; with the flag clear and the kit's own record clean the next reconcile answers
+    // `current` and nothing ever repairs it.
+    const { saves, store } = fakeSaves();
+    const { sync, onUseCloud, onStored } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+
+    const cloudPayload = { ...toSettingsPayload(A) };
+    put1.resolve({ status: "use_cloud", save: cloudSave(cloudPayload, 4) });
+    await tick();
+    expect(onUseCloud.mock.calls).toEqual([["settings", cloudPayload, false]]);
+    expect(onStored).not.toHaveBeenCalled();
+
+    put2.resolve(stored(5));
+    await tick();
+    // PUT2's reply is the last word for the slot, so it IS reported — with its own payload (C).
+    // Keeping the flag set through the answer is what makes the caller's freshness check reject it.
+    expect(onStored.mock.calls).toEqual([["settings", toSettingsPayload(C)]]);
+  });
+
+  it("signals a clear for a lone store's use_cloud answer", async () => {
+    // Control for the test above: nothing else is queued, so the cloud holds exactly what the answer
+    // just put on screen and the flag has nothing left to protect.
+    const { saves, store } = fakeSaves();
+    const { sync, onUseCloud } = makeSync(saves);
+    const put1 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise);
+    sync.storeChanges(A, B);
+    const cloudPayload = { ...toSettingsPayload(A) };
+    put1.resolve({ status: "use_cloud", save: cloudSave(cloudPayload, 4) });
+    await tick();
+    expect(onUseCloud.mock.calls).toEqual([["settings", cloudPayload, true]]);
+  });
+
+  it("leaves the slot flagged end to end when the cloud ends up with the commit the player rejected", async () => {
+    // The two halves of the predicate composed the way App.tsx composes them, over a one-slot flag
+    // set: `settled` guards the use_cloud clear, `isCurrentProjection` guards the stored clear. The
+    // point is the subtlety — after the cloud payload replaces commit2's content the flag is STILL
+    // set, which is intended: the next reconcile repairs the slot via `restore_dirty`.
+    const { saves, store } = fakeSaves();
+    const put1 = deferred<StoreResult>();
+    const put2 = deferred<StoreResult>();
+    store.mockReturnValueOnce(put1.promise).mockReturnValueOnce(put2.promise);
+    let current: SaveState = C; // what the device holds after commit2
+    const flagged = new Set<CloudSlot>(["settings"]);
+    const sync = createCloudSync({
+      saves,
+      enabled: true,
+      onUseCloud: (slot, payload, settled) => {
+        current = applyCloudPayload(current, slot, payload);
+        if (settled) flagged.delete(slot);
+      },
+      onStored: (slot, payload) => {
+        if (isCurrentProjection(current, slot, payload)) flagged.delete(slot);
+      },
+    });
+    sync.storeChanges(A, B);
+    sync.storeChanges(B, C);
+
+    put1.resolve({ status: "use_cloud", save: cloudSave({ ...toSettingsPayload(A) }, 4) });
+    await tick();
+    expect(current.settings).toEqual(A.settings); // the kit's answer was applied, unconditionally
+    expect([...flagged]).toEqual(["settings"]); // ...and the flag survived it
+
+    put2.resolve(stored(5));
+    await tick();
+    // PUT2 put C in the cloud; the device holds the cloud copy the player chose. Not current, so
+    // the flag stays — the slot really is out of sync, and only the flag says so.
+    expect([...flagged]).toEqual(["settings"]);
   });
 
   it("counts per slot: an outstanding campaign store does not hold back a settled settings store", async () => {
