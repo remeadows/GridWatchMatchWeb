@@ -123,6 +123,17 @@ export default function App() {
     // the next reconcile answers `current` and nothing ever repairs it. Keeping the flag set even
     // though the payload just replaced that commit's content is the intended outcome: the next
     // reconcile sends the slot as a real local copy and the kit resolves it (`restore_dirty`).
+    //
+    // What the retained flag actually costs, under kit v0.2.2: nothing in the cloud. The store
+    // queued behind a "Use cloud" answer is DROPPED by the kit, not sent — answering bumps the
+    // slot's discard epoch (`noteDiscard`) and every commit stamped with the older epoch is
+    // discarded at flush, precisely so it cannot land on the revision the answer just confirmed.
+    // So the cloud is not polluted, and the slot is out of sync only in the harmless direction:
+    // the device holds the cloud copy, the cloud holds the same thing, and the flag is stale. The
+    // price is one redundant PUT at the next load's reconcile (`restore_dirty` uploads the slot
+    // again). That is why nothing is re-armed here — the gate deliberately stays `done`: a
+    // reconcile re-armed for a flag with no real divergence behind it would cost two GETs and the
+    // risk of a prompt, to fix a bookkeeping entry the next ordinary load fixes for free.
     if (settled) clearUnsynced([slot]);
   }, []);
 
@@ -183,9 +194,13 @@ export default function App() {
   // snapshot the run started with. Whether this run may then flush is the gate's call, not ours.
   useEffect(() => {
     if (!hasSave || auth.loading) return;
+    // Read once, and checked BEFORE `gate.begin`: beginning a run whose snapshot cannot be read
+    // would burn the gate's token and its throttle window on a run that cannot happen. Unreachable
+    // in practice — `hasSave` and this ref are written together — so it is narrowing, not a branch.
+    const startedWith = saveRef.current;
+    if (startedWith === null) return;
     const token = gate.begin(userId, Date.now()); // null userId resets the gate (sign-out)
     if (token === null) return;
-    const startedWith = saveRef.current as SaveState;
     // A slot's answer is applied the moment THAT slot resolves, because the kit serializes per slot
     // and one slot can sit on a player prompt for minutes while the other is long done. Waiting for
     // both meant every commit made to the finished slot in between was overwritten by the late fold,
@@ -212,7 +227,9 @@ export default function App() {
       applied.set(slot, projection(after, slot));
     };
     void cloudSync.reconcileAll(startedWith, readUnsynced(), applyResolved).then((outcomes) => {
-      const current = saveRef.current as SaveState;
+      // The state as it is NOW, so the fold lands on top of anything committed mid-run. The fallback
+      // is the same narrowing as above, not a real case: the ref is only ever assigned, never reset.
+      const current = saveRef.current ?? startedWith;
       const { next, replaced, uploaded, failed } = foldOutcomes(current, outcomes, [...applied.keys()]);
       if (next !== current) {
         saveRef.current = next;
@@ -288,7 +305,7 @@ export default function App() {
     if (previous) markUnsynced(changedSlots(previous, next));
     saveRef.current = next;
     setSave(next);
-    void persistSaveState(next);
+    void persistSaveState(next).catch(warnPersistFailed);
     // A cloud store leaves the app only once a reconcile has settled successfully for THIS user.
     // Anything earlier — gate idle, run in flight, signed out, or a reconcile that errored — is
     // held: the kit reads baseRevision at flush time inside its per-slot serialized chain, so a

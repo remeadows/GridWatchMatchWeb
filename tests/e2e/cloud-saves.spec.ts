@@ -43,7 +43,10 @@ interface FakeSavesApi {
   releaseGet(slot: string): void;
 }
 
-function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options: { getDelayMs?: number } = {}): FakeSavesApi {
+/** Async, and awaited at every call site: `page.route` returns a promise, and a route that is still
+ *  being installed when `page.goto` runs is a race the app can win — the first reconcile's GETs
+ *  would then hit the real network instead of this fake. */
+async function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options: { getDelayMs?: number } = {}): Promise<FakeSavesApi> {
   const waiting = new Map<string, Array<() => void>>();
   const api: FakeSavesApi = {
     puts: [], gets: [], failPuts: null, failGets: {}, getDelayMs: options.getDelayMs ?? 0, putDelayMs: 0,
@@ -55,7 +58,7 @@ function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options
       for (const resume of pending) resume();
     },
   };
-  page.route("**/api/saves/match/*", async (route) => {
+  await page.route("**/api/saves/match/*", async (route) => {
     const request = route.request();
     const slot = new URL(request.url()).pathname.split("/").pop()!;
     if (request.method() === "GET") {
@@ -144,7 +147,7 @@ test.beforeEach(async ({ page }) => {
 
 test("a pristine first signed-in load uploads nothing; the first real change uploads that slot at revision 0", async ({ page }) => {
   await seedSession(page);
-  const { puts } = fakeSavesApi(page, {});
+  const { puts } = await fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   // A brand-new device's local save is bit-for-bit the default: the kit treats that as "no local
@@ -163,7 +166,7 @@ test("a pristine first signed-in load uploads nothing; the first real change upl
 
 test("a newer cloud row replaces an untouched local save", async ({ page }) => {
   await seedSession(page);
-  fakeSavesApi(page, { campaign: campaignRow(250) });
+  await fakeSavesApi(page, { campaign: campaignRow(250) });
   await page.goto("./?gwTestMode=1");
   // The device is pristine (bit-for-bit default), so the kit treats it as "no local save to
   // protect" and adopts the existing cloud row silently — no conflict prompt.
@@ -174,7 +177,7 @@ test("a newer cloud row replaces an untouched local save", async ({ page }) => {
 test("an edit made while the first reconcile is in flight can never overwrite cloud progress", async ({ page }) => {
   await seedSession(page);
   // A brand-new device signing in to an account that already has real progress in BOTH slots.
-  const { puts, gets } = fakeSavesApi(page, { campaign: campaignRow(250), settings: settingsRow() }, { getDelayMs: 2_000 });
+  const { puts, gets } = await fakeSavesApi(page, { campaign: campaignRow(250), settings: settingsRow() }, { getDelayMs: 2_000 });
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   // The GETs are held open: everything below happens while the reconcile is genuinely in flight.
@@ -197,7 +200,7 @@ test("an edit made while the first reconcile is in flight can never overwrite cl
 
 test("a signed-in load reconciles exactly once: two GETs, and no more on re-render", async ({ page }) => {
   await seedSession(page);
-  const { puts, gets } = fakeSavesApi(page, {});
+  const { puts, gets } = await fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await page.waitForTimeout(1_500);
@@ -213,7 +216,7 @@ test("a signed-in load reconciles exactly once: two GETs, and no more on re-rend
 
 test("a settings change stores only the settings slot", async ({ page }) => {
   await seedSession(page);
-  const { puts } = fakeSavesApi(page, {});
+  const { puts } = await fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
   await page.waitForTimeout(1_500);
   expect(puts).toEqual([]); // pristine device: reconcile uploads nothing for either slot
@@ -229,7 +232,7 @@ test("a settings change stores only the settings slot", async ({ page }) => {
 test("a conflicting store shows the prompt; 'Use cloud' applies the cloud copy, 'Keep this one' re-sends", async ({ page }) => {
   await seedSession(page);
   const rows: Record<string, Row | undefined> = {};
-  const { puts } = fakeSavesApi(page, rows);
+  const { puts } = await fakeSavesApi(page, rows);
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await page.waitForTimeout(1_500);
@@ -274,7 +277,7 @@ test("a conflicting store shows the prompt; 'Use cloud' applies the cloud copy, 
  * replacement.
  */
 async function heldLocalChange(page: Page, rows: Record<string, Row | undefined>, failStatus: number) {
-  const api = fakeSavesApi(page, rows);
+  const api = await fakeSavesApi(page, rows);
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await page.waitForTimeout(1_500); // pristine device adopts the cloud settings row, stores nothing
@@ -445,7 +448,7 @@ test("a cloud answer lands when its own slot resolves, and a commit made after i
   test.setTimeout(60_000);
   await seedSession(page);
   const rows: Record<string, Row | undefined> = { settings: settingsRow() };
-  const api = fakeSavesApi(page, rows);
+  const api = await fakeSavesApi(page, rows);
   // `campaign` hangs on its GET until this test says otherwise — the kit serializes per slot, so
   // this stands in for the real hold, a conflict prompt the player leaves open. `settings` is
   // untouched locally and has a cloud row, so its own reconcile answers `use_cloud` immediately.
@@ -494,7 +497,7 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   test.setTimeout(60_000);
   await seedSession(page);
   const rows: Record<string, Row | undefined> = { settings: settingsRow() };
-  const api = fakeSavesApi(page, rows, { getDelayMs: 1_500 });
+  const api = await fakeSavesApi(page, rows, { getDelayMs: 1_500 });
   // One slot errors while the other answers a real row. A 500 is transient for the kit, so its
   // bounded retry (3 attempts, 500 ms + 1 500 ms backoff) makes this leg several seconds long —
   // and reconcileAll awaits BOTH slots, so the fold only lands once that leg has given up.
@@ -562,7 +565,7 @@ test("an earlier PUT's success does not clear the flag of a later commit whose o
   test.setTimeout(60_000);
   await seedSession(page);
   const rows: Record<string, Row | undefined> = {};
-  const api = fakeSavesApi(page, rows);
+  const api = await fakeSavesApi(page, rows);
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await page.waitForTimeout(1_500); // pristine device, no cloud rows: the reconcile stores nothing
@@ -607,7 +610,7 @@ test("an earlier PUT's success does not clear the flag of a later commit whose o
 });
 
 test("signed out stays local-only: no saves requests at all", async ({ page }) => {
-  const { puts, gets } = fakeSavesApi(page, {});
+  const { puts, gets } = await fakeSavesApi(page, {});
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await page.getByRole("button", { name: "Settings", exact: true }).click();

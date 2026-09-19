@@ -22,7 +22,14 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-/** Cloud payload → SaveState, through normalizeSave so the app never sees a shape it does not know. */
+/** Cloud payload → SaveState, through normalizeSave so the app never sees a shape it does not know.
+ *
+ *  The two `as` casts below are safe without a guard of their own: a payload only reaches here from
+ *  a kit answer, and the kit has already run `validatePayload(gameSlug, schemaVersion, slot, …)`
+ *  against THIS slot's schema on every path that can produce one — `loadWith` rejects a bad cloud
+ *  row before returning it (invalid_payload), and both `use_cloud` answers, the reconcile decision
+ *  and the store conflict prompt's "Use cloud", read their save from it. `normalizeSave` is still
+ *  the backstop that decides what the app actually holds. */
 export function applyCloudPayload(save: SaveState, slot: CloudSlot, payload: unknown): SaveState {
   const incoming = asRecord(payload);
   if (slot === "settings") {
