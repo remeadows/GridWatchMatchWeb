@@ -54,6 +54,11 @@ export function foldOutcomes(
         uploaded.push(slot);
         break;
       case "error":
+      // A reconcile only runs for a signed-in user, so `signed_out` here means the session vanished
+      // or was rejected mid-run (an expired or revoked token). Nothing was settled for this slot:
+      // count it as a failure so the gate returns to idle and the retry paths can re-arm it,
+      // rather than latching `done` over a client that will keep answering `signed_out`.
+      case "signed_out":
         failed = true;
         break;
       default:

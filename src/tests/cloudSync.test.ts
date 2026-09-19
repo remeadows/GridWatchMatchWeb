@@ -274,7 +274,7 @@ describe("createCloudSync", () => {
     const { saves, reconcile } = fakeSaves();
     const { sync } = makeSync(saves);
     const local = defaultSaveState();
-    for (const status of ["current", "nothing", "signed_out"] as const) {
+    for (const status of ["current", "nothing"] as const) {
       reconcile.mockResolvedValue({ status });
       const outcomes = await sync.reconcileAll(local, []);
       expect(outcomes.map((o) => o.result.status)).toEqual([status, status]);
@@ -282,6 +282,18 @@ describe("createCloudSync", () => {
       expect(folded.next).toBe(local);
       expect(folded.failed).toBe(false);
     }
+  });
+
+  it("counts a signed_out reconcile as a failed run, so the gate can retry instead of latching done", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const local = defaultSaveState();
+    reconcile.mockResolvedValue({ status: "signed_out" });
+    const folded = foldOutcomes(local, await sync.reconcileAll(local, []));
+    expect(folded.next).toBe(local);
+    expect(folded.replaced).toEqual([]);
+    expect(folded.uploaded).toEqual([]);
+    expect(folded.failed).toBe(true);
   });
 
   it("never rejects: a throwing client resolves to an error outcome for every slot", async () => {
