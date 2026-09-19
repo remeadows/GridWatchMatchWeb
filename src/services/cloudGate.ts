@@ -66,7 +66,9 @@ export interface CloudGate<S> {
   /** True only when the gate is "done" for exactly this (non-null) user id. */
   canStore(userId: string | null): boolean;
   /** Called by `commitSave` for every commit that was NOT stored. First unsent commit wins.
-   *  Non-nullable: the caller guards, so `flushBase` being null can only ever mean "do not flush". */
+   *  Non-nullable: the caller guards, so `flushBase` being null can only ever mean "do not flush".
+   *  The base is remembered together with whose session it was noted under, and a run for a
+   *  DIFFERENT account never inherits it — see `begin`. */
   noteUnsent(previous: S): void;
   /** True when an idle gate for a signed-in user may attempt a reconcile now. */
   shouldRetry(userId: string | null, now: number): boolean;
@@ -74,10 +76,23 @@ export interface CloudGate<S> {
 
 export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THROTTLE_MS): CloudGate<S> {
   let currentUserId: string | null = null;
+  /** The most recently signed-in user, NEVER cleared by a sign-out — the same idea as the kit's own
+   *  `lastKnownUserId`. It is who a commit made while signed out is attributed to: such a commit is
+   *  that player's held progress, so it must not become another account's flush base either. Null
+   *  only before any session has ever been seen, which is the genuinely account-less window. */
+  let lastKnownUserId: string | null = null;
   let status: CloudGateStatus = "idle";
   let token = 0;
   let pendingBase: S | undefined;
   let hasPending = false;
+  /** Whose session the pending base was noted under, or null for one noted before any user was
+   *  known (the pre-sign-in window). A null owner belongs to the device rather than to an account,
+   *  so the first run to succeed may use it; a non-null one is usable only by that same user. */
+  let baseUserId: string | null = null;
+  /** The user each live run was begun for, so a run that settles late is attributed to ITS user and
+   *  not to whoever is signed in by then. Deleted at settle, so it holds one entry per unsettled
+   *  run — in practice one. */
+  const runUsers = new Map<number, string>();
   /** When the last run for `currentUserId` was started; null means "never attempted". */
   let lastAttemptAt: number | null = null;
 
@@ -86,10 +101,23 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
     return currentUserId === userId && lastAttemptAt !== null && now - lastAttemptAt < retryThrottleMs;
   }
 
-  function pend(previous: S): void {
+  function pend(previous: S, owner: string | null): void {
     if (hasPending) return; // first unsent commit wins: later ones must not move the base forward
     pendingBase = previous;
     hasPending = true;
+    baseUserId = owner;
+  }
+
+  function dropPending(): void {
+    pendingBase = undefined;
+    hasPending = false;
+    baseUserId = null;
+  }
+
+  /** True when the pending base was noted under a DIFFERENT account than `userId`. A base noted with
+   *  no user at all (null) is nobody's and never crosses anything. */
+  function baseIsForeignTo(userId: string | null): boolean {
+    return hasPending && baseUserId !== null && baseUserId !== userId;
   }
 
   return {
@@ -98,15 +126,18 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
     },
 
     begin(userId, now) {
-      // `pendingBase` is deliberately NOT cleared on a user change (neither by the sign-out branch
-      // below nor when a different id arrives): a commit that was never sent is still unsent, and
-      // whose session it was made under does not change that. Benign because the base only decides
-      // WHICH SLOTS the eventual flush diffs — the payload it sends is the CURRENT projection, never
-      // the remembered snapshot — so the worst case is another account's flush re-sending a slot
-      // that did not really change for it. Slot selection is covered from both ends: `skip` keeps a
-      // slot the cloud demonstrably already holds out of the flush, and anything that does go up
-      // meets the kit's per-slot ownership record and its take-over / conflict prompts before it can
-      // overwrite the new account's row.
+      // A pending base noted under ANOTHER account is dropped here, because the base is what decides
+      // WHICH SLOTS the run that succeeds diffs and sends. Keeping it meant account B's flush sent
+      // every slot "changed since A's base", under B's session and on B's own confirmed revisions —
+      // e.g. a defaults upload immediately after B answered "Start fresh". Nothing of A's is lost by
+      // dropping it: A's commits are still marked by their persisted unsynced flags, which this
+      // module never touches, so A's next reconcile offers them to the kit as a real local copy.
+      //
+      // A SIGN-OUT (userId null) is not a user change and does not drop anything: signing back in as
+      // the same account must still flush the commits made in between, and while signed out there is
+      // no other account for them to cross into. Nor is a base noted before any user was known
+      // (`baseUserId` null) ever dropped — that commit belongs to the device, not to an account.
+      if (baseIsForeignTo(userId) && userId !== null) dropPending();
       if (userId === null) {
         // Sign-out. Bumping the token supersedes any run in flight, so it can neither latch "done"
         // nor flush. Unsent commits stay pending — they are still unsent.
@@ -119,17 +150,23 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
       if (currentUserId === userId && status !== "idle") return null; // running, or already done
       if (throttled(userId, now)) return null;
       currentUserId = userId;
+      lastKnownUserId = userId;
       status = "running";
       lastAttemptAt = now;
       token += 1;
+      runUsers.set(token, userId);
       return token;
     },
 
     settle(settlingToken, startedWith, failed) {
+      const runUser = runUsers.get(settlingToken) ?? null;
+      runUsers.delete(settlingToken);
       if (settlingToken !== token) {
         // Superseded: its results are still folded by the caller (invariant 1 is absolute), but it
-        // must not flush or report status. Its snapshot becomes the base for whoever succeeds.
-        pend(startedWith);
+        // must not flush or report status. Its snapshot becomes the base for whoever succeeds —
+        // attributed to ITS OWN user, not to whoever is signed in by now, which is the whole point:
+        // this pend happens AFTER the new user's `begin`, so the check there cannot catch it.
+        pend(startedWith, runUser);
         return { flushBase: null };
       }
       if (failed) {
@@ -139,9 +176,11 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
       }
       status = "done";
       lastAttemptAt = null;
+      // The same ownership rule as `begin`, for the base a superseded run pended after this run had
+      // already begun.
+      if (baseIsForeignTo(currentUserId)) dropPending();
       const flushBase = hasPending && pendingBase !== undefined ? pendingBase : startedWith;
-      pendingBase = undefined;
-      hasPending = false;
+      dropPending();
       return { flushBase };
     },
 
@@ -150,7 +189,7 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
     },
 
     noteUnsent(previous) {
-      pend(previous);
+      pend(previous, lastKnownUserId);
     },
 
     shouldRetry(userId, now) {

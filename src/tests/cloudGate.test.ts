@@ -126,6 +126,87 @@ describe("createCloudGate", () => {
     expect(gate.settle(next, "sB", false).flushBase).toBe("sA");
   });
 
+  /**
+   * The pending base decides WHICH SLOTS the run that succeeds diffs and sends. A base noted while
+   * account A was signed in must never decide that for account B: B's flush would then send every
+   * slot "changed since A's base" under B's session, on B's own confirmed revisions — e.g. a
+   * defaults upload right after B answered "Start fresh". A's commits are not lost by dropping it:
+   * their persisted unsynced flags are untouched, so A's next reconcile still offers them.
+   */
+  describe("the pending base never crosses a user change", () => {
+    it("drops a base noted under one user when a different user begins", () => {
+      const gate = createCloudGate<S>();
+      gate.begin(USER, T0);      // A's run starts...
+      gate.noteUnsent("a0");     // ...and a commit is held under A
+      const b = gate.begin(OTHER, T0 + 1)!; // B signs in, superseding A's run
+      // B flushes from its OWN snapshot, never from A's.
+      expect(gate.settle(b, "b0", false).flushBase).toBe("b0");
+
+      // And A's base is really gone, not merely unused for this one run.
+      const b2 = gate.begin(OTHER, T0 + 2);
+      expect(b2).toBeNull(); // already done for B
+      expect(gate.begin(null, T0 + 3)).toBeNull();
+      const b3 = gate.begin(OTHER, T0 + 4)!;
+      expect(gate.settle(b3, "b1", false).flushBase).toBe("b1");
+    });
+
+    it("keeps the base across a sign-out and a sign-in as the SAME user", () => {
+      const gate = createCloudGate<S>();
+      gate.begin(USER, T0);
+      gate.noteUnsent("a0");
+      expect(gate.begin(null, T0 + 1)).toBeNull(); // sign-out is not a user change
+      const again = gate.begin(USER, T0 + 2)!;
+      expect(gate.settle(again, "s1", false).flushBase).toBe("a0");
+    });
+
+    it("keeps a base noted before any user was known", () => {
+      // The pre-sign-in window: `save` has loaded, auth is still resolving, and the player commits.
+      // That commit belongs to this device, not to an account, so the first run to succeed owns it.
+      const gate = createCloudGate<S>();
+      gate.noteUnsent("p0");
+      const token = gate.begin(USER, T0)!;
+      expect(gate.settle(token, "s0", false).flushBase).toBe("p0");
+    });
+
+    it("attributes a commit made while signed out to the account last signed in", () => {
+      // Signed-out play after A: that is A's held progress, so it is A's to flush and must not
+      // become B's base either. (A commit made before ANY session has been seen is different — see
+      // the test above — because there is no account it could belong to.)
+      const forA = createCloudGate<S>();
+      forA.begin(USER, T0);
+      expect(forA.begin(null, T0 + 1)).toBeNull();
+      forA.noteUnsent("a0");
+      const again = forA.begin(USER, T0 + 2)!;
+      expect(forA.settle(again, "s1", false).flushBase).toBe("a0"); // A comes back: still flushed
+
+      const forB = createCloudGate<S>();
+      forB.begin(USER, T0);
+      expect(forB.begin(null, T0 + 1)).toBeNull();
+      forB.noteUnsent("a0");
+      const b = forB.begin(OTHER, T0 + 2)!; // B signs in on the same device instead
+      expect(forB.settle(b, "b0", false).flushBase).toBe("b0");
+    });
+
+    it("does not let a superseded run's snapshot become another user's flush base", () => {
+      // The same crossing by the other route: the pend happens at SETTLE time, after the new user's
+      // run has already begun, so the begin-time check above never sees it.
+      const gate = createCloudGate<S>();
+      const a = gate.begin(USER, T0)!;
+      const b = gate.begin(OTHER, T0 + 1)!;
+      expect(gate.settle(a, "aSnapshot", false)).toEqual({ flushBase: null }); // superseded
+      expect(gate.settle(b, "b0", false).flushBase).toBe("b0");
+    });
+
+    it("still hands a superseded run's snapshot to the SAME user's next run", () => {
+      const gate = createCloudGate<S>();
+      const a = gate.begin(USER, T0)!;
+      expect(gate.begin(null, T0 + 1)).toBeNull();
+      const a2 = gate.begin(USER, T0 + 2)!;
+      expect(gate.settle(a, "aSnapshot", false)).toEqual({ flushBase: null });
+      expect(gate.settle(a2, "s1", false).flushBase).toBe("aSnapshot");
+    });
+  });
+
   it("honours an injected throttle window", () => {
     const gate = createCloudGate<S>(5_000);
     const token = gate.begin(USER, T0)!;
