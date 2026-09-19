@@ -16,4 +16,5 @@ const previewOrigin = readPreviewOrigin(import.meta.env.VITE_NEXUS_ORIGIN);
 export const accountKit = createAccountKit({
   returnPath: "/play/match/",
   nexusOrigin: previewOrigin || (typeof window !== "undefined" && import.meta.env.DEV ? window.location.origin : undefined),
+  game: { gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1 },
 });

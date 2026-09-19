@@ -14,7 +14,11 @@ import { accountKit } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
+import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
+import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
+import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, projection, type CloudSlot } from "./state/cloudSaves";
+import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
 import {
   areaProgressLabel,
   awardLevelCompletion,
@@ -51,21 +55,231 @@ interface BoosterDragState {
   y: number;
 }
 
+/**
+ * `persistSaveState` writes localStorage (and IndexedDB), either of which can reject — quota, a
+ * privacy mode, storage disabled. The cloud paths below call it without awaiting, so without this
+ * the rejection is an unhandled promise rejection; the app itself is fine (the state is already in
+ * `saveRef`/`setSave`, and the unsynced flag is set BEFORE any of this), so it is a warning, not a
+ * failure. Warned once per page load: a storage that fails once fails on every commit, and a
+ * per-commit warning buries the console without adding anything.
+ */
+let warnedPersistFailure = false;
+function warnPersistFailed(error: unknown): void {
+  if (warnedPersistFailure) return;
+  warnedPersistFailure = true;
+  console.warn("[cloud-saves] could not persist the local save:", error instanceof Error ? error.message : String(error));
+}
+
 export default function App() {
   const [save, setSave] = useState<SaveState | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
   const appliedInitialRoute = useRef(false);
   const auth = useAuth();
+  const userId = auth.session?.user.id ?? null;
+  const hasSave = save !== null;
+
+  const saveRef = useRef<SaveState | null>(null);
+  // Lets commitSave and the retry listeners read the current user without being re-created.
+  // This write MUST stay in the render body and NOT move into an effect: it is what makes
+  // gate.canStore(...) go false the instant a sign-out renders. An effect runs after the commit,
+  // so a commitSave fired from an event handler in between would still see the old user id and
+  // push that user's save into the new (or absent) session.
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = userId;
+  // All the store-ordering rules live in the gate (src/services/cloudGate.ts), keyed on the USER ID
+  // — never on the session object (a fresh object on every auth emission) and never on `save`.
+  // Lazily initialised through a ref, not useMemo, so it is the same instance for the component's
+  // whole life even when React re-runs the render body (StrictMode, a discarded render).
+  // The retry throttle comes from the URL so an e2e scenario can exercise the retry path without a
+  // 30 s real-time sleep. `?gwTestMode=1` is a RUNTIME query parameter, not a build-time flag, so
+  // this hook is reachable on a production build too — the same as the app's other gwTestMode hooks,
+  // and deliberately so. The impact is bounded: the only thing a shortened window can do is let the
+  // gate re-attempt a reconcile sooner, and a reconcile is still armed only by an online /
+  // visibilitychange / commit event, i.e. at most one reconcile per event.
+  const gateRef = useRef<CloudGate<SaveState> | null>(null);
+  if (gateRef.current === null) {
+    gateRef.current = createCloudGate<SaveState>(
+      cloudRetryThrottleMs(typeof window === "undefined" ? undefined : window.location.search),
+    );
+  }
+  const gate = gateRef.current;
+  const [reconcileNonce, setReconcileNonce] = useState(0);
+
+  const applyCloud = useCallback((slot: CloudSlot, payload: unknown, settled: boolean) => {
+    const current = saveRef.current;
+    if (!current) return;
+    const next = applyCloudPayload(current, slot, payload);
+    saveRef.current = next;
+    setSave(next);
+    void persistSaveState(next).catch(warnPersistFailed);
+    // The player chose the cloud copy, so whatever local work this slot was holding is gone by
+    // their own decision — the flag has nothing left to protect. Cleared here rather than in
+    // storeChanges so it only happens once the cloud payload is actually applied.
+    //
+    // ...but ONLY when this answer was the last word for the slot. `settled` false means another
+    // store is queued behind it and will flush on the revision this answer just confirmed, landing
+    // the copy the player rejected — a 200 with no 409 and no prompt. Clearing here would leave the
+    // device on the cloud copy, the cloud on the rejected commit, and the kit's own record clean, so
+    // the next reconcile answers `current` and nothing ever repairs it. Keeping the flag set even
+    // though the payload just replaced that commit's content is the intended outcome: the next
+    // reconcile sends the slot as a real local copy and the kit resolves it (`restore_dirty`).
+    //
+    // What the retained flag actually costs, under kit v0.2.2: nothing in the cloud. The store
+    // queued behind a "Use cloud" answer is DROPPED by the kit, not sent — answering bumps the
+    // slot's discard epoch (`noteDiscard`) and every commit stamped with the older epoch is
+    // discarded at flush, precisely so it cannot land on the revision the answer just confirmed.
+    // So the cloud is not polluted, and the slot is out of sync only in the harmless direction:
+    // the device holds the cloud copy, the cloud holds the same thing, and the flag is stale. The
+    // price is one redundant PUT at the next load's reconcile (`restore_dirty` uploads the slot
+    // again). That is why nothing is re-armed here — the gate deliberately stays `done`: a
+    // reconcile re-armed for a flag with no real divergence behind it would cost two GETs and the
+    // risk of a prompt, to fix a bookkeeping entry the next ordinary load fixes for free.
+    if (settled) clearUnsynced([slot]);
+  }, []);
+
+  // Same reasoning as the gate above: `createCloudSync` holds mutable per-slot bookkeeping (its
+  // outstanding-store counts), so it must be ONE instance for the component's whole life. A useMemo
+  // is a cache, not a guarantee — React may discard and re-run a render — and a fresh instance would
+  // silently reset the counts that guard the unsynced flag.
+  const cloudSyncRef = useRef<CloudSync | null>(null);
+  if (cloudSyncRef.current === null) {
+    cloudSyncRef.current = createCloudSync({
+      saves: accountKit.saves,
+      enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
+      onUseCloud: applyCloud,
+      // A `stored` reply proves the cloud took THAT payload — not that it holds whatever the slot
+      // holds now. The kit debounces stores by 750 ms and serializes them per slot, so a commit made
+      // at t+800 becomes a fresh entry queued BEHIND the one now in flight; when that first reply
+      // lands at ~t+900 the second commit is still unsent. Clearing on the reply alone stripped the
+      // only protection that commit had — if its own PUT then failed terminally (403) or the tab
+      // closed, it was local-only with no flag, and the next sign-in with a moved cloud replaced it
+      // silently. So the flag is cleared only on proof that what the cloud took IS what is here.
+      //
+      // "Is what is here" is the half this call site can answer, and the ONLY half it answers. The
+      // other half — that no later store for the slot is still queued behind this reply — is
+      // cloudSync's, because a matching payload can be stale the moment a queued store lands (B, C,
+      // then B again: PUT1's reply matches the current B while PUT2 is about to publish C). onStored
+      // is not even called until that is true, so this stays a plain freshness check.
+      //
+      // Cross-account safety: this clear is not keyed on a user id, so in principle a reply for the
+      // previous account could clear a flag the next account now owns. It is safe only because every
+      // kit path that can produce a `stored` reply goes through the kit's `confirmed()`, which writes
+      // the per-slot OWNER record alongside the revision — so the next account's reconcile sees a
+      // slot owned by someone else and prompts (take over / start fresh) rather than trusting either
+      // the flag or the kit's clean record. The flag is a within-account freshness signal; ownership
+      // is what protects across accounts.
+      onStored: (slot, payload) => {
+        const current = saveRef.current;
+        if (current && isCurrentProjection(current, slot, payload)) clearUnsynced([slot]);
+      },
+    });
+  }
+  const cloudSync = cloudSyncRef.current;
 
   useEffect(() => {
     let active = true;
     void loadSaveState().then((loaded) => {
-      if (active) setSave(loaded);
+      if (active) { saveRef.current = loaded; setSave(loaded); }
     });
     return () => {
       active = false;
     };
   }, []);
+
+  // A reconcile result is NEVER discarded. The kit has already written its sync record by the time
+  // it answers (a "use cloud" answer means "this device is clean at the cloud revision"), so
+  // throwing the answer away would leave the app holding the local save at the cloud's base
+  // revision — and the next store would silently replace the cloud row with it. Hence: no abort
+  // flag, and the outcomes are folded onto saveRef.current (the CURRENT state) rather than onto the
+  // snapshot the run started with. Whether this run may then flush is the gate's call, not ours.
+  useEffect(() => {
+    if (!hasSave || auth.loading) return;
+    // Read once, and checked BEFORE `gate.begin`: beginning a run whose snapshot cannot be read
+    // would burn the gate's token and its throttle window on a run that cannot happen. Unreachable
+    // in practice — `hasSave` and this ref are written together — so it is narrowing, not a branch.
+    const startedWith = saveRef.current;
+    if (startedWith === null) return;
+    const token = gate.begin(userId, Date.now()); // null userId resets the gate (sign-out)
+    if (token === null) return;
+    // A slot's answer is applied the moment THAT slot resolves, because the kit serializes per slot
+    // and one slot can sit on a player prompt for minutes while the other is long done. Waiting for
+    // both meant every commit made to the finished slot in between was overwritten by the late fold,
+    // its flag cleared, and the commit never flushed: silent loss.
+    //
+    // KNOWN RESIDUAL (kit v0.2.2, fix lands in the next kit release): a commit made between the
+    // `reconcile()` call and the kit's DECISION — one GET, normally well under a second — is still
+    // overwritten when the kit answers an automatic `use_cloud`, because the kit decided on the
+    // snapshot it was handed here. Closing it needs a kit API addition (a `current()` callback the
+    // kit re-reads at decision time); nothing on this side can narrow it further.
+    const applied = new Map<CloudSlot, Record<string, unknown>>();
+    const applyResolved = ({ slot, result }: SlotOutcome): void => {
+      const before = saveRef.current;
+      if (before === null) return;
+      let after: SaveState;
+      if (result.status === "use_cloud") after = applyCloudPayload(before, slot, result.save.payload);
+      else if (result.status === "fresh") after = freshSlot(before, slot);
+      else return;
+      saveRef.current = after;
+      setSave(after);
+      void persistSaveState(after).catch(warnPersistFailed);
+      // Recorded RIGHT AFTER the application, and read again at settle: it is the proof that the
+      // cloud holds this slot, and it expires the moment the player commits on top of it.
+      applied.set(slot, projection(after, slot));
+    };
+    void cloudSync.reconcileAll(startedWith, readUnsynced(), applyResolved).then((outcomes) => {
+      // The state as it is NOW, so the fold lands on top of anything committed mid-run. The fallback
+      // is the same narrowing as above, not a real case: the ref is only ever assigned, never reset.
+      const current = saveRef.current ?? startedWith;
+      const { next, replaced, uploaded, failed } = foldOutcomes(current, outcomes, [...applied.keys()]);
+      if (next !== current) {
+        saveRef.current = next;
+        setSave(next);
+        void persistSaveState(next).catch(warnPersistFailed);
+      }
+      // Which slots the cloud provably holds is a per-slot FACT about what this run did, not a
+      // consequence of the run-level flush decision — so it is computed and applied ABOVE the gate.
+      // A run that failed (ANY slot errored) or was superseded still replaced or uploaded the slots
+      // it did; leaving those flagged is a stale flag, which later costs a redundant upload or, far
+      // worse, a misleading conflict prompt whose "Keep this one" pushes OLD content over a newer
+      // cloud row. The gate governs the FLUSH only.
+      //
+      // Unlike the store path's `use_cloud` clear, this one has NO outstanding-store check, and does
+      // not need one: the gate holds every store until a reconcile has settled successfully, so a
+      // store can only be in flight at settle time if an EARLIER run already latched "done" for a
+      // user, issued a store, and then the gate went idle again — which for the same user means a
+      // sign-out (`begin(null)`) followed by a sign-in, both inside the kit's 750 ms store debounce.
+      // Sign-in is a full-page redirect, so that window cannot be met. If sign-in ever becomes
+      // in-page, this clear needs the same guard the store path now has.
+      //
+      // `applied` is what keeps a replaced slot honest: a slot the player committed to AFTER its
+      // payload landed is not settled, so it keeps its flag and the flush below sends it.
+      const { clear, skip } = settledSlots({ startedWith, next, replaced, uploaded, applied });
+      clearUnsynced(clear);
+      const { flushBase } = gate.settle(token, startedWith, failed);
+      if (!flushBase) return; // superseded or failed: nothing goes up
+      // The base is the state before the FIRST commit the gate held back (pre-run ones included), so
+      // nothing is lost — except the slots above, which the cloud demonstrably already holds at this
+      // exact projection. A slot that CHANGED since the cloud last provably held it is pointedly not
+      // in `skip`, whether the kit uploaded it or replaced it: this flush is the only route those
+      // commits have out of the gate.
+      cloudSync.storeChanges(flushBase, next, skip);
+    });
+    // No cleanup: aborting the run is exactly the bug this guards against.
+  }, [hasSave, auth.loading, userId, cloudSync, gate, reconcileNonce]);
+
+  // A run that ended with an errored slot leaves the gate idle with its stores still held, so it
+  // has to be re-armed: back online, tab brought to the front, or the next commit (below). The
+  // effect's deps never change on their own, so the nonce is the only way in. The gate throttles.
+  useEffect(() => {
+    const retry = () => { if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1); };
+    const onVisibility = () => { if (document.visibilityState === "visible") retry(); };
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [gate]);
 
   useEffect(() => {
     if (!save || appliedInitialRoute.current) return;
@@ -85,9 +299,25 @@ export default function App() {
   }, [save, screen.name]);
 
   const commitSave = useCallback((next: SaveState) => {
+    const previous = saveRef.current;
+    // Flagged FIRST, before any local persist or cloud call: a crash, a reload or a killed tab
+    // between the commit and a confirmed upload must still leave this slot marked unsynced.
+    if (previous) markUnsynced(changedSlots(previous, next));
+    saveRef.current = next;
     setSave(next);
-    void persistSaveState(next);
-  }, []);
+    void persistSaveState(next).catch(warnPersistFailed);
+    // A cloud store leaves the app only once a reconcile has settled successfully for THIS user.
+    // Anything earlier — gate idle, run in flight, signed out, or a reconcile that errored — is
+    // held: the kit reads baseRevision at flush time inside its per-slot serialized chain, so a
+    // store issued now would queue behind the reconcile and then flush on the base that the
+    // reconcile's own confirmed() just wrote, replacing the cloud row with no 409 and no prompt.
+    if (gate.canStore(userIdRef.current)) {
+      cloudSync.storeChanges(previous, next);
+      return;
+    }
+    if (previous) gate.noteUnsent(previous);
+    if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1);
+  }, [cloudSync, gate]);
 
   if (!save) {
     return (
@@ -599,12 +829,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [commitSave, level, tickBossClock]);
 
   const drainQueue = useCallback(() => {
-    const gate = lifecycleRef.current;
-    let next = gate.next();
+    const lifecycleGate = lifecycleRef.current;
+    let next = lifecycleGate.next();
     while (next) {
-      setQueueDepth(gate.queueDepth);
+      setQueueDepth(lifecycleGate.queueDepth);
       if (applyAction(next)) return;
-      next = gate.next();
+      next = lifecycleGate.next();
     }
     tickBossClock();
   }, [applyAction, tickBossClock]);
