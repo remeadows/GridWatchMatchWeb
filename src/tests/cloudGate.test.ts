@@ -211,6 +211,19 @@ describe("createCloudGate", () => {
       expect(gate.settle(a2, "a2Snapshot", false).flushBase).toBe("a2Snapshot");
     });
 
+    it("discards a superseded run's snapshot when the OTHER user signed out before it settled", () => {
+      // Signed out is not "nobody else": the last account on this device was B, and the local save
+      // holds B's reconciled progress. A's stale snapshot must not come back as A's flush base.
+      const gate = createCloudGate<S>();
+      const a = gate.begin(USER, T0)!;
+      const b = gate.begin(OTHER, T0 + 1)!;
+      expect(gate.settle(b, "b0", false).flushBase).toBe("b0");
+      expect(gate.begin(null, T0 + 2)).toBeNull(); // B signs out
+      expect(gate.settle(a, "aSnapshot", false)).toEqual({ flushBase: null }); // superseded, later still
+      const a2 = gate.begin(USER, T0 + 3)!;
+      expect(gate.settle(a2, "a2Snapshot", false).flushBase).toBe("a2Snapshot");
+    });
+
     it("still hands a superseded run's snapshot to the SAME user's next run", () => {
       const gate = createCloudGate<S>();
       const a = gate.begin(USER, T0)!;

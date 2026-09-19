@@ -255,7 +255,20 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
         const results = await Promise.all(CLOUD_SLOTS.map(async (slot) => {
           const changed = unsynced.includes(slot);
           const local = isPristine(save, slot) && !changed ? null : projection(save, slot);
-          const result = await active.reconcile(slot, local, { localChanged: changed });
+          // A rejection is caught PER SLOT, never by the outer catch: `Promise.all` rejects on the
+          // first failure, which would return the run — and let the gate settle — while the other
+          // slot is still pending (a prompt can stay open for minutes). That slot's callback would
+          // then apply a cloud payload after the run was over, outside the fold, the flag
+          // bookkeeping and the flush. The kit's contract is that reconcile() never rejects; this
+          // holds the line if a custom dependency breaks it.
+          let result: Awaited<ReturnType<SavesClient["reconcile"]>>;
+          try {
+            result = await active.reconcile(slot, local, { localChanged: changed });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[cloud-saves] reconcile for ${slot} failed:`, message);
+            result = { status: "error", error: { code: "network", message } };
+          }
           // Reported here, not after `Promise.all`: this slot is done, and whatever the other slot
           // is still waiting for (a prompt the player may leave open for minutes) is not its
           // concern. The caller applies the answer now and records what it applied.

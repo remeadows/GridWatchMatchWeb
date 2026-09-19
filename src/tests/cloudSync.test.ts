@@ -296,6 +296,28 @@ describe("createCloudSync", () => {
     expect(folded.failed).toBe(true);
   });
 
+  it("waits for every slot: one slot rejecting does not return while the other is still pending", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const local = defaultSaveState();
+    const pending = deferred<Awaited<ReturnType<SavesClient["reconcile"]>>>();
+    reconcile.mockImplementation((slot) => (slot === "campaign" ? Promise.reject(new Error("boom")) : pending.promise));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const resolved: string[] = [];
+    let returned = false;
+    const run = sync.reconcileAll(local, [], (o) => resolved.push(`${o.slot}:${o.result.status}`)).then((o) => { returned = true; return o; });
+    await tick();
+    // The rejected slot has reported; the run has NOT returned, so the gate cannot settle while the
+    // other slot's callback could still apply a cloud payload.
+    expect(returned).toBe(false);
+    pending.resolve({ status: "current" });
+    const outcomes = await run;
+    expect(outcomes.map((o) => `${o.slot}:${o.result.status}`)).toEqual(["campaign:error", "settings:current"]);
+    expect(resolved).toEqual(["campaign:error", "settings:current"]);
+    expect(foldOutcomes(local, outcomes).failed).toBe(true);
+    warn.mockRestore();
+  });
+
   it("never rejects: a throwing client resolves to an error outcome for every slot", async () => {
     const { saves, reconcile } = fakeSaves();
     const { sync } = makeSync(saves);

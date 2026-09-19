@@ -167,12 +167,16 @@ export function createCloudGate<S>(retryThrottleMs: number = RECONCILE_RETRY_THR
         // attributed to ITS OWN user, not to whoever is signed in by now, which is the whole point:
         // this pend happens AFTER the new user's `begin`, so the check there cannot catch it.
         //
-        // Unless ANOTHER account is signed in by now: then the snapshot is discarded outright. That
+        // Unless ANOTHER account is signed in by now, or was the last one signed in: then the snapshot
+        // is discarded outright. That
         // account's run may already be done, in which case no ownership check would ever run again
         // for it, and the stale snapshot would sit through its whole session and come back as this
         // run's user's flush base — diffed against a local save that by then holds the other
         // account's progress. Nothing is lost by discarding: the unsynced flags still mark it.
-        if (currentUserId === null || currentUserId === runUser) pend(startedWith, runUser);
+        // Signed out counts as "this run's user" only when that user was also the LAST one known on
+        // this device; after another account's session the local save holds THEIR progress.
+        const stillTheirs = currentUserId === runUser || (currentUserId === null && lastKnownUserId === runUser);
+        if (runUser !== null && stillTheirs) pend(startedWith, runUser);
         return { flushBase: null };
       }
       if (failed) {
