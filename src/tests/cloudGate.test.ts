@@ -197,6 +197,20 @@ describe("createCloudGate", () => {
       expect(gate.settle(b, "b0", false).flushBase).toBe("b0");
     });
 
+    it("discards a superseded run's snapshot that settles AFTER the other user's run is done", () => {
+      // The late route: B's run has already settled, so neither ownership check runs again for B.
+      // If A's stale snapshot were pended here it would sit through B's whole session and become
+      // A's flush base on A's return — diffed against a local save that by then holds B's progress.
+      const gate = createCloudGate<S>();
+      const a = gate.begin(USER, T0)!;
+      const b = gate.begin(OTHER, T0 + 1)!;
+      expect(gate.settle(b, "b0", false).flushBase).toBe("b0");
+      expect(gate.settle(a, "aSnapshot", false)).toEqual({ flushBase: null }); // superseded, late
+      expect(gate.begin(null, T0 + 2)).toBeNull();
+      const a2 = gate.begin(USER, T0 + 3)!;
+      expect(gate.settle(a2, "a2Snapshot", false).flushBase).toBe("a2Snapshot");
+    });
+
     it("still hands a superseded run's snapshot to the SAME user's next run", () => {
       const gate = createCloudGate<S>();
       const a = gate.begin(USER, T0)!;
