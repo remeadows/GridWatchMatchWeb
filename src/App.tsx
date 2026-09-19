@@ -15,9 +15,9 @@ import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
-import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync } from "./services/cloudSync";
+import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
-import { applyCloudPayload, changedSlots, cloudSavesEnabled, type CloudSlot } from "./state/cloudSaves";
+import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, projection, type CloudSlot } from "./state/cloudSaves";
 import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
 import {
   areaProgressLabel,
@@ -186,9 +186,34 @@ export default function App() {
     const token = gate.begin(userId, Date.now()); // null userId resets the gate (sign-out)
     if (token === null) return;
     const startedWith = saveRef.current as SaveState;
-    void cloudSync.reconcileAll(startedWith, readUnsynced()).then((outcomes) => {
+    // A slot's answer is applied the moment THAT slot resolves, because the kit serializes per slot
+    // and one slot can sit on a player prompt for minutes while the other is long done. Waiting for
+    // both meant every commit made to the finished slot in between was overwritten by the late fold,
+    // its flag cleared, and the commit never flushed: silent loss.
+    //
+    // KNOWN RESIDUAL (kit v0.2.2, fix lands in the next kit release): a commit made between the
+    // `reconcile()` call and the kit's DECISION — one GET, normally well under a second — is still
+    // overwritten when the kit answers an automatic `use_cloud`, because the kit decided on the
+    // snapshot it was handed here. Closing it needs a kit API addition (a `current()` callback the
+    // kit re-reads at decision time); nothing on this side can narrow it further.
+    const applied = new Map<CloudSlot, Record<string, unknown>>();
+    const applyResolved = ({ slot, result }: SlotOutcome): void => {
+      const before = saveRef.current;
+      if (before === null) return;
+      let after: SaveState;
+      if (result.status === "use_cloud") after = applyCloudPayload(before, slot, result.save.payload);
+      else if (result.status === "fresh") after = freshSlot(before, slot);
+      else return;
+      saveRef.current = after;
+      setSave(after);
+      void persistSaveState(after).catch(warnPersistFailed);
+      // Recorded RIGHT AFTER the application, and read again at settle: it is the proof that the
+      // cloud holds this slot, and it expires the moment the player commits on top of it.
+      applied.set(slot, projection(after, slot));
+    };
+    void cloudSync.reconcileAll(startedWith, readUnsynced(), applyResolved).then((outcomes) => {
       const current = saveRef.current as SaveState;
-      const { next, replaced, uploaded, failed } = foldOutcomes(current, outcomes);
+      const { next, replaced, uploaded, failed } = foldOutcomes(current, outcomes, [...applied.keys()]);
       if (next !== current) {
         saveRef.current = next;
         setSave(next);
@@ -208,15 +233,18 @@ export default function App() {
       // sign-out (`begin(null)`) followed by a sign-in, both inside the kit's 750 ms store debounce.
       // Sign-in is a full-page redirect, so that window cannot be met. If sign-in ever becomes
       // in-page, this clear needs the same guard the store path now has.
-      const { clear, skip } = settledSlots({ startedWith, next, replaced, uploaded });
+      //
+      // `applied` is what keeps a replaced slot honest: a slot the player committed to AFTER its
+      // payload landed is not settled, so it keeps its flag and the flush below sends it.
+      const { clear, skip } = settledSlots({ startedWith, next, replaced, uploaded, applied });
       clearUnsynced(clear);
       const { flushBase } = gate.settle(token, startedWith, failed);
       if (!flushBase) return; // superseded or failed: nothing goes up
       // The base is the state before the FIRST commit the gate held back (pre-run ones included), so
       // nothing is lost — except the slots above, which the cloud demonstrably already holds at this
-      // exact projection (a replaced slot's in-flight local edit is deliberately dropped). A slot
-      // the kit uploaded that CHANGED mid-flight is pointedly not in `skip`: this flush is the only
-      // route that commit has out of the gate.
+      // exact projection. A slot that CHANGED since the cloud last provably held it is pointedly not
+      // in `skip`, whether the kit uploaded it or replaced it: this flush is the only route those
+      // commits have out of the gate.
       cloudSync.storeChanges(flushBase, next, skip);
     });
     // No cleanup: aborting the run is exactly the bug this guards against.

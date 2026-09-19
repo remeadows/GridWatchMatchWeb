@@ -36,16 +36,38 @@ interface FakeSavesApi {
    *  requests (e.g. the reconcile after a reload, not the one that set the scene up). */
   getDelayMs: number;
   putDelayMs: number;
+  /** Slots whose GET hangs until `releaseGet(slot)` is called. Unlike `getDelayMs` this is not a
+   *  timer, so a scenario about ONE slot finishing while the other is still waiting has no window
+   *  that can close early — the test decides exactly when the second slot resolves. */
+  holdGets: Set<string>;
+  releaseGet(slot: string): void;
 }
 
 function fakeSavesApi(page: Page, rows: Record<string, Row | undefined>, options: { getDelayMs?: number } = {}): FakeSavesApi {
-  const api: FakeSavesApi = { puts: [], gets: [], failPuts: null, failGets: {}, getDelayMs: options.getDelayMs ?? 0, putDelayMs: 0 };
+  const waiting = new Map<string, Array<() => void>>();
+  const api: FakeSavesApi = {
+    puts: [], gets: [], failPuts: null, failGets: {}, getDelayMs: options.getDelayMs ?? 0, putDelayMs: 0,
+    holdGets: new Set(),
+    releaseGet(slot) {
+      api.holdGets.delete(slot);
+      const pending = waiting.get(slot) ?? [];
+      waiting.set(slot, []);
+      for (const resume of pending) resume();
+    },
+  };
   page.route("**/api/saves/match/*", async (route) => {
     const request = route.request();
     const slot = new URL(request.url()).pathname.split("/").pop()!;
     if (request.method() === "GET") {
       api.gets.push(slot);
       const failStatus = api.failGets[slot];
+      if (api.holdGets.has(slot)) {
+        await new Promise<void>((resume) => {
+          const pending = waiting.get(slot) ?? [];
+          pending.push(resume);
+          waiting.set(slot, pending);
+        });
+      }
       // Held open so a test can act in the UI while the reconcile is genuinely in flight.
       if (api.getDelayMs) await new Promise((resolve) => setTimeout(resolve, api.getDelayMs));
       if (failStatus !== undefined) {
@@ -414,6 +436,55 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked();
   await expect(page.getByLabel(/Voice Lines/)).not.toBeChecked();
+  await expect(savePrompt(page)).toHaveCount(0);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
+});
+
+test("a cloud answer lands when its own slot resolves, and a commit made after it still reaches the cloud", async ({ page }) => {
+  test.setTimeout(60_000);
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  const api = fakeSavesApi(page, rows);
+  // `campaign` hangs on its GET until this test says otherwise — the kit serializes per slot, so
+  // this stands in for the real hold, a conflict prompt the player leaves open. `settings` is
+  // untouched locally and has a cloud row, so its own reconcile answers `use_cloud` immediately.
+  api.holdGets.add("campaign");
+
+  await page.goto("./?gwTestMode=1");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  // The cloud row's own value on screen, while the campaign GET is STILL hanging, is the proof that
+  // the answer was applied at its own slot's resolve. Applying at the end of the run instead — the
+  // old behaviour — never gets here at all, because the run has not ended.
+  await expect(page.getByLabel(/Music/)).not.toBeChecked({ timeout: 10_000 });
+  expect(api.puts).toEqual([]); // the run has not settled, so the gate is still holding every store
+
+  // NOW the player commits to that same slot, on top of the copy the cloud just supplied.
+  await page.getByLabel(/Reduced Motion/).click();
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual(["settings"]);
+  expect(api.puts).toEqual([]); // ...and it is held too: the gate is what makes this commit fragile
+
+  api.releaseGet("campaign"); // 404 against a pristine local campaign → `nothing`, so no PUT for it
+
+  // `settings` moved since its payload was applied, so the settle neither clears its flag nor skips
+  // it: this flush is the only route the commit has out of the gate. The old rule cleared and
+  // skipped every replaced slot unconditionally AND re-applied the payload over the commit, so the
+  // toggle below was reverted on screen and existed nowhere at all.
+  await expect.poll(() => api.puts.length, { timeout: 20_000 }).toBe(1);
+  expect(api.puts[0].slot).toBe("settings");
+  expect(api.puts[0].body.baseRevision).toBe(1); // the revision the use_cloud answer confirmed
+  expect(api.puts[0].body.payload).toMatchObject({ musicEnabled: false, reducedMotion: true });
+  expect(rows.settings!.revision).toBe(2);
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toHaveLength(1); // ...and exactly one, not a redundant second
+
+  // Both halves are what survives a reload, and the settled row needs no further traffic.
+  api.puts.length = 0;
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Reduced Motion/)).toBeChecked();
+  await expect(page.getByLabel(/Music/)).not.toBeChecked();
   await expect(savePrompt(page)).toHaveCount(0);
   await page.waitForTimeout(1_500);
   expect(api.puts).toEqual([]);

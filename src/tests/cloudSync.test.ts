@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SavesClient } from "@gridwatch/account-kit";
 import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type SlotOutcome } from "../services/cloudSync";
-import { applyCloudPayload, projection, toCampaignPayload, toSettingsPayload, type CloudSlot } from "../state/cloudSaves";
+import { applyCloudPayload, freshSlot, projection, toCampaignPayload, toSettingsPayload, type CloudSlot } from "../state/cloudSaves";
 import { defaultSaveState, normalizeSave, type SaveState } from "../state/save";
 
 function fakeSaves() {
@@ -402,6 +402,184 @@ describe("createCloudSync", () => {
     await tick();
     expect(store).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The kit serializes reconciles per slot and a slot's reconcile can sit on a player prompt for
+ * minutes, so the two slots resolve at genuinely different times. A cloud answer must be applied the
+ * moment ITS OWN slot resolves, and everything the player commits after that must survive.
+ *
+ * These tests compose the pieces exactly the way App.tsx's reconcile effect does — a `saveRef`
+ * stand-in, the per-slot callback, the projection recorded right after each application, then the
+ * end-of-run fold and `settledSlots` — because the bug being pinned is in the composition: the late
+ * fold used to re-apply the payload over the newer commit, and `settledSlots` used to clear the
+ * slot's flag and skip it in the flush, so that commit reached neither the cloud nor the next run.
+ */
+describe("createCloudSync per-slot reconcile resolution", () => {
+  type ReconcileOutcome = Awaited<ReturnType<SavesClient["reconcile"]>>;
+
+  /** App.tsx's reconcile effect, reduced to what these tests need to observe. */
+  function appWiring(startedWith: SaveState) {
+    const applied = new Map<CloudSlot, Record<string, unknown>>();
+    const state = { current: startedWith, applications: 0 };
+    const onResolved = ({ slot, result }: SlotOutcome): void => {
+      if (result.status === "use_cloud") state.current = applyCloudPayload(state.current, slot, result.save.payload);
+      else if (result.status === "fresh") state.current = freshSlot(state.current, slot);
+      else return;
+      state.applications += 1;
+      // Recorded RIGHT AFTER application: what the cloud provably holds for this slot, as of now.
+      applied.set(slot, projection(state.current, slot));
+    };
+    return { applied, state, onResolved };
+  }
+
+  const cloudSettings = { ...toSettingsPayload(defaultSaveState()), musicEnabled: false };
+
+  it("applies a slot's cloud answer when THAT slot resolves, not when the whole run does", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const campaignGate = deferred<ReconcileOutcome>();
+    const settingsGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation((slot) => (slot === "campaign" ? campaignGate.promise : settingsGate.promise));
+
+    const startedWith = defaultSaveState();
+    const { applied, state, onResolved } = appWiring(startedWith);
+    const run = sync.reconcileAll(startedWith, [], onResolved);
+
+    // `settings` answers at once; `campaign` is still sitting on the kit's prompt.
+    settingsGate.resolve({ status: "use_cloud", save: cloudSave(cloudSettings) });
+    await tick();
+    expect(state.current.settings.musicEnabled).toBe(false); // applied already, with campaign pending
+    expect(state.applications).toBe(1);
+    expect(applied.get("settings")).toEqual(projection(state.current, "settings"));
+
+    campaignGate.resolve({ status: "nothing" });
+    await run;
+    expect(state.applications).toBe(1); // and the late fold did not apply it a second time
+  });
+
+  it("keeps a commit made after the answer was applied, and does not settle that slot", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const campaignGate = deferred<ReconcileOutcome>();
+    const settingsGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation((slot) => (slot === "campaign" ? campaignGate.promise : settingsGate.promise));
+
+    const startedWith = defaultSaveState();
+    const { applied, state, onResolved } = appWiring(startedWith);
+    const run = sync.reconcileAll(startedWith, [], onResolved);
+
+    settingsGate.resolve({ status: "use_cloud", save: cloudSave(cloudSettings) });
+    await tick();
+    // The player commits to the SAME slot while campaign is still waiting on its prompt. It sits on
+    // top of the cloud state the answer just installed, and the gate is holding it.
+    state.current = normalizeSave({ ...state.current, settings: { ...state.current.settings, reducedMotion: true } });
+
+    campaignGate.resolve({ status: "nothing" });
+    const outcomes = await run;
+    const { next, replaced, uploaded } = foldOutcomes(state.current, outcomes, [...applied.keys()]);
+
+    expect(state.applications).toBe(1);
+    expect(next.settings.reducedMotion).toBe(true);  // the commit survived the fold
+    expect(next.settings.musicEnabled).toBe(false);  // ...on top of the cloud copy
+    expect(replaced).toEqual(["settings"]);          // still a replaced slot: the answer was not discarded
+    // Moved since the answer was applied, so the cloud does NOT hold its current projection: keep the
+    // flag and let the settle-time flush send it, exactly like a moved `uploaded` slot.
+    expect(settledSlots({ startedWith, next, replaced, uploaded, applied })).toEqual({ clear: [], skip: [] });
+  });
+
+  it("settles the slot when nothing was committed after the answer was applied", async () => {
+    // Control for the test above.
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const campaignGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation(async (slot) => (slot === "campaign"
+      ? campaignGate.promise
+      : { status: "use_cloud", save: cloudSave(cloudSettings) }));
+
+    const startedWith = defaultSaveState();
+    const { applied, state, onResolved } = appWiring(startedWith);
+    const run = sync.reconcileAll(startedWith, [], onResolved);
+    await tick();
+    expect(state.current.settings.musicEnabled).toBe(false);
+
+    campaignGate.resolve({ status: "nothing" });
+    const outcomes = await run;
+    const { next, replaced, uploaded } = foldOutcomes(state.current, outcomes, [...applied.keys()]);
+    expect(settledSlots({ startedWith, next, replaced, uploaded, applied }))
+      .toEqual({ clear: ["settings"], skip: ["settings"] });
+  });
+
+  it("gives a `fresh` outcome the same at-resolve treatment", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const campaignGate = deferred<ReconcileOutcome>();
+    const settingsGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation((slot) => (slot === "campaign" ? campaignGate.promise : settingsGate.promise));
+
+    const startedWith = normalizeSave({ ...defaultSaveState(), settings: { ...defaultSaveState().settings, musicEnabled: false } });
+    const { applied, state, onResolved } = appWiring(startedWith);
+    const run = sync.reconcileAll(startedWith, ["settings"], onResolved);
+
+    settingsGate.resolve({ status: "fresh" }); // "Start fresh": the slot goes back to the defaults
+    await tick();
+    expect(state.current.settings.musicEnabled).toBe(true); // reset at ITS resolve
+    state.current = normalizeSave({ ...state.current, settings: { ...state.current.settings, sfxEnabled: false } });
+
+    campaignGate.resolve({ status: "nothing" });
+    const outcomes = await run;
+    const { next, replaced, uploaded } = foldOutcomes(state.current, outcomes, [...applied.keys()]);
+    expect(state.applications).toBe(1);
+    expect(next.settings.sfxEnabled).toBe(false); // the post-reset commit survived
+    expect(next.settings.musicEnabled).toBe(true);
+    expect(replaced).toEqual(["settings"]);
+    expect(settledSlots({ startedWith, next, replaced, uploaded, applied })).toEqual({ clear: [], skip: [] });
+  });
+
+  it("still folds an answer the caller did not apply at resolve, so no kit answer is ever discarded", async () => {
+    // No per-slot callback at all (and the same backstop covers a slot whose callback could not run,
+    // e.g. before the local save has loaded): the end-of-run fold is still the one that applies it.
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    reconcile.mockImplementation(async (slot) => (slot === "campaign"
+      ? { status: "nothing" }
+      : { status: "use_cloud", save: cloudSave(cloudSettings) }));
+    const startedWith = defaultSaveState();
+    const outcomes = await sync.reconcileAll(startedWith, []);
+    const { next, replaced, uploaded } = foldOutcomes(startedWith, outcomes, []);
+    expect(next.settings.musicEnabled).toBe(false);
+    expect(settledSlots({ startedWith, next, replaced, uploaded, applied: new Map() }))
+      .toEqual({ clear: ["settings"], skip: ["settings"] });
+  });
+
+  it("reports every slot's outcome to the callback, in resolve order", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const campaignGate = deferred<ReconcileOutcome>();
+    const settingsGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation((slot) => (slot === "campaign" ? campaignGate.promise : settingsGate.promise));
+    const seen: string[] = [];
+    const run = sync.reconcileAll(defaultSaveState(), [], ({ slot, result }) => { seen.push(`${slot}:${result.status}`); });
+    settingsGate.resolve({ status: "current" });
+    await tick();
+    expect(seen).toEqual(["settings:current"]);
+    campaignGate.resolve({ status: "nothing" });
+    await run;
+    expect(seen).toEqual(["settings:current", "campaign:nothing"]);
+  });
+
+  it("never lets a throwing callback turn a good run into an errored one", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      reconcile.mockResolvedValue({ status: "current" });
+      const outcomes = await sync.reconcileAll(defaultSaveState(), [], () => { throw new Error("render exploded"); });
+      expect(outcomes.map((o) => o.result.status)).toEqual(["current", "current"]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

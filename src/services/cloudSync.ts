@@ -21,8 +21,20 @@ export interface FoldedOutcomes {
 /** Pure. Applies `use_cloud` (applyCloudPayload) and `fresh` (freshSlot) onto `current` — the state
  *  as it is *now*, never the snapshot the reconcile started from, so a reconcile result is applied
  *  even when the player changed something mid-flight. Returns `current` by identity when nothing was
- *  replaced. `failed` is true when any outcome has status "error". */
-export function foldOutcomes(current: SaveState, outcomes: readonly SlotOutcome[]): FoldedOutcomes {
+ *  replaced. `failed` is true when any outcome has status "error".
+ *
+ *  `alreadyApplied` lists the slots whose answer the caller applied at its OWN resolve (the per-slot
+ *  callback `reconcileAll` takes). Their payload must not be laid over `current` again: `current` is
+ *  the state AFTER that application plus whatever the player has committed since, and re-applying
+ *  here is precisely what used to overwrite those commits. They are still reported in `replaced` —
+ *  the answer happened, and `settledSlots` decides what it proves. A slot NOT in the list is applied
+ *  here as before, which keeps the property that no kit answer is ever discarded: every `use_cloud`
+ *  payload is applied exactly once, either at its resolve or here. */
+export function foldOutcomes(
+  current: SaveState,
+  outcomes: readonly SlotOutcome[],
+  alreadyApplied: readonly CloudSlot[] = [],
+): FoldedOutcomes {
   let next = current;
   const replaced: CloudSlot[] = [];
   const uploaded: CloudSlot[] = [];
@@ -30,11 +42,11 @@ export function foldOutcomes(current: SaveState, outcomes: readonly SlotOutcome[
   for (const { slot, result } of outcomes) {
     switch (result.status) {
       case "use_cloud":
-        next = applyCloudPayload(next, slot, result.save.payload);
+        if (!alreadyApplied.includes(slot)) next = applyCloudPayload(next, slot, result.save.payload);
         replaced.push(slot);
         break;
       case "fresh":
-        next = freshSlot(next, slot);
+        if (!alreadyApplied.includes(slot)) next = freshSlot(next, slot);
         replaced.push(slot);
         break;
       case "uploaded":
@@ -58,6 +70,11 @@ export interface SettledSlotsInput {
   next: SaveState;
   replaced: readonly CloudSlot[];
   uploaded: readonly CloudSlot[];
+  /** For each slot whose answer was applied at its OWN resolve, the slot's projection as recorded
+   *  immediately after that application — i.e. what the cloud provably held at that instant. A slot
+   *  the end-of-run fold applied has no entry: for those, `next` IS the state right after the
+   *  application, so there is nothing to compare against. */
+  applied?: ReadonlyMap<CloudSlot, unknown>;
 }
 
 export interface SettledSlots {
@@ -70,9 +87,18 @@ export interface SettledSlots {
 /**
  * Pure. Which slots a settled reconcile has PROVED the cloud holds — the one freshness predicate.
  *
- * `replaced` is unconditional: `foldOutcomes` applied the cloud payload onto the CURRENT state, so
- * the cloud holds that slot however much the player committed while the GETs were in flight — that
- * edit is gone by the player's own choice, and the flag has nothing left to protect.
+ * `replaced` is conditional on the same question as `uploaded`, just measured from a different
+ * instant. The cloud payload was applied when THAT slot's reconcile resolved, which — because the
+ * kit serializes per slot and a prompt can hold one slot for minutes — can be long before the run
+ * settles. Anything the player commits in that window sits ON TOP of the cloud state (the kit's
+ * record is already at the cloud revision), is held by the gate, and has the settle-time flush as
+ * its only route out. So a replaced slot counts as settled only while its projection is still the
+ * one recorded right after its payload was applied; a slot that moved since is treated exactly like
+ * a moved `uploaded` slot — flag kept, flushed normally. Clearing and skipping it unconditionally
+ * is what made that commit invisible to the cloud forever with nothing left marking it as local-only.
+ *
+ * A replaced slot with no recorded projection was applied by the end-of-run fold itself, so `next`
+ * is by construction the state right after its application: unconditionally settled, as before.
  *
  * `uploaded` is conditional, and this is the part that used to be wrong. The kit sends
  * `projection(startedWith)`. A commit that lands while that PUT is in flight is held by the gate, so
@@ -86,9 +112,14 @@ export interface SettledSlots {
  * two different actions, and the caller applies them at two different points (see App.tsx: clearing
  * is a per-slot fact and happens above the gate; skipping only matters if the gate allows a flush).
  */
-export function settledSlots({ startedWith, next, replaced, uploaded }: SettledSlotsInput): SettledSlots {
+export function settledSlots({ startedWith, next, replaced, uploaded, applied }: SettledSlotsInput): SettledSlots {
   const moved = changedSlots(startedWith, next);
-  const settled = CLOUD_SLOTS.filter((slot) => replaced.includes(slot)
+  const settledReplaced = (slot: CloudSlot): boolean => {
+    if (!replaced.includes(slot)) return false;
+    const atApplication = applied?.get(slot);
+    return atApplication === undefined || isCurrentProjection(next, slot, atApplication);
+  };
+  const settled = CLOUD_SLOTS.filter((slot) => settledReplaced(slot)
     || (uploaded.includes(slot) && !moved.includes(slot)));
   return { clear: [...settled], skip: [...settled] };
 }
@@ -107,8 +138,19 @@ export interface CloudSync {
    *  `unsynced` is the persisted per-slot "the cloud has never confirmed this" list.
    *  Never rejects: disabled / no client resolves to `[]`, and a client call that throws resolves
    *  to an "error" outcome for every slot. The caller folds the outcomes itself — the result of a
-   *  reconcile is never discarded. */
-  reconcileAll(save: SaveState, unsynced: readonly CloudSlot[]): Promise<SlotOutcome[]>;
+   *  reconcile is never discarded.
+   *
+   *  `onResolved` is called with each slot's own outcome the INSTANT that slot resolves, which is
+   *  what makes applying a cloud answer per slot possible. The kit serializes per slot and a slot's
+   *  reconcile can sit on a player prompt for minutes, so waiting for both to settle before applying
+   *  either meant every commit the player made to the finished slot in between was overwritten by
+   *  the late fold. Never called after the returned promise settles, and a callback that throws is
+   *  swallowed: it must not turn a good run into an errored one. */
+  reconcileAll(
+    save: SaveState,
+    unsynced: readonly CloudSlot[],
+    onResolved?: (outcome: SlotOutcome) => void,
+  ): Promise<SlotOutcome[]>;
   /** After every local commit, and once when a reconcile settles. Slots listed in `skip` are never
    *  stored. A `use_cloud` answer goes to onUseCloud with its payload and with whether anything else
    *  for that slot was still outstanding; a `stored` reply — proof the cloud took THAT payload —
@@ -177,8 +219,20 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
     console.warn("[cloud-saves] store threw:", error instanceof Error ? error.message : String(error));
 
   return {
-    async reconcileAll(save, unsynced) {
+    async reconcileAll(save, unsynced, onResolved) {
       if (!active) return [];
+      // A callback that throws is this module's problem to contain: it runs inside the slot's own
+      // promise chain, so an escaping error would reject `Promise.all` and turn every slot's genuine
+      // answer into an "error" outcome — discarding answers the kit has already acted on.
+      const report = (outcome: SlotOutcome): void => {
+        if (!onResolved) return;
+        try {
+          onResolved(outcome);
+        } catch (error) {
+          console.warn(`[cloud-saves] reconcile callback for ${outcome.slot} threw:`,
+            error instanceof Error ? error.message : String(error));
+        }
+      };
       try {
         // Both slots at once: identical prompts share one dialog in the kit.
         //
@@ -193,10 +247,15 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
         // longer describes what is on screen (signed-out play, an expired token, stores held after
         // a failed reconcile). Without it the kit answers `use_cloud` and the held progress is gone
         // with no prompt.
-        const results = await Promise.all(CLOUD_SLOTS.map((slot) => {
+        const results = await Promise.all(CLOUD_SLOTS.map(async (slot) => {
           const changed = unsynced.includes(slot);
           const local = isPristine(save, slot) && !changed ? null : projection(save, slot);
-          return active.reconcile(slot, local, { localChanged: changed });
+          const result = await active.reconcile(slot, local, { localChanged: changed });
+          // Reported here, not after `Promise.all`: this slot is done, and whatever the other slot
+          // is still waiting for (a prompt the player may leave open for minutes) is not its
+          // concern. The caller applies the answer now and records what it applied.
+          report({ slot, result });
+          return result;
         }));
         return CLOUD_SLOTS.map((slot, index) => ({ slot, result: results[index] }));
       } catch (error) {
