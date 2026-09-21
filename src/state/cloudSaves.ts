@@ -5,6 +5,12 @@ export const CLOUD_SLOTS = ["campaign", "settings"] as const;
 export type CloudSlot = (typeof CLOUD_SLOTS)[number];
 export type CampaignPayload = Omit<SaveState, "version" | "settings">;
 
+/** The kit reports a slot as a plain `string` (its own config is a `readonly string[]`), so anything
+ *  arriving from a kit callback has to be narrowed before it can index the app's per-slot state. */
+export function isCloudSlot(value: string): value is CloudSlot {
+  return (CLOUD_SLOTS as readonly string[]).includes(value);
+}
+
 export function toCampaignPayload(save: SaveState): CampaignPayload {
   const { version: _version, settings: _settings, ...campaign } = save;
   return campaign;

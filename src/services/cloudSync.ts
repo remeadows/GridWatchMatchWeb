@@ -1,6 +1,20 @@
-import type { ReconcileResult, SavesClient } from "@gridwatch/account-kit";
+import type { ReconcileOptions, ReconcileResult, SavesClient } from "@gridwatch/account-kit";
 import { applyCloudPayload, changedSlots, CLOUD_SLOTS, freshSlot, isPristine, projection, type CloudSlot } from "../state/cloudSaves";
 import type { SaveState } from "../state/save";
+
+/**
+ * What the kit is handed as a slot's local payload — the ONE rule, so the call-time argument and the
+ * `current` re-read below cannot drift apart.
+ *
+ * A pristine slot is handed `null` — no real local save to protect — so a new device adopts an
+ * existing cloud row silently instead of risking "Keep this one" overwriting real cloud progress
+ * with an untouched default. The unsynced FLAG outranks that rule: a slot the player deliberately
+ * reset to the defaults while unsynced is still a real local copy, so it goes up as one and prompts
+ * (or uploads) rather than silently re-adopting the cloud row.
+ */
+export function localForSlot(save: SaveState, slot: CloudSlot, flagged: boolean): Record<string, unknown> | null {
+  return isPristine(save, slot) && !flagged ? null : projection(save, slot);
+}
 
 export interface SlotOutcome {
   slot: CloudSlot;
@@ -12,8 +26,9 @@ export interface FoldedOutcomes {
   /** Slots whose local copy the cloud replaced (`use_cloud`) or reset (`fresh`). */
   replaced: CloudSlot[];
   /** Slots the cloud accepted during the reconcile itself (`uploaded` / `stored`). Proof that the
-   *  cloud took the payload the kit SENT — a projection of the snapshot the run started from, which
-   *  is not necessarily what the slot holds now. `settledSlots` is what turns it into a decision. */
+   *  cloud took the payload the kit SENT — a projection of the snapshot the run started from, or the
+   *  fresher one the kit's `current` re-read returned, neither of which is necessarily what the slot
+   *  holds now. `settledSlots` is what turns it into a decision. */
   uploaded: CloudSlot[];
   failed: boolean;
 }
@@ -112,6 +127,18 @@ export interface SettledSlots {
  * uploaded slot counts as settled only when it has not changed since `startedWith`; a changed one is
  * flushed normally and keeps its flag until its own `stored` reply proves the cloud took it.
  *
+ * With the kit's `current` re-read (v0.2.3) that test is now conservative rather than exact: when a
+ * commit landed before the DECISION, the kit sent the fresh projection, so the cloud really does hold
+ * what the device holds — yet `changedSlots(startedWith, next)` still reports the slot as moved, so
+ * it keeps its flag and the settle-time flush re-sends the identical payload once, on the revision
+ * the upload just created, and that PUT's own `stored` clears the flag. One redundant PUT, no prompt
+ * (the kit reads the base revision it just confirmed), and nothing at risk. Making it exact would
+ * mean threading "what the kit was actually given" back out of the kit's decision point and into
+ * this predicate, which buys one PUT at the cost of a second source of truth for the one fact this
+ * function exists to decide — and of a clear rule ("moved since the snapshot ⇒ keep the flag") that
+ * errs toward keeping flags. A commit that lands after the decision is the case the test is really
+ * for, and it is indistinguishable from this one here; both are handled the same, safe way.
+ *
  * `clear` and `skip` hold the same slots by construction — "the cloud holds this slot's current
  * projection" is the single fact behind both — but they are returned separately because they drive
  * two different actions, and the caller applies them at two different points (see App.tsx: clearing
@@ -138,6 +165,48 @@ export function isCurrentProjection(save: SaveState, slot: CloudSlot, payload: u
   return JSON.stringify(payload) === JSON.stringify(projection(save, slot));
 }
 
+export interface BackgroundStoredInput {
+  /** The save as it is NOW — `null` only before the local save has loaded. */
+  save: SaveState | null;
+  slot: CloudSlot;
+  /** The payload the kit says reached the cloud. */
+  payload: unknown;
+  /** The account whose cloud row it landed in (the kit's `userId`). */
+  storedFor: string;
+  /** Whoever is signed in NOW. */
+  signedInAs: string | null;
+  /** How many stores this module still has in the air for the slot (`outstandingStores`). */
+  outstanding: number;
+}
+
+/**
+ * Pure. May a background re-flush's success clear the slot's unsynced flag?
+ *
+ * The kit's `onBackgroundStored` reports that THIS payload reached THIS account's row — nothing
+ * more. So all three parts have to hold, and each is the answer to a different question:
+ *
+ *  - the ACCOUNT: a background send can outlast a sign-out or an account switch, and this flag is
+ *    not per-user. A re-flush that landed in the previous account's row says nothing about the slot
+ *    the account now signed in owns, so clearing on it would strip the only protection that
+ *    account's unsent work has. (The foreground `onStored` path needs no such check because every
+ *    kit path that can produce it writes the per-slot OWNER record too, which makes the next
+ *    account's reconcile prompt rather than trust the flag.)
+ *  - the PAYLOAD: exactly the freshness rule `onStored` uses — `isCurrentProjection`, because the
+ *    player may have committed since the re-flush was queued and the cloud does not hold that.
+ *  - what is still OUTSTANDING: a store queued behind the re-flush can move the cloud away again,
+ *    and if it then fails terminally the flag is the only thing left saying the slot is local-only.
+ *
+ * Conservative in the same direction as everything else here: a `false` costs a redundant upload or
+ * one extra prompt, never a lost commit.
+ */
+export function clearsOnBackgroundStore(
+  { save, slot, payload, storedFor, signedInAs, outstanding }: BackgroundStoredInput,
+): boolean {
+  if (signedInAs === null || storedFor !== signedInAs) return false;
+  if (save === null || !isCurrentProjection(save, slot, payload)) return false;
+  return outstanding === 0;
+}
+
 export interface CloudSync {
   /** Once the session and the local save are both known (and again when the user changes).
    *  `unsynced` is the persisted per-slot "the cloud has never confirmed this" list.
@@ -162,11 +231,38 @@ export interface CloudSync {
    *  goes to onStored together with the payload that was stored, but only once nothing else it
    *  issued for that slot is still outstanding. Never throws, and never rejects. */
   storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
+  /** How many stores this module has issued for `slot` that have not settled yet.
+   *
+   *  Exposed for the one path whose reply does not come back through this module at all: the kit's
+   *  background re-flush, which it reports to the app directly (`onBackgroundStored`). That
+   *  decision needs the same "nothing else for this slot is in the air" half of the freshness rule
+   *  `onStored` gets applied for it here — see `clearsOnBackgroundStore`. */
+  outstandingStores(slot: CloudSlot): number;
+}
+
+/**
+ * The app's LIVE view of its own state, read at the kit's decision point rather than at the call.
+ *
+ * Both readers are required together and must be synchronous: they are what `current` (kit v0.2.3)
+ * is built from, and a `current` that could only see one of the two halves would answer with the
+ * wrong rule — a slot the player reset to the defaults mid-run would read as "no local save" and the
+ * kit would forget the payload the flag exists to protect.
+ *
+ * Deliberately readers, not values: `createCloudSync` is constructed once for the app's whole life
+ * (it holds the outstanding-store counts), long before any of this state exists. In App.tsx they are
+ * `() => saveRef.current` and `readUnsynced` — which is also why this module still needs no React.
+ */
+export interface LiveState {
+  /** The save as it is NOW. `null` only before the local save has loaded. */
+  save: () => SaveState | null;
+  /** The persisted per-slot unsynced flags as they are NOW. */
+  unsynced: () => readonly CloudSlot[];
 }
 
 export interface CloudSyncOptions {
   saves: SavesClient | undefined;
   enabled: boolean;
+  live: LiveState;
   /** A `use_cloud` answer to a store: the player resolved the kit's conflict prompt by taking the
    *  cloud copy. The payload is ALWAYS applied — a kit answer is never discarded, and by the time it
    *  answers the kit has already written its own record at the cloud revision, so holding the
@@ -193,8 +289,42 @@ export interface CloudSyncOptions {
   onStored: (slot: CloudSlot, payload: Record<string, unknown>) => void;
 }
 
-export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudSyncOptions): CloudSync {
+export function createCloudSync({ saves, enabled, live, onUseCloud, onStored }: CloudSyncOptions): CloudSync {
   const active = enabled && saves ? saves : null;
+
+  /**
+   * The kit's re-read at DECISION time (kit v0.2.3's `ReconcileOptions.current`), for one slot.
+   *
+   * It returns exactly what `reconcileAll` would pass for this slot if it were called at that
+   * instant: the same `localForSlot` rule, against the LIVE save and the LIVE flags instead of the
+   * snapshot the run started from. The kit compares it (by its own canonical JSON) with the payload
+   * the call was made with; anything else than "identical" and it decides on, sends and remembers
+   * the fresh value, and treats the call as `localChanged` — which turns every decision that would
+   * have silently applied the cloud row into a prompt or an upload.
+   *
+   * Synchronous, and a fresh object per call (`projection` already builds one) because the kit takes
+   * the payload it is given: handing it a shared mutable object would let the save move under a
+   * request in flight.
+   *
+   * It must not throw. Nothing in it can today — the two readers are a ref read and a best-effort
+   * localStorage read, and `localForSlot` only stringifies a plain save — but the fallback is worth
+   * the two lines: `snapshot` is the payload this call was made with, which compares equal, so a
+   * re-read the app cannot answer degrades to exactly the pre-`current` behaviour instead of
+   * reporting a spurious change (or, worse for a pristine slot, a spurious `null`, which tells the
+   * kit to forget a payload it was holding for a background re-flush).
+   */
+  const currentFor = (slot: CloudSlot, snapshot: Record<string, unknown> | null) =>
+    (): Record<string, unknown> | null => {
+      try {
+        const save = live.save();
+        if (save === null) return snapshot;
+        return localForSlot(save, slot, live.unsynced().includes(slot));
+      } catch (error) {
+        console.warn(`[cloud-saves] live re-read for ${slot} failed, deciding on the call-time save:`,
+          error instanceof Error ? error.message : String(error));
+        return snapshot;
+      }
+    };
 
   /**
    * How many stores this module has issued for each slot that have not settled yet.
@@ -241,20 +371,22 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
       try {
         // Both slots at once: identical prompts share one dialog in the kit.
         //
-        // A pristine slot is handed to the kit as `null` — no real local save to protect — so a new
-        // device adopts an existing cloud row silently instead of risking "Keep this one"
-        // overwriting real cloud progress with an untouched default. The unsynced FLAG outranks
-        // that rule: a slot the player deliberately reset to the defaults while unsynced is still
-        // a real local copy, so it goes up as one and prompts (or uploads) rather than silently
-        // re-adopting the cloud row.
+        // What each slot is handed is `localForSlot` (see there for the pristine/flag rule), applied
+        // to the snapshot this run started from.
         //
         // `localChanged` tells the kit that its own clean `{ revision, dirty: false }` record no
         // longer describes what is on screen (signed-out play, an expired token, stores held after
         // a failed reconcile). Without it the kit answers `use_cloud` and the held progress is gone
         // with no prompt.
+        //
+        // `current` covers the rest of that same risk, for a change made after this call: the kit
+        // re-reads it once the cloud row is known and immediately before deciding, so a commit made
+        // during the GET is what the decision is made on. Passed for EVERY slot — a slot whose save
+        // cannot move is not a thing this module can know.
         const results = await Promise.all(CLOUD_SLOTS.map(async (slot) => {
           const changed = unsynced.includes(slot);
-          const local = isPristine(save, slot) && !changed ? null : projection(save, slot);
+          const local = localForSlot(save, slot, changed);
+          const options: ReconcileOptions = { localChanged: changed, current: currentFor(slot, local) };
           // A rejection is caught PER SLOT, never by the outer catch: `Promise.all` rejects on the
           // first failure, which would return the run — and let the gate settle — while the other
           // slot is still pending (a prompt can stay open for minutes). That slot's callback would
@@ -263,7 +395,7 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
           // holds the line if a custom dependency breaks it.
           let result: Awaited<ReturnType<SavesClient["reconcile"]>>;
           try {
-            result = await active.reconcile(slot, local, { localChanged: changed });
+            result = await active.reconcile(slot, local, options);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             console.warn(`[cloud-saves] reconcile for ${slot} failed:`, message);
@@ -281,6 +413,9 @@ export function createCloudSync({ saves, enabled, onUseCloud, onStored }: CloudS
         console.warn("[cloud-saves] reconcile failed:", message);
         return CLOUD_SLOTS.map((slot): SlotOutcome => ({ slot, result: { status: "error", error: { code: "network", message } } }));
       }
+    },
+    outstandingStores(slot) {
+      return outstandingFor(slot);
     },
     storeChanges(previous, next, skip = []) {
       if (!active) return;

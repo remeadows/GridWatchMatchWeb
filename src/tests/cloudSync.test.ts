@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SavesClient } from "@gridwatch/account-kit";
-import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type SlotOutcome } from "../services/cloudSync";
+import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, localForSlot, settledSlots, type LiveState, type SlotOutcome } from "../services/cloudSync";
 import { applyCloudPayload, freshSlot, projection, toCampaignPayload, toSettingsPayload, type CloudSlot } from "../state/cloudSaves";
 import { defaultSaveState, normalizeSave, type SaveState } from "../state/save";
 
@@ -11,10 +11,21 @@ function fakeSaves() {
   return { saves, reconcile, store };
 }
 
-function makeSync(saves: SavesClient | undefined, enabled = true) {
+/** No live readers: `current` falls back to the payload the call was made with, i.e. the kit sees
+ *  "unchanged" and behaves exactly as it did before the option existed. */
+const noLiveState: LiveState = { save: () => null, unsynced: () => [] };
+
+function makeSync(saves: SavesClient | undefined, enabled = true, live: LiveState = noLiveState) {
   const onUseCloud = vi.fn();
   const onStored = vi.fn();
-  return { sync: createCloudSync({ saves, enabled, onUseCloud, onStored }), onUseCloud, onStored };
+  return { sync: createCloudSync({ saves, enabled, onUseCloud, onStored, live }), onUseCloud, onStored };
+}
+
+/** The `current` callback `reconcileAll` handed the kit for a slot, by CLOUD_SLOTS index. */
+function currentFor(reconcile: ReturnType<typeof fakeSaves>["reconcile"], index: number): () => Record<string, unknown> | null {
+  const options = reconcile.mock.calls[index][2];
+  if (!options?.current) throw new Error(`reconcile call ${index} was given no current()`);
+  return options.current;
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
@@ -354,9 +365,9 @@ describe("createCloudSync", () => {
     // the flag says the cloud has never confirmed it, so it must go up as a real local copy.
     await sync.reconcileAll(pristine, ["campaign"]);
     expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(pristine));
-    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: true });
+    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: true, current: expect.any(Function) });
     expect(reconcile.mock.calls[1][1]).toBeNull(); // settings not flagged and pristine → still null
-    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: false });
+    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: false, current: expect.any(Function) });
   });
 
   it("passes localChanged false for a slot with real local changes that are already synced", async () => {
@@ -366,9 +377,9 @@ describe("createCloudSync", () => {
     played.coins = 40;
     await sync.reconcileAll(played, ["settings"]);
     expect(reconcile.mock.calls[0][1]).toEqual(toCampaignPayload(played));
-    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: false }); // changed, but synced
+    expect(reconcile.mock.calls[0][2]).toEqual({ localChanged: false, current: expect.any(Function) }); // changed, but synced
     expect(reconcile.mock.calls[1][1]).toEqual(toSettingsPayload(played)); // flagged → non-null
-    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: true });
+    expect(reconcile.mock.calls[1][2]).toEqual({ localChanged: true, current: expect.any(Function) });
   });
 
   it("reports a stored slot through onStored, and only for `stored`", async () => {
@@ -436,6 +447,217 @@ describe("createCloudSync", () => {
     await tick();
     expect(store).not.toHaveBeenCalled();
     expect(reconcile).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * `current` (kit v0.2.3) is the kit's re-read of the game's save at DECISION time — after the cloud
+ * GET is known and immediately before the decision. It closes the last window in which a commit
+ * could be replaced with no prompt: the kit otherwise decides on the snapshot handed to
+ * `reconcile()`, so a commit made during that GET was overwritten by an automatic `use_cloud`.
+ *
+ * The contract these tests pin: what `current()` returns for a slot is EXACTLY what `reconcileAll`
+ * would pass for that slot if it were called at that instant — the same pristine rule, evaluated
+ * against the LIVE save and the LIVE unsynced flags rather than the snapshot the run started from.
+ */
+describe("reconcileAll's `current` re-read", () => {
+  type ReconcileOutcome = Awaited<ReturnType<SavesClient["reconcile"]>>;
+
+  /** A live save and a live flag set the test can move while a reconcile is genuinely in flight —
+   *  the stand-in for App.tsx's `saveRef` and the persisted unsynced record. */
+  function liveHolder(save: SaveState, flags: readonly CloudSlot[] = []) {
+    const holder = { save, flags: new Set<CloudSlot>(flags) };
+    const live: LiveState = { save: () => holder.save, unsynced: () => [...holder.flags] };
+    return { holder, live };
+  }
+
+  /** What commitSave does, in the order it does it: the flag FIRST, then the save. */
+  function commit(holder: { save: SaveState; flags: Set<CloudSlot> }, slot: CloudSlot, next: SaveState): void {
+    holder.flags.add(slot);
+    holder.save = next;
+  }
+
+  const musicOff = (base: SaveState): SaveState => normalizeSave({ ...base, settings: { ...base.settings, musicEnabled: false } });
+
+  it("hands the kit a synchronous current() for every slot, next to localChanged", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = defaultSaveState();
+    const { live } = liveHolder(start);
+    const { sync } = makeSync(saves, true, live);
+    await sync.reconcileAll(start, []);
+    for (const index of [0, 1]) {
+      expect(reconcile.mock.calls[index][2]).toEqual({ localChanged: false, current: expect.any(Function) });
+      expect(currentFor(reconcile, index)()).toBeNull(); // nothing moved: still pristine, still unflagged
+    }
+  });
+
+  it("re-reads a live change made after the call: a pristine slot becomes a real local copy", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = defaultSaveState();
+    const { holder, live } = liveHolder(start);
+    const { sync } = makeSync(saves, true, live);
+    const settingsGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation(async (slot) => (slot === "settings" ? settingsGate.promise : { status: "nothing" }));
+
+    const run = sync.reconcileAll(start, []);
+    await tick();
+    // Call time: pristine and unflagged, so the kit was handed `null` — the exact input that makes
+    // it answer `use_cloud` on its own against a moved cloud row.
+    expect(reconcile.mock.calls[1][1]).toBeNull();
+    const current = currentFor(reconcile, 1);
+    expect(current()).toBeNull();
+
+    // The player toggles a setting while the GET is still in flight.
+    commit(holder, "settings", musicOff(holder.save));
+    expect(current()).toEqual(toSettingsPayload(holder.save)); // pristine → non-null, so the kit prompts
+    expect(currentFor(reconcile, 0)()).toBeNull();             // ...and the untouched slot is unaffected
+
+    settingsGate.resolve({ status: "current" });
+    await run;
+  });
+
+  it("re-reads a live change on a slot that was already a real local copy: non-null → different", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = normalizeSave({ ...defaultSaveState(), coins: 40 }); // campaign: real local changes
+    const { holder, live } = liveHolder(start);
+    const { sync } = makeSync(saves, true, live);
+    const campaignGate = deferred<ReconcileOutcome>();
+    reconcile.mockImplementation(async (slot) => (slot === "campaign" ? campaignGate.promise : { status: "nothing" }));
+
+    const run = sync.reconcileAll(start, []);
+    await tick();
+    const current = currentFor(reconcile, 0);
+    expect(current()).toEqual(toCampaignPayload(start));
+
+    commit(holder, "campaign", normalizeSave({ ...holder.save, coins: 95 }));
+    expect(current()).toEqual(toCampaignPayload(holder.save));
+    expect(current()).not.toEqual(reconcile.mock.calls[0][1]); // differs from the call-time snapshot
+
+    campaignGate.resolve({ status: "nothing" });
+    await run;
+  });
+
+  it("reads the LIVE flags: a slot reset to pristine while flagged still returns a real local copy", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = musicOff(defaultSaveState());
+    const { holder, live } = liveHolder(start);
+    const { sync } = makeSync(saves, true, live);
+    await sync.reconcileAll(start, []);
+    // Reset back to the defaults mid-run. Bit-for-bit pristine, but the commit flagged the slot, so
+    // the flag outranks the pristine rule exactly as it does at call time.
+    commit(holder, "settings", defaultSaveState());
+    expect(currentFor(reconcile, 1)()).toEqual(toSettingsPayload(defaultSaveState()));
+  });
+
+  it("applies the same rule as the call-time argument, and a fresh object per call", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = normalizeSave({ ...defaultSaveState(), coins: 3 });
+    const { holder, live } = liveHolder(start, ["settings"]);
+    const { sync } = makeSync(saves, true, live);
+    await sync.reconcileAll(start, ["settings"]);
+    for (const [index, slot] of (["campaign", "settings"] as const).entries()) {
+      const current = currentFor(reconcile, index);
+      // The rule, not a re-implementation of it: what reconcileAll would pass for this slot now.
+      expect(current()).toEqual(localForSlot(holder.save, slot, holder.flags.has(slot)));
+      expect(current()).toEqual(reconcile.mock.calls[index][1]); // nothing moved yet
+      expect(current()).not.toBe(current());                     // never a shared mutable object
+      expect(current()).not.toBe(reconcile.mock.calls[index][1]);
+    }
+  });
+
+  it("never throws: a live reader that blows up falls back to the payload the call was made with", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = normalizeSave({ ...defaultSaveState(), coins: 7 });
+    const { sync } = makeSync(saves, true, {
+      save: () => { throw new Error("ref exploded"); },
+      unsynced: () => [],
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await sync.reconcileAll(start, []);
+      // The call-time snapshot is a truthful, if older, answer — the kit then behaves exactly as it
+      // did before `current` existed rather than failing the reconcile.
+      expect(currentFor(reconcile, 0)()).toEqual(toCampaignPayload(start));
+      expect(currentFor(reconcile, 1)()).toBeNull();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("falls back to the call-time payload before the local save has loaded", async () => {
+    const { saves, reconcile } = fakeSaves();
+    const start = normalizeSave({ ...defaultSaveState(), coins: 11 });
+    const { sync } = makeSync(saves, true, noLiveState); // save() === null
+    await sync.reconcileAll(start, []);
+    expect(currentFor(reconcile, 0)()).toEqual(toCampaignPayload(start));
+    expect(currentFor(reconcile, 1)()).toBeNull();
+  });
+});
+
+/**
+ * A background re-flush (the kit's own `online` / `visibilitychange` retry of a slot it knows is
+ * dirty) has no caller to resolve, so the kit reports it through `onBackgroundStored` instead. It
+ * says only that THIS payload reached THIS account's row — not that the slot is up to date — so
+ * clearing the unsynced flag on it needs the same freshness rule the `onStored` path already
+ * applies, plus the account check that path gets for free from the kit's ownership record.
+ */
+describe("clearsOnBackgroundStore", () => {
+  const save = normalizeSave({ ...defaultSaveState(), settings: { ...defaultSaveState().settings, musicEnabled: false } });
+  const landed = projection(save, "settings");
+  const base = { save, slot: "settings" as CloudSlot, payload: landed, storedFor: "user-1", signedInAs: "user-1", outstanding: 0 };
+
+  it("clears when the payload landed in the signed-in account's row and nothing else is in flight", () => {
+    expect(clearsOnBackgroundStore(base)).toBe(true);
+  });
+
+  it("does not clear for a different account than the one signed in now", () => {
+    // The send outlasted an account switch: the flag now belongs to whoever is signed in.
+    expect(clearsOnBackgroundStore({ ...base, storedFor: "user-2" })).toBe(false);
+    expect(clearsOnBackgroundStore({ ...base, signedInAs: null })).toBe(false); // signed out since
+  });
+
+  it("does not clear for a payload that is no longer what the slot holds", () => {
+    const moved = normalizeSave({ ...save, settings: { ...save.settings, sfxEnabled: false } });
+    expect(clearsOnBackgroundStore({ ...base, save: moved })).toBe(false);
+    expect(clearsOnBackgroundStore({ ...base, save: null })).toBe(false); // nothing to compare against
+  });
+
+  it("does not clear while another store for the slot is still outstanding", () => {
+    // Same reason onStored is withheld: a queued store can move the cloud away again, and if it then
+    // fails terminally the flag would be the only thing left saying the slot is local-only.
+    expect(clearsOnBackgroundStore({ ...base, outstanding: 1 })).toBe(false);
+  });
+
+  it("is decided per slot: the same payload proves nothing about the other slot", () => {
+    expect(clearsOnBackgroundStore({ ...base, slot: "campaign" })).toBe(false);
+  });
+});
+
+describe("createCloudSync outstandingStores", () => {
+  it("reports this module's own in-flight stores per slot", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const before = defaultSaveState();
+    const put = deferred<StoreResult>();
+    store.mockReturnValueOnce(put.promise);
+    expect(sync.outstandingStores("settings")).toBe(0);
+    sync.storeChanges(before, normalizeSave({ ...before, settings: { ...before.settings, musicEnabled: false } }));
+    expect(sync.outstandingStores("settings")).toBe(1);
+    expect(sync.outstandingStores("campaign")).toBe(0);
+    put.resolve(stored(1));
+    await tick();
+    expect(sync.outstandingStores("settings")).toBe(0);
+  });
+});
+
+describe("localForSlot", () => {
+  it("is null only for a pristine slot that is not flagged", () => {
+    const pristine = defaultSaveState();
+    const played = normalizeSave({ ...pristine, coins: 5 });
+    expect(localForSlot(pristine, "campaign", false)).toBeNull();
+    expect(localForSlot(pristine, "campaign", true)).toEqual(toCampaignPayload(pristine));
+    expect(localForSlot(played, "campaign", false)).toEqual(toCampaignPayload(played));
+    expect(localForSlot(played, "settings", false)).toBeNull(); // the other slot is still pristine
   });
 });
 
@@ -781,6 +1003,7 @@ describe("createCloudSync outstanding stores", () => {
     const sync = createCloudSync({
       saves,
       enabled: true,
+      live: { save: () => current, unsynced: () => [...flagged] },
       onUseCloud: (slot, payload, settled) => {
         current = applyCloudPayload(current, slot, payload);
         if (settled) flagged.delete(slot);
