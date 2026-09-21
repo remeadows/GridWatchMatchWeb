@@ -146,6 +146,12 @@ export default function App() {
     cloudSyncRef.current = createCloudSync({
       saves: accountKit.saves,
       enabled: typeof window !== "undefined" && cloudSavesEnabled(window.location.origin, accountKit.config.nexusOrigin),
+      // The two halves of "what this device holds for a slot", as readers rather than values, so the
+      // kit's `current` re-read at decision time sees what is on screen NOW — not the snapshot the
+      // reconcile run was started with. Both are the same sources `commitSave` writes, in the order
+      // it writes them (the flag first, then the ref), and neither is a React value: this instance
+      // outlives every render.
+      live: { save: () => saveRef.current, unsynced: readUnsynced },
       onUseCloud: applyCloud,
       // A `stored` reply proves the cloud took THAT payload — not that it holds whatever the slot
       // holds now. The kit debounces stores by 750 ms and serializes them per slot, so a commit made
@@ -206,11 +212,17 @@ export default function App() {
     // both meant every commit made to the finished slot in between was overwritten by the late fold,
     // its flag cleared, and the commit never flushed: silent loss.
     //
-    // KNOWN RESIDUAL (kit v0.2.2, fix lands in the next kit release): a commit made between the
-    // `reconcile()` call and the kit's DECISION — one GET, normally well under a second — is still
-    // overwritten when the kit answers an automatic `use_cloud`, because the kit decided on the
-    // snapshot it was handed here. Closing it needs a kit API addition (a `current()` callback the
-    // kit re-reads at decision time); nothing on this side can narrow it further.
+    // A commit made between the `reconcile()` call and the kit's DECISION is covered too, by the
+    // `live` readers handed to createCloudSync above: kit v0.2.3 re-reads them (`current`) once the
+    // cloud row is known and immediately before deciding, so such a commit is what the decision is
+    // made on — an automatic `use_cloud` becomes a prompt or an upload instead of a silent replace.
+    //
+    // What remains accepted, by design on both sides: a change made while a kit PROMPT is open does
+    // not change the question the player was asked, because their explicit answer wins. "Keep this
+    // one" uploads the payload as of the decision, and the later commit still reaches the cloud
+    // through the settle-time flush (the slot moved, so `settledSlots` keeps its flag and sends it);
+    // "Use cloud" replaces the slot with the cloud copy, that commit's content included, which is
+    // precisely what the player chose.
     const applied = new Map<CloudSlot, Record<string, unknown>>();
     const applyResolved = ({ slot, result }: SlotOutcome): void => {
       const before = saveRef.current;

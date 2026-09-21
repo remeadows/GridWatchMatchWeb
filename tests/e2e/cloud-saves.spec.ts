@@ -493,6 +493,92 @@ test("a cloud answer lands when its own slot resolves, and a commit made after i
   expect(api.puts).toEqual([]);
 });
 
+test("a commit made while the reconcile's GET is still in flight prompts instead of being replaced", async ({ page }) => {
+  test.setTimeout(60_000);
+  await seedSession(page);
+  const rows: Record<string, Row | undefined> = { settings: settingsRow() };
+  const api = await fakeSavesApi(page, rows);
+
+  // Phase 1 — become a known peer: a pristine device adopts the cloud `settings` row silently, so
+  // the kit's own record for the slot is { revision: 1, dirty: false } and the app's flag is clear.
+  // That clean record at a revision the cloud has since passed is exactly the input that used to
+  // produce an automatic `use_cloud`.
+  await page.goto("./?gwTestMode=1");
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Music/)).not.toBeChecked({ timeout: 10_000 }); // the cloud row's value
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
+  expect(await unsyncedFlags(page)).toEqual([]);
+
+  // Phase 2 — hold the settings GET open (not a timer: nothing can expire early and turn this into
+  // an ordinary post-settle commit) and move the cloud past the revision this device recorded. The
+  // row is read when the hold is released, so setting it now is enough.
+  api.gets.length = 0;
+  api.holdGets.add("settings");
+  rows.settings = movedSettingsRow(); // revision 2, and a different value in every field we touch
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
+  await expect.poll(() => api.gets.slice().sort()).toEqual(["campaign", "settings"]);
+
+  // A real commitSave, after `reconcile()` was called and before the kit can decide anything.
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByLabel(/Sound Effects/).click();
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual(["settings"]);
+  // The pin that this is the window it says: the GET has not answered yet, so the kit has not
+  // reached its decision, and the gate is still holding every store.
+  expect(api.holdGets.has("settings")).toBe(true);
+  expect(api.puts).toEqual([]);
+
+  api.releaseGet("settings");
+
+  // The kit re-reads the live save at its decision point (`current`, kit v0.2.3) and sees a local
+  // payload that moved, so it asks. Deciding on the snapshot handed to `reconcile()` — everything
+  // before this change — answered `use_cloud` here: no prompt, and the toggle silently reverted to
+  // the cloud row's value with its flag cleared, unrecoverably.
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog).toContainText("Newer save in the cloud from another device");
+  await dialog.getByRole("button", { name: "Keep this one" }).click();
+  await expect(dialog).toBeHidden();
+
+  const kept = { musicEnabled: false, sfxEnabled: false, voiceEnabled: true, reducedMotion: false };
+  await expect.poll(() => api.puts.filter((p) => p.slot === "settings").length, { timeout: 20_000 }).toBe(2);
+  await page.waitForTimeout(1_500); // ...and no third
+  const settingsPuts = api.puts.filter((p) => p.slot === "settings");
+  expect(settingsPuts).toHaveLength(2);
+  // "Keep this one" uploads the RE-READ payload — the toggle included — on the revision the prompt
+  // was raised against.
+  expect(settingsPuts[0].body.baseRevision).toBe(2);
+  expect(settingsPuts[0].body.payload).toMatchObject(kept);
+  // The settle-time flush then re-sends the identical payload exactly once. The slot moved since the
+  // snapshot the run started from, and `settledSlots` deliberately does not try to tell "moved
+  // before the decision, so the kit sent it" apart from "moved after it, so nobody did": it keeps
+  // the flag and flushes. One redundant PUT on the revision the upload just created — no prompt, no
+  // risk — and its own `stored` reply is what clears the flag.
+  expect(settingsPuts[1].body.baseRevision).toBe(3);
+  expect(settingsPuts[1].body.payload).toMatchObject(kept);
+  expect(api.puts.some((p) => p.slot === "campaign")).toBe(false);
+  expect(rows.settings!.revision).toBe(4);
+  expect(rows.settings!.payload).toMatchObject(kept);
+  await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
+
+  // The toggle survived locally, and none of the cloud copy the player rejected landed on top of it.
+  await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked();
+  await expect(page.getByLabel(/Music/)).not.toBeChecked();   // the cloud row said true
+  await expect(page.getByLabel(/Voice Lines/)).toBeChecked();  // ...and false
+
+  // And it is what survives a reload, with nothing left to re-send.
+  api.puts.length = 0;
+  await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel(/Sound Effects/)).not.toBeChecked();
+  await expect(page.getByLabel(/Music/)).not.toBeChecked();
+  await expect(savePrompt(page)).toHaveCount(0);
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
+});
+
 test("a run that failed on one slot still clears the flag on the slot the cloud replaced", async ({ page }) => {
   test.setTimeout(60_000);
   await seedSession(page);
