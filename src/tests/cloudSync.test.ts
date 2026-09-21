@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SavesClient } from "@gridwatch/account-kit";
-import { createCloudSync, foldOutcomes, isCurrentProjection, localForSlot, settledSlots, type LiveState, type SlotOutcome } from "../services/cloudSync";
+import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, localForSlot, settledSlots, type LiveState, type SlotOutcome } from "../services/cloudSync";
 import { applyCloudPayload, freshSlot, projection, toCampaignPayload, toSettingsPayload, type CloudSlot } from "../state/cloudSaves";
 import { defaultSaveState, normalizeSave, type SaveState } from "../state/save";
 
@@ -591,6 +591,62 @@ describe("reconcileAll's `current` re-read", () => {
     await sync.reconcileAll(start, []);
     expect(currentFor(reconcile, 0)()).toEqual(toCampaignPayload(start));
     expect(currentFor(reconcile, 1)()).toBeNull();
+  });
+});
+
+/**
+ * A background re-flush (the kit's own `online` / `visibilitychange` retry of a slot it knows is
+ * dirty) has no caller to resolve, so the kit reports it through `onBackgroundStored` instead. It
+ * says only that THIS payload reached THIS account's row — not that the slot is up to date — so
+ * clearing the unsynced flag on it needs the same freshness rule the `onStored` path already
+ * applies, plus the account check that path gets for free from the kit's ownership record.
+ */
+describe("clearsOnBackgroundStore", () => {
+  const save = normalizeSave({ ...defaultSaveState(), settings: { ...defaultSaveState().settings, musicEnabled: false } });
+  const landed = projection(save, "settings");
+  const base = { save, slot: "settings" as CloudSlot, payload: landed, storedFor: "user-1", signedInAs: "user-1", outstanding: 0 };
+
+  it("clears when the payload landed in the signed-in account's row and nothing else is in flight", () => {
+    expect(clearsOnBackgroundStore(base)).toBe(true);
+  });
+
+  it("does not clear for a different account than the one signed in now", () => {
+    // The send outlasted an account switch: the flag now belongs to whoever is signed in.
+    expect(clearsOnBackgroundStore({ ...base, storedFor: "user-2" })).toBe(false);
+    expect(clearsOnBackgroundStore({ ...base, signedInAs: null })).toBe(false); // signed out since
+  });
+
+  it("does not clear for a payload that is no longer what the slot holds", () => {
+    const moved = normalizeSave({ ...save, settings: { ...save.settings, sfxEnabled: false } });
+    expect(clearsOnBackgroundStore({ ...base, save: moved })).toBe(false);
+    expect(clearsOnBackgroundStore({ ...base, save: null })).toBe(false); // nothing to compare against
+  });
+
+  it("does not clear while another store for the slot is still outstanding", () => {
+    // Same reason onStored is withheld: a queued store can move the cloud away again, and if it then
+    // fails terminally the flag would be the only thing left saying the slot is local-only.
+    expect(clearsOnBackgroundStore({ ...base, outstanding: 1 })).toBe(false);
+  });
+
+  it("is decided per slot: the same payload proves nothing about the other slot", () => {
+    expect(clearsOnBackgroundStore({ ...base, slot: "campaign" })).toBe(false);
+  });
+});
+
+describe("createCloudSync outstandingStores", () => {
+  it("reports this module's own in-flight stores per slot", async () => {
+    const { saves, store } = fakeSaves();
+    const { sync } = makeSync(saves);
+    const before = defaultSaveState();
+    const put = deferred<StoreResult>();
+    store.mockReturnValueOnce(put.promise);
+    expect(sync.outstandingStores("settings")).toBe(0);
+    sync.storeChanges(before, normalizeSave({ ...before, settings: { ...before.settings, musicEnabled: false } }));
+    expect(sync.outstandingStores("settings")).toBe(1);
+    expect(sync.outstandingStores("campaign")).toBe(0);
+    put.resolve(stored(1));
+    await tick();
+    expect(sync.outstandingStores("settings")).toBe(0);
   });
 });
 

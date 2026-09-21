@@ -165,6 +165,48 @@ export function isCurrentProjection(save: SaveState, slot: CloudSlot, payload: u
   return JSON.stringify(payload) === JSON.stringify(projection(save, slot));
 }
 
+export interface BackgroundStoredInput {
+  /** The save as it is NOW — `null` only before the local save has loaded. */
+  save: SaveState | null;
+  slot: CloudSlot;
+  /** The payload the kit says reached the cloud. */
+  payload: unknown;
+  /** The account whose cloud row it landed in (the kit's `userId`). */
+  storedFor: string;
+  /** Whoever is signed in NOW. */
+  signedInAs: string | null;
+  /** How many stores this module still has in the air for the slot (`outstandingStores`). */
+  outstanding: number;
+}
+
+/**
+ * Pure. May a background re-flush's success clear the slot's unsynced flag?
+ *
+ * The kit's `onBackgroundStored` reports that THIS payload reached THIS account's row — nothing
+ * more. So all three parts have to hold, and each is the answer to a different question:
+ *
+ *  - the ACCOUNT: a background send can outlast a sign-out or an account switch, and this flag is
+ *    not per-user. A re-flush that landed in the previous account's row says nothing about the slot
+ *    the account now signed in owns, so clearing on it would strip the only protection that
+ *    account's unsent work has. (The foreground `onStored` path needs no such check because every
+ *    kit path that can produce it writes the per-slot OWNER record too, which makes the next
+ *    account's reconcile prompt rather than trust the flag.)
+ *  - the PAYLOAD: exactly the freshness rule `onStored` uses — `isCurrentProjection`, because the
+ *    player may have committed since the re-flush was queued and the cloud does not hold that.
+ *  - what is still OUTSTANDING: a store queued behind the re-flush can move the cloud away again,
+ *    and if it then fails terminally the flag is the only thing left saying the slot is local-only.
+ *
+ * Conservative in the same direction as everything else here: a `false` costs a redundant upload or
+ * one extra prompt, never a lost commit.
+ */
+export function clearsOnBackgroundStore(
+  { save, slot, payload, storedFor, signedInAs, outstanding }: BackgroundStoredInput,
+): boolean {
+  if (signedInAs === null || storedFor !== signedInAs) return false;
+  if (save === null || !isCurrentProjection(save, slot, payload)) return false;
+  return outstanding === 0;
+}
+
 export interface CloudSync {
   /** Once the session and the local save are both known (and again when the user changes).
    *  `unsynced` is the persisted per-slot "the cloud has never confirmed this" list.
@@ -189,6 +231,13 @@ export interface CloudSync {
    *  goes to onStored together with the payload that was stored, but only once nothing else it
    *  issued for that slot is still outstanding. Never throws, and never rejects. */
   storeChanges(previous: SaveState | null, next: SaveState, skip?: readonly CloudSlot[]): void;
+  /** How many stores this module has issued for `slot` that have not settled yet.
+   *
+   *  Exposed for the one path whose reply does not come back through this module at all: the kit's
+   *  background re-flush, which it reports to the app directly (`onBackgroundStored`). That
+   *  decision needs the same "nothing else for this slot is in the air" half of the freshness rule
+   *  `onStored` gets applied for it here — see `clearsOnBackgroundStore`. */
+  outstandingStores(slot: CloudSlot): number;
 }
 
 /**
@@ -364,6 +413,9 @@ export function createCloudSync({ saves, enabled, live, onUseCloud, onStored }: 
         console.warn("[cloud-saves] reconcile failed:", message);
         return CLOUD_SLOTS.map((slot): SlotOutcome => ({ slot, result: { status: "error", error: { code: "network", message } } }));
       }
+    },
+    outstandingStores(slot) {
+      return outstandingFor(slot);
     },
     storeChanges(previous, next, skip = []) {
       if (!active) return;

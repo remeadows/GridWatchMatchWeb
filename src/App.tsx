@@ -10,14 +10,14 @@ import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionSte
 import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
-import { accountKit } from "./services/accountKit";
+import { accountKit, setBackgroundStoredListener } from "./services/accountKit";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
-import { createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
+import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
-import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, projection, type CloudSlot } from "./state/cloudSaves";
+import { applyCloudPayload, changedSlots, cloudSavesEnabled, freshSlot, isCloudSlot, projection, type CloudSlot } from "./state/cloudSaves";
 import { clearUnsynced, markUnsynced, readUnsynced } from "./state/cloudUnsynced";
 import {
   areaProgressLabel,
@@ -292,6 +292,32 @@ export default function App() {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [gate]);
+
+  // A background re-flush — the kit's OWN retry, on `online` or the tab becoming visible, of a slot
+  // it already knows is dirty — has no caller to resolve, so the kit reports it here instead. It is
+  // the one path that can land a slot in the cloud without this app issuing the store, and without
+  // this hook the slot's flag would stay set until the next reconcile re-uploaded it.
+  //
+  // What it proves is narrow — THIS payload reached THIS account's row — so the flag is cleared only
+  // under the same freshness rule `onStored` gets, plus the account check; `clearsOnBackgroundStore`
+  // is the whole decision. Registered in an effect purely so it is torn down on unmount: before the
+  // app mounts (a re-flush fired by an `online` event during the first paint) and after it unmounts,
+  // the notification is dropped, which costs a redundant upload at the next load and nothing else.
+  useEffect(() => {
+    setBackgroundStoredListener((slot, payload, _revision, storedFor) => {
+      if (!isCloudSlot(slot)) return;
+      const settled = clearsOnBackgroundStore({
+        save: saveRef.current,
+        slot,
+        payload,
+        storedFor,
+        signedInAs: userIdRef.current,
+        outstanding: cloudSync.outstandingStores(slot),
+      });
+      if (settled) clearUnsynced([slot]);
+    });
+    return () => setBackgroundStoredListener(null);
+  }, [cloudSync]);
 
   useEffect(() => {
     if (!save || appliedInitialRoute.current) return;
