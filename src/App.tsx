@@ -124,7 +124,7 @@ export default function App() {
     // though the payload just replaced that commit's content is the intended outcome: the next
     // reconcile sends the slot as a real local copy and the kit resolves it (`restore_dirty`).
     //
-    // What the retained flag actually costs, under kit v0.2.2: nothing in the cloud. The store
+    // What the retained flag actually costs, under kit v0.2.3: nothing in the cloud. The store
     // queued behind a "Use cloud" answer is DROPPED by the kit, not sent — answering bumps the
     // slot's discard epoch (`noteDiscard`) and every commit stamped with the older epoch is
     // discarded at flush, precisely so it cannot land on the revision the answer just confirmed.
