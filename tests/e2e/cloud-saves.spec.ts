@@ -177,25 +177,44 @@ test("a newer cloud row replaces an untouched local save", async ({ page }) => {
 test("an edit made while the first reconcile is in flight can never overwrite cloud progress", async ({ page }) => {
   await seedSession(page);
   // A brand-new device signing in to an account that already has real progress in BOTH slots.
-  const { puts, gets } = await fakeSavesApi(page, { campaign: campaignRow(250), settings: settingsRow() }, { getDelayMs: 2_000 });
+  const api = await fakeSavesApi(page, { campaign: campaignRow(250), settings: settingsRow() });
+  // Both GETs hang until this test releases them, so everything below happens while the reconcile is
+  // genuinely in flight — and, unlike a timer, nothing can expire early and decide the slot before
+  // the edit lands, which is now the difference between a prompt and a silent adoption.
+  api.holdGets.add("campaign");
+  api.holdGets.add("settings");
   await page.goto("./?gwTestMode=1");
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
-  // The GETs are held open: everything below happens while the reconcile is genuinely in flight.
-  await expect.poll(() => gets.slice().sort()).toEqual(["campaign", "settings"]);
+  await expect.poll(() => api.gets.slice().sort()).toEqual(["campaign", "settings"]);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/Music/).click();   // a real commitSave, mid-reconcile
-  // Let the reconcile settle, then well past the kit's 750 ms store debounce.
+  expect(api.puts).toEqual([]);             // held by the gate: the run has not settled
+  api.releaseGet("campaign");
+  api.releaseGet("settings");
+
+  // `campaign` was untouched locally, so the kit adopts its cloud row silently, as always. `settings`
+  // MOVED during the GET, and kit v0.2.3 re-reads it at the decision point: rather than replacing
+  // that edit with no prompt — which is what happened before `current`, leaving the edit nowhere at
+  // all — the player is asked. Answer it the way the old behaviour answered for them.
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
+  await expect(dialog).toContainText("Newer save in the cloud from another device");
+  await dialog.getByRole("button", { name: "Use cloud" }).click();
+  await expect(dialog).toBeHidden();
+
   await expect(coinTotal(page)).toHaveText("250", { timeout: 10_000 });
-  await page.waitForTimeout(1_500);
+  await page.waitForTimeout(1_500); // well past the kit's 750 ms store debounce
   // Nothing was ever pushed: not the pre-reconcile projection, not the in-flight edit to a slot the
   // cloud replaced. The old bug sent a PUT here at the confirmed base revision, with no 409 and no
   // prompt, replacing 250 coins with a near-default campaign.
-  expect(puts).toEqual([]);
-  await expect(savePrompt(page)).toHaveCount(0);
+  expect(api.puts).toEqual([]);
   await expect(coinTotal(page)).toHaveText("250");
   // And the cloud copy is what got persisted locally, not just what got rendered.
   await page.reload();
   await expect(coinTotal(page)).toHaveText("250", { timeout: 10_000 });
+  await expect(savePrompt(page)).toHaveCount(0); // nothing left to resolve on the next load
+  await page.waitForTimeout(1_500);
+  expect(api.puts).toEqual([]);
 });
 
 test("a signed-in load reconciles exactly once: two GETs, and no more on re-render", async ({ page }) => {
@@ -396,10 +415,10 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
   // branch — and the kit UPLOADS, rather than prompting.
   const api = await heldLocalChange(page, rows, 403);
   api.gets.length = 0;
-  // Hold the post-reload GETs open so a real commit lands mid-reconcile. 4 s, not 3 s: the two
-  // clicks below happen inside this window and the pin after them has to be reliable on the slower
-  // mobile project too — lengthening the hold is the cheap half of that trade.
-  api.getDelayMs = 4_000;
+  // Hold the post-reload settings GET until this test releases it, so a real commit lands
+  // mid-reconcile with no window that can close early. (`campaign` is pristine with no cloud row, so
+  // its own leg answers `nothing` straight away and the run still cannot settle.)
+  api.holdGets.add("settings");
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
@@ -407,21 +426,28 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/Sound Effects/).click(); // a real commitSave, mid-reconcile, held by the gate
 
-  // The pin that this scenario is actually testing what it says: the GETs are STILL held, so the
-  // reconcile has not settled and the gate cannot have let anything out. Without this, a hold that
-  // expired early (or a reconcile that never held at all) would turn the whole test into an
-  // ordinary post-settle commit and the two PUTs below would still line up.
+  // The pin that this scenario is actually testing what it says: the GET is STILL held, so the
+  // reconcile has not settled and the gate cannot have let anything out. Without this, a reconcile
+  // that never held at all would turn the whole test into an ordinary post-settle commit and the two
+  // PUTs below would still line up.
+  expect(api.holdGets.has("settings")).toBe(true);
   expect(api.puts.filter((p) => p.slot === "settings")).toEqual([]);
   expect(api.puts).toEqual([]);
+  api.releaseGet("settings");
 
-  // Exactly two PUTs for this slot: the kit's upload of the PRE-commit projection, then the
-  // settle-time flush carrying the mid-flight commit on the revision that upload just created.
+  // Exactly two PUTs for this slot. The first is the kit's own upload (`restore_dirty`): it carries
+  // the RE-READ projection, commit included, because kit v0.2.3 asks for the live save at its
+  // decision point — before `current` this PUT went up with the pre-commit projection. The second is
+  // the settle-time flush on the revision that upload just created: `settledSlots` sees a slot that
+  // moved since the snapshot the run started from and deliberately does not try to tell "moved
+  // before the decision, so the kit sent it" apart from "moved after it, so nobody did", so it keeps
+  // the flag and sends. One redundant PUT of an identical payload, and its `stored` clears the flag.
   await expect.poll(() => api.puts.filter((p) => p.slot === "settings").length, { timeout: 20_000 }).toBe(2);
   await page.waitForTimeout(1_500); // ...and no third
   const settingsPuts = api.puts.filter((p) => p.slot === "settings");
   expect(settingsPuts).toHaveLength(2);
   expect(settingsPuts[0].body.baseRevision).toBe(1);
-  expect(settingsPuts[0].body.payload).toMatchObject({ sfxEnabled: true, voiceEnabled: false });
+  expect(settingsPuts[0].body.payload).toMatchObject({ sfxEnabled: false, voiceEnabled: false });
   expect(settingsPuts[1].body.baseRevision).toBe(2);
   expect(settingsPuts[1].body.payload).toMatchObject({ sfxEnabled: false, voiceEnabled: false });
   expect(api.puts.some((p) => p.slot === "campaign")).toBe(false);
@@ -433,7 +459,6 @@ test("a commit made during a reconcile that UPLOADS is still sent, and stays fla
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
 
   // Both changes are what survives a reload — and the settled cloud row needs no further traffic.
-  api.getDelayMs = 0;
   api.puts.length = 0;
   await page.reload();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -583,11 +608,14 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   test.setTimeout(60_000);
   await seedSession(page);
   const rows: Record<string, Row | undefined> = { settings: settingsRow() };
-  const api = await fakeSavesApi(page, rows, { getDelayMs: 1_500 });
+  const api = await fakeSavesApi(page, rows);
   // One slot errors while the other answers a real row. A 500 is transient for the kit, so its
   // bounded retry (3 attempts, 500 ms + 1 500 ms backoff) makes this leg several seconds long —
   // and reconcileAll awaits BOTH slots, so the fold only lands once that leg has given up.
   api.failGets.campaign = 500;
+  // The settings GET hangs until this test releases it, so the commit below reliably lands before
+  // that slot's decision rather than inside a timer that could expire first.
+  api.holdGets.add("settings");
 
   // The gate throttles re-arming a failed run, and the retry leg below has to wait that out for
   // real. `RETRY_THROTTLE_PARAM` is the throttle override (exact `gwTestMode=1` only, see
@@ -597,13 +625,20 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   await expect(page.getByRole("heading", { name: "GridWatch Match" })).toBeVisible();
   await expect.poll(() => [...new Set(api.gets)].sort()).toEqual(["campaign", "settings"]);
   // A real commit, mid-reconcile, to the slot the cloud is about to replace. This is what SETS the
-  // flag; the device was pristine when the reconcile started, so the kit was handed `null` for that
-  // slot and answers `use_cloud` — the in-flight edit is dropped by design.
+  // flag. The device was pristine when the reconcile started, so the kit was handed `null` for that
+  // slot — but it re-reads the live save at its decision point (kit v0.2.3), sees this edit, and
+  // asks instead of dropping it. "Use cloud" is the player choosing what the old silent `use_cloud`
+  // chose for them, which is what this scenario is about: the run then fails on the OTHER slot.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByLabel(/Voice Lines/).click();
   expect(await unsyncedFlags(page)).toEqual(["settings"]);
+  api.releaseGet("settings");
+  const dialog = savePrompt(page);
+  await expect(dialog).toBeVisible({ timeout: 20_000 });
+  await dialog.getByRole("button", { name: "Use cloud" }).click();
+  await expect(dialog).toBeHidden();
 
-  // Music off is the cloud row's own value, so it is the signal that the fold landed.
+  // Music off is the cloud row's own value, so it is the signal that the answer landed.
   await expect(page.getByLabel(/Music/)).not.toBeChecked({ timeout: 20_000 });
   await expect(page.getByLabel(/Voice Lines/)).toBeChecked();
   // `settings` IS synced — the cloud demonstrably holds it — even though `campaign` errored and the
@@ -611,22 +646,22 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   // flag stayed set: a stale flag, later good for a redundant upload or a misleading prompt.
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
   expect(api.puts).toEqual([]);
-  await expect(savePrompt(page)).toHaveCount(0);
+  await expect(savePrompt(page)).toBeHidden(); // the answered prompt, and no second one behind it
 
   // The errored slot is retried later. `online` re-arms the gate, which refuses until its throttle
   // has elapsed, so the event is offered repeatedly rather than once.
   const campaignGets = api.gets.filter((slot) => slot === "campaign").length;
   api.failGets.campaign = undefined;
-  api.getDelayMs = 0;
   await expect.poll(async () => {
     await page.evaluate(() => window.dispatchEvent(new Event("online")));
     return api.gets.filter((slot) => slot === "campaign").length > campaignGets;
   }, { timeout: 20_000, intervals: [2_000] }).toBe(true);
 
-  // The settle comes FIRST, and it flushes on its own: the mid-reconcile Voice Lines commit was
-  // held by the failed run, so run 2's settle sends it before the test touches anything. Asserting
-  // it explicitly is what keeps the click's PUT below unambiguous — measuring "one PUT" after the
-  // click used to measure THIS one, and a poll could land between the two.
+  // The settle comes FIRST, and it flushes on its own: run 1 held the mid-reconcile commit and
+  // failed, so its base is still pending and run 2's settle sends the slot's diff from that base —
+  // the state the player's "Use cloud" answer left behind — before the test touches anything.
+  // Asserting it explicitly is what keeps the click's PUT below unambiguous: measuring "one PUT"
+  // after the click used to measure THIS one, and a poll could land between the two.
   await expect.poll(() => api.puts.length, { timeout: 20_000 }).toBe(1);
   expect(api.puts[0].slot).toBe("settings");
   expect(api.puts[0].body.baseRevision).toBe(1); // the revision the run-1 use_cloud recorded
@@ -644,7 +679,7 @@ test("a run that failed on one slot still clears the flag on the slot the cloud 
   expect(api.puts).toHaveLength(1); // ...and exactly one, not a second attempt behind it
   expect(rows.settings!.revision).toBe(3);
   await expect.poll(() => unsyncedFlags(page), { timeout: 10_000 }).toEqual([]);
-  await expect(savePrompt(page)).toHaveCount(0);
+  await expect(savePrompt(page)).toBeHidden();
 });
 
 test("an earlier PUT's success does not clear the flag of a later commit whose own PUT fails", async ({ page }) => {
