@@ -1,8 +1,12 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-20
+Last updated: 2026-09-22
 
-## 🟡 2026-09-18: cloud saves 4a — Match wired to the kit saves client (v0.2.4) (PR pending)
+## 🟢 2026-09-21: cloud saves 4a LIVE — accepted on Mac + iPhone
+
+Deployed from `5f622f1` (kit v0.2.4) after Nexus `/api/saves` went live (migration `cloud_saves_generic` applied, service-role secret set, Nexus `9bc257a`). Russell's acceptance, one account on Mac + iPhone: two-way sync; a device with no local progress adopts the cloud copy silently; divergent progress shows the conflict prompt; the answer sticks on both devices. The first pass found global sign-out + a silent 401 (kit fix below, v0.2.4); the re-run passed. Cloud saves stay **Nexus-origin only** (`cloudSavesEnabled`); on the old hostname `gridwatchmatchweb.warsignallabs.net` signed-in play is local-only until 4b. Debugging tip: server-side rejections before the RPC (401/413/429) never reach `game_save_requests` — use `wrangler tail` on the Nexus worker.
+
+## 2026-09-18: cloud saves 4a — Match wired to the kit saves client (merged as #59, #60, #61)
 
 Two cloud slots projected from the unchanged local SaveState v1: `campaign` (all but version/settings) and `settings` (`src/state/cloudSaves.ts`). `src/services/cloudSync.ts` runs `reconcile` for both slots once the session is known (per user id) and `store` on every `commitSave` for the slots that changed; "Use cloud" answers are applied through `applyCloudPayload` + persist. Cloud saves are active only on the Nexus origin (`cloudSavesEnabled`, lifted in 4b). Playwright `tests/e2e/cloud-saves.spec.ts` fakes `/api/saves` and a stored Supabase session.
 A slot whose projection is bit-for-bit the default (`isPristine`) is treated as "no local save" and reconciled as `null`, so a brand-new device with cloud progress adopts the cloud row silently instead of showing the conflict prompt (which risked "Keep this one" overwriting real cloud progress with an untouched default).
@@ -18,7 +22,6 @@ One consequence, accepted deliberately: `settledSlots` is now conservative rathe
 
 Kit v0.2.3 also adds `onBackgroundStored`, now wired through `src/services/accountKit.ts`. A background re-flush — the kit's own retry, on `online` or the tab becoming visible, of a slot it already knows is dirty — has no caller to resolve, so its success used to be invisible here and the slot stayed flagged until the next reconcile re-uploaded it. Because `accountKit` is a module singleton created before React mounts, the kit always gets a callback and that callback forwards to a module-level listener `App` registers in an effect and clears on unmount (no listener → no-op, which costs one redundant upload at the next load). The clear is gated on `clearsOnBackgroundStore` in `src/services/cloudSync.ts`: the payload must have landed in the row of the account signed in *now* (a background send can outlast an account switch and this flag is not per-user — the foreground `onStored` path needs no such check only because every kit path that produces it also writes the per-slot owner record), it must still be the slot's current projection (`isCurrentProjection`, the same rule `onStored` gets), and nothing else this module issued for that slot may still be outstanding (`cloudSync.outstandingStores`).
 
-Deploy after Nexus has the migration + secret + `/api/saves` live. Acceptance: Mac + iPhone (plan Task 11).
 
 ## 2026-09-12: Account kit v0.1.2 — header polish + hardening
 
