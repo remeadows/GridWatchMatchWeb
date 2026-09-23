@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSaveState, type SaveState } from "../state/save";
 import { projection } from "../state/cloudSaves";
+import { readUnsynced, setUnsyncedStorage, type UnsyncedStorage } from "../state/cloudUnsynced";
 import {
-  OLD_MATCH_ORIGIN, applyIncoming, showsCarryBanner, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
+  OLD_MATCH_ORIGIN, applyIncoming, carryCommit, showsCarryBanner, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
   needsReplacePrompt, readCarryMarker, receiveCarryOnce, receiveCarrySafely, resetCarryReceiveForTests, slotsToCarry, writeCarryMarker,
 } from "../services/carryOver";
 
@@ -66,12 +67,22 @@ describe("receiver helpers", () => {
     await expect(handleCarryOffer({ current: () => defaultSaveState(), slots: incoming, askReplace: ask, commit })).resolves.toBe("accepted");
     expect(ask).not.toHaveBeenCalled();
     expect(commit.mock.calls[0][0].coins).toBe(40);
+    expect(commit.mock.calls[0][1]).toEqual(["campaign"]);
     commit.mockClear();
     await expect(handleCarryOffer({ current: () => played(7), slots: incoming, askReplace: ask, commit })).resolves.toBe("declined");
     expect(ask).toHaveBeenCalledTimes(1);
     expect(commit).not.toHaveBeenCalled();
     await expect(handleCarryOffer({ current: () => played(7), slots: incoming, askReplace: async () => true, commit })).resolves.toBe("accepted");
     expect(commit.mock.calls[0][0].coins).toBe(40);
+    expect(commit.mock.calls[0][1]).toEqual(["campaign"]);
+  });
+  it("hands commit every applied Match slot, even one identical to what is here, and never an unknown one", async () => {
+    const commit = vi.fn();
+    const both = { ...incoming, settings: projection(defaultSaveState(), "settings"), bogus: {} };
+    // Campaign content equals the local copy exactly: a value diff would see no change at all.
+    await expect(handleCarryOffer({ current: () => played(40), slots: both, askReplace: async () => true, commit })).resolves.toBe("accepted");
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit.mock.calls[0][1]).toEqual(["campaign", "settings"]);
   });
   it("ignores slot names Match does not have", async () => {
     const commit = vi.fn();
@@ -185,5 +196,35 @@ describe("handleCarryOffer: a slot that gains progress while the replace prompt 
     await expect(handleCarryOffer({ current: () => state, slots: incoming, askReplace: ask, commit })).resolves.toBe("accepted");
     expect(ask).toHaveBeenCalledTimes(1);
     expect(commit.mock.calls[0][0].coins).toBe(40);
+  });
+});
+
+describe("carryCommit (spec §6.4: on apply, mark the replaced slots unsynced)", () => {
+  let map: Map<string, string>;
+  beforeEach(() => {
+    map = new Map();
+    const store: UnsyncedStorage = { getItem: (k) => map.get(k) ?? null, setItem: (k, v) => { map.set(k, v); }, removeItem: (k) => { map.delete(k); } };
+    setUnsyncedStorage(store);
+  });
+  afterEach(() => setUnsyncedStorage(null));
+
+  it("flags an incoming slot identical to the local copy, before the commit, so the first reconcile uploads or prompts", async () => {
+    const seenAtCommit: string[][] = [];
+    const commitSave = vi.fn((_next: SaveState) => { seenAtCommit.push(readUnsynced()); });
+    const incoming = { campaign: projection(played(40), "campaign") };
+    await expect(handleCarryOffer({ current: () => played(40), slots: incoming, askReplace: async () => true, commit: carryCommit(commitSave) }))
+      .resolves.toBe("accepted");
+    expect(readUnsynced()).toEqual(["campaign"]);
+    expect(commitSave).toHaveBeenCalledTimes(1);
+    expect(commitSave.mock.calls[0][0].coins).toBe(40);
+    expect(seenAtCommit).toEqual([["campaign"]]); // flagged FIRST, as commitSave flags its own changes
+  });
+
+  it("flags nothing when the offer is declined", async () => {
+    const commitSave = vi.fn();
+    await expect(handleCarryOffer({ current: () => played(7), slots: { campaign: projection(played(40), "campaign") }, askReplace: async () => false, commit: carryCommit(commitSave) }))
+      .resolves.toBe("declined");
+    expect(readUnsynced()).toEqual([]);
+    expect(commitSave).not.toHaveBeenCalled();
   });
 });

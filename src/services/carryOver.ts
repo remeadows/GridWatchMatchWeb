@@ -2,6 +2,7 @@
 import { canonicalJson } from "@gridwatch/account-kit/saves-schema";
 import type { ReceiveResult } from "@gridwatch/account-kit";
 import { CLOUD_SLOTS, applyCloudPayload, isCloudSlot, isPristine, projection, type CloudSlot } from "../state/cloudSaves";
+import { markUnsynced } from "../state/cloudUnsynced";
 import { normalizeSave, type SaveState } from "../state/save";
 
 export const OLD_MATCH_ORIGIN = "https://gridwatchmatchweb.warsignallabs.net";
@@ -88,7 +89,9 @@ export function applyIncoming(current: SaveState, incoming: Record<string, unkno
 }
 
 export async function handleCarryOffer(args: {
-  current: () => SaveState; slots: Record<string, unknown>; askReplace: () => Promise<boolean>; commit: (next: SaveState) => void;
+  current: () => SaveState; slots: Record<string, unknown>; askReplace: () => Promise<boolean>;
+  /** `slots` is every Match slot the hand-off applied, whether or not its content differs here. */
+  commit: (next: SaveState, slots: CloudSlot[]) => void;
 }): Promise<"accepted" | "declined"> {
   const slots = cloudSlotsOf(args.slots);
   if (slots.length === 0) return "declined";
@@ -106,8 +109,19 @@ export async function handleCarryOffer(args: {
     }
   }
   // Re-read after the prompt: the player may have played on while it was open.
-  args.commit(applyIncoming(args.current(), args.slots));
+  args.commit(applyIncoming(args.current(), args.slots), slots);
   return "accepted";
+}
+
+/** Spec §6.4: "On apply, mark the replaced slots unsynced" — every one, not just those whose value
+ *  changed. An incoming slot identical to a STALE local copy is otherwise invisible to commitSave's
+ *  diff, and the first reconcile would silently adopt a newer cloud row over the player's "Replace".
+ *  Flagged before the commit, the same order commitSave uses for its own changes. */
+export function carryCommit(commitSave: (next: SaveState) => void): (next: SaveState, slots: CloudSlot[]) => void {
+  return (next, slots) => {
+    markUnsynced(slots);
+    commitSave(next);
+  };
 }
 
 let pendingReceive: Promise<ReceiveResult> | null = null;

@@ -11,7 +11,7 @@ import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
-import { handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
+import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
@@ -382,7 +382,7 @@ export default function App() {
     // cleaned up (unmount, or a deps change) sets nothing.
     let active = true;
     void receiveCarrySafely(() => carry.receive((offer) => handleCarryOffer({
-      current: () => saveRef.current ?? loaded, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
+      current: () => saveRef.current ?? loaded, slots: offer.slots, askReplace: carry.askReplace, commit: carryCommit(commitSave),
     }))).then((result) => {
       if (active && result === "accepted") setCarryNotice("Progress moved from the old site.");
     }).finally(() => {
