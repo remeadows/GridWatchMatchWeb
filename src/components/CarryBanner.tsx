@@ -81,6 +81,10 @@ export function CarryBanner({ save, carry, nexusUrl }: { save: SaveState; carry:
       <aside className="carry-banner" aria-label="GridWatch Match has moved">
         <p>Your progress is on the new site.</p>
         <a className="primary-action" href={nexusUrl}>Continue there</a>
+        {/* Data safety before the old host redirects: a player who later chose "Use cloud" on Nexus
+            can still send this save again. Same flow, same outcomes, as "Move my progress". */}
+        <button type="button" onClick={move} disabled={outcome === "sending"}>Move again</button>
+        {status && <p role="status">{status}</p>}
       </aside>
     );
   }

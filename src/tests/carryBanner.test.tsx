@@ -46,6 +46,10 @@ function moveButton(): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find((b) => b.textContent === "Move my progress");
 }
 
+function moveAgainButton(): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find((b) => b.textContent === "Move again");
+}
+
 function seedMarkerFor(save: SaveState) {
   localStorage.setItem(CARRY_MARKER_KEY, JSON.stringify(markerFor(slotsToCarry(save), new Date("2026-09-22T00:00:00Z"))));
 }
@@ -123,6 +127,39 @@ describe("CarryBanner", () => {
     act(() => { moveButton()!.click(); });
     expect(container.querySelector("[role=status]")?.textContent).toBe("Finish in the new tab. Close it to try again.");
     expect(moveButton()?.disabled).toBe(true);
+  });
+
+  it("moved: \"Move again\" re-sends the current save through the same flow", async () => {
+    const save = played(40);
+    seedMarkerFor(save);
+    const carry = render(save, fakeCarry(Promise.resolve("declined")));
+    expect(container.textContent).toContain("Your progress is on the new site.");
+    expect(link("Continue there")?.getAttribute("href")).toBe(NEXUS_URL);
+    const again = moveAgainButton();
+    expect(again).toBeDefined();
+    act(() => {
+      again!.click();
+      expect(carry.send).toHaveBeenCalledTimes(1); // synchronous, inside the click
+    });
+    expect(carry.send).toHaveBeenCalledWith({ campaign: projection(save, "campaign") });
+    await act(async () => {});
+    expect(container.querySelector("[role=status]")?.textContent).toBe("You kept the progress already on the new site. Nothing changed here.");
+    expect(moveAgainButton()?.disabled).toBe(false);
+  });
+
+  it("moved: \"Move again\" is held, with the finish-in-the-new-tab line, while it sends", () => {
+    seedMarkerFor(played(40));
+    render(played(40));
+    act(() => { moveAgainButton()!.click(); });
+    expect(moveAgainButton()?.disabled).toBe(true);
+    expect(container.querySelector("[role=status]")?.textContent).toBe("Finish in the new tab. Close it to try again.");
+  });
+
+  it("only the moved state offers \"Move again\"", () => {
+    render(defaultSaveState());
+    expect(moveAgainButton()).toBeUndefined();
+    render(played(40));
+    expect(moveAgainButton()).toBeUndefined();
   });
 
   it("a save canonicalJson cannot encode falls back to the nothing banner with one warning", () => {
