@@ -234,3 +234,14 @@ test("the banner stays off the game screen, where the board's height budget has 
   await expect(page.locator(".game-layout .game-hud")).toContainText("Level 1");
   await expect(banner(page)).toHaveCount(0);
 });
+
+test("the \"moved\" notice on Nexus clears on the first navigation", async ({ page }) => {
+  await seedProgress(page, OLD, 40);
+  await page.goto(OLD_URL);
+  const popup = await clickMove(page);
+  const notice = popup.getByRole("status").filter({ hasText: "Progress moved from the old site." });
+  await expect(notice).toBeVisible({ timeout: 15_000 });
+  await popup.getByRole("button", { name: "Resume Operations" }).click();
+  await expect(popup.getByRole("button", { name: "Open Levels" }).first()).toBeVisible();
+  await expect(notice).toHaveCount(0);
+});

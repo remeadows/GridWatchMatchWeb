@@ -389,7 +389,8 @@ export default function App() {
     );
   }
 
-  const navigate = (next: Screen) => setScreen(next);
+  // The carry notice has said its piece once the player moves on.
+  const navigate = (next: Screen) => { setCarryNotice(null); setScreen(next); };
 
   return (
     <main className="app-shell">
