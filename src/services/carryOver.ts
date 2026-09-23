@@ -17,6 +17,13 @@ export function carryFromOrigins(testOrigin: unknown): string[] {
   return typeof testOrigin === "string" && LOOPBACK_HTTP.test(testOrigin) ? [OLD_MATCH_ORIGIN, testOrigin] : [OLD_MATCH_ORIGIN];
 }
 
+/** The banner belongs only where Nexus will accept the offer: an origin in the kit's `carryFrom`
+ *  list, and never Nexus itself. Any other host (the workers.dev fallback, a preview) would open
+ *  Nexus only to have the offer ignored, so it gets no banner at all. */
+export function showsCarryBanner(origin: string, carryFrom: readonly string[], nexusOrigin: string): boolean {
+  return origin !== nexusOrigin && carryFrom.includes(origin);
+}
+
 /** Plan ruling: only slots with real progress travel, so default settings never overwrite custom ones. */
 export function slotsToCarry(save: SaveState): Slots {
   const out: Slots = {};

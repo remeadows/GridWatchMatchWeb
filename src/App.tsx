@@ -10,8 +10,8 @@ import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionSte
 import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
-import { accountKit, setBackgroundStoredListener } from "./services/accountKit";
-import { handleCarryOffer, receiveCarrySafely } from "./services/carryOver";
+import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
+import { handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
@@ -80,6 +80,7 @@ export default function App() {
   const userId = auth.session?.user.id ?? null;
   const hasSave = save !== null;
   const onNexus = typeof window !== "undefined" && window.location.origin === accountKit.config.nexusOrigin;
+  const onCarrySender = typeof window !== "undefined" && showsCarryBanner(window.location.origin, carryFrom, accountKit.config.nexusOrigin);
   const [carrySettled, setCarrySettled] = useState(() => !onNexus || !accountKit.carry);
   const [carryNotice, setCarryNotice] = useState<string | null>(null);
 
@@ -396,7 +397,7 @@ export default function App() {
     <main className="app-shell">
       {/* Not on the game screen: the board's height formula (styles.css, .game-board-panel) budgets
           for the top bar and the account bar only, so the strip would push the board off-screen. */}
-      {!onNexus && save && accountKit.carry && screen.name !== "game" && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
+      {onCarrySender && save && accountKit.carry && screen.name !== "game" && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
       {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
       {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}

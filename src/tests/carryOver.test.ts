@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSaveState, type SaveState } from "../state/save";
 import { projection } from "../state/cloudSaves";
 import {
-  OLD_MATCH_ORIGIN, applyIncoming, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
+  OLD_MATCH_ORIGIN, applyIncoming, showsCarryBanner, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
   needsReplacePrompt, readCarryMarker, receiveCarryOnce, receiveCarrySafely, resetCarryReceiveForTests, slotsToCarry, writeCarryMarker,
 } from "../services/carryOver";
 
@@ -116,5 +116,23 @@ describe("receiveCarrySafely", () => {
     expect(await receiveCarrySafely(receive)).toBe("accepted");
     expect(receive).toHaveBeenCalledTimes(1);
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("showsCarryBanner", () => {
+  const NEXUS = "https://nexus.warsignallabs.net";
+  const CARRY_FROM = [OLD_MATCH_ORIGIN];
+  it("shows on the old hostname, which Nexus accepts offers from", () => {
+    expect(showsCarryBanner(OLD_MATCH_ORIGIN, CARRY_FROM, NEXUS)).toBe(true);
+  });
+  it("hides on an unlisted non-Nexus origin (e.g. the workers.dev fallback), where Nexus would reject the offer", () => {
+    expect(showsCarryBanner("https://gridwatch-match-web.remeadows.workers.dev", CARRY_FROM, NEXUS)).toBe(false);
+  });
+  it("hides on Nexus itself, even if it were listed", () => {
+    expect(showsCarryBanner(NEXUS, [...CARRY_FROM, NEXUS], NEXUS)).toBe(false);
+  });
+  it("shows on the loopback test origin only when it is in the list", () => {
+    expect(showsCarryBanner("http://localhost:4173", carryFromOrigins("http://localhost:4173"), "http://127.0.0.1:4173")).toBe(true);
+    expect(showsCarryBanner("http://localhost:4173", carryFromOrigins(undefined), "http://127.0.0.1:4173")).toBe(false);
   });
 });
