@@ -392,7 +392,9 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      {!onNexus && save && accountKit.carry && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
+      {/* Not on the game screen: the board's height formula (styles.css, .game-board-panel) budgets
+          for the top bar and the account bar only, so the strip would push the board off-screen. */}
+      {!onNexus && save && accountKit.carry && screen.name !== "game" && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
       {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
       {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}

@@ -225,3 +225,12 @@ test("signed in: no saves GET before the hand-off settles, then the carried camp
   for (const get of api.getLog) expect(get.at).toBeGreaterThanOrEqual(resultAt!);
   expect(await storedCoins(page)).toBe(40);
 });
+
+test("the banner stays off the game screen, where the board's height budget has no room for it", async ({ page }) => {
+  await seedProgress(page, OLD, 40);
+  await page.goto(OLD_URL);
+  await expect(banner(page)).toBeVisible();
+  await page.getByRole("button", { name: "Quick Deploy" }).click();
+  await expect(page.locator(".game-layout .game-hud")).toContainText("Level 1");
+  await expect(banner(page)).toHaveCount(0);
+});
