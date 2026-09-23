@@ -2,7 +2,15 @@
 
 Last updated: 2026-09-23
 
-## 🟡 2026-09-23: 4b carry-over — "Move my progress" from the old hostname (kit v0.3.0; PR pending, not deployed)
+## 🟢 2026-09-23: Nexus is the only host — old hostname 301s to `/play/match/`; carry-over retired
+
+- **Decision (Russ):** `nexus.warsignallabs.net/play/match/` is the only place Match is played. His progress was already in the Nexus cloud save, so nothing needed moving. The 4b device pass and the two-week banner soak are waived.
+- **Old hostname:** a Cloudflare zone redirect rule sends every path on `gridwatchmatchweb.warsignallabs.net` to `https://nexus.warsignallabs.net/play/match/` (Static 301, query string dropped). It runs before this worker. Verified with curl on 2026-09-23, both `/` and deep paths.
+- **Nexus fetches Match from `https://gridwatch-match.russell-meadows.workers.dev`** (Nexus #34), not the old hostname. Keep the workers.dev route enabled. Its `/` 301s to `/play/match/`, which is expected.
+- **Leaderboards reset:** all `scores` and `achievement_unlocks` rows were deleted (Russ's yes); Nexus will rebuild them. Cloud saves (`campaign`, `settings`) were kept.
+- **Now dead code:** the old-host banner (`CarryBanner`, `carryFrom`) can never render, and the Nexus receiver settles as `none` at once, because no page opens `/play/match/#gw-carry` any more, so the `carrySettled` gate costs nothing. Remove the carry wiring and the gate together in a later cleanup PR. Until then the merge note in the 4b entry below still applies. The parked review item "carry accepted before the IndexedDB write settles" no longer has a path.
+
+## 🟢 2026-09-23 (superseded by the entry above): 4b carry-over — "Move my progress" from the old hostname (kit v0.3.0; #63, deployed at `e7cec3e`)
 
 Spec §6 in gridwatch-command-nexus (the plan is `docs/superpowers/plans/2026-09-22-4b-carry-handoff.md` there). Page-to-page hand-off, no server work.
 
