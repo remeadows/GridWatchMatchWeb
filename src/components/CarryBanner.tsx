@@ -65,6 +65,11 @@ export function CarryBanner({ save, carry, nexusUrl }: { save: SaveState; carry:
       } catch (error) {
         warnBannerFailed(error);
       }
+    }, (error: unknown) => {
+      // The kit's contract is to resolve, but a rejection must not leave both buttons held on
+      // "sending" for the rest of the page's life. Warned on every failure: each is a separate click.
+      console.warn("[carry] the move failed:", error instanceof Error ? error.message : String(error));
+      setOutcome("rejected");
     });
   };
 

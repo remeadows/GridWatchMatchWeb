@@ -162,6 +162,16 @@ describe("CarryBanner", () => {
     expect(moveAgainButton()).toBeUndefined();
   });
 
+  it("a send that rejects ends as \"rejected\", releases the button, and warns once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    render(played(40), fakeCarry(Promise.reject(new Error("kit failed"))));
+    await act(async () => { moveButton()!.click(); });
+    expect(container.querySelector("[role=status]")?.textContent).toBe("The new site couldn't read this progress. Nothing changed here.");
+    expect(moveButton()?.disabled).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(CARRY_MARKER_KEY)).toBeNull();
+  });
+
   it("a save canonicalJson cannot encode falls back to the nothing banner with one warning", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     seedMarkerFor(played(40));
