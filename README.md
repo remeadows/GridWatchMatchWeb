@@ -2,7 +2,7 @@
 
 Browser port of GridWatch Match, a cyberpunk match-3 puzzle game by WarSignalLabs.
 
-Play now: https://GridWatchMatchWeb.warsignallabs.net
+Play now: https://nexus.warsignallabs.net/play/match/
 
 Built for the Community Dev Challenge: "Make a game we can play."
 
@@ -76,7 +76,10 @@ npm run test:e2e
 ## Deployment
 
 Hosted on [Cloudflare Workers + static Assets](https://developers.cloudflare.com/workers/) at
-`https://GridWatchMatchWeb.warsignallabs.net` (served from the subdomain root).
+`https://gridwatch-match.russell-meadows.workers.dev` under the `/play/match/` base path. Players reach it only
+through the Nexus proxy at `https://nexus.warsignallabs.net/play/match/`. The old hostname
+`GridWatchMatchWeb.warsignallabs.net` is retired: a Cloudflare zone redirect rule 301s every path on it to Nexus
+before this worker runs.
 
 Deployment via `npx wrangler deploy` (configured in `wrangler.jsonc`):
 

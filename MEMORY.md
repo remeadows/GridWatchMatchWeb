@@ -7,7 +7,7 @@ Last updated: 2026-09-08
 - This repo is the web port only: `/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatchWeb`.
 - Do not modify the iOS source repo while working on the web game. The iOS repo is authoritative for parity and assets, but web work stays in this repo.
 - Public GitHub repo: `https://github.com/remeadows/GridWatchMatchWeb`.
-- Public playable URL: `https://GridWatchMatchWeb.warsignallabs.net`.
+- Public playable URL: `https://nexus.warsignallabs.net/play/match/` (Nexus proxy; the only host since 2026-09-23). Worker origin: `https://gridwatch-match.russell-meadows.workers.dev` (not a player URL). The old hostname `GridWatchMatchWeb.warsignallabs.net` 301s to Nexus via a zone redirect rule.
 - The project is for the Community Dev Challenge "Make a game we can play"; the core requirement is a public, immediately playable game link.
 - Hosted on Cloudflare Workers + static Assets. The ONLY backend surface is `worker/index.ts` (`/api/score`): Supabase-auth-verified score submission. The one secret (`SUPABASE_SERVICE_ROLE_KEY`) lives in wrangler secrets / gitignored `.dev.vars`, never committed. No real-money fulfillment.
 

@@ -8,7 +8,11 @@ Last updated: 2026-09-23
 - **Old hostname:** a Cloudflare zone redirect rule sends every path on `gridwatchmatchweb.warsignallabs.net` to `https://nexus.warsignallabs.net/play/match/` (Static 301, query string dropped). It runs before this worker. Verified with curl on 2026-09-23, both `/` and deep paths.
 - **Nexus fetches Match from `https://gridwatch-match.russell-meadows.workers.dev`** (Nexus #34), not the old hostname. Keep the workers.dev route enabled. Its `/` 301s to `/play/match/`, which is expected.
 - **Leaderboards reset:** all `scores` and `achievement_unlocks` rows were deleted (Russ's yes); Nexus will rebuild them. Cloud saves (`campaign`, `settings`) were kept.
-- **Now dead code:** the old-host banner (`CarryBanner`, `carryFrom`) can never render, and the Nexus receiver settles as `none` at once, because no page opens `/play/match/#gw-carry` any more, so the `carrySettled` gate costs nothing. Remove the carry wiring and the gate together in a later cleanup PR. Until then the merge note in the 4b entry below still applies. The parked review item "carry accepted before the IndexedDB write settles" no longer has a path.
+- **Carry-over wiring is still in the code but unreachable in production.**
+  - `CarryBanner` renders only on origins in `carryFrom`, which lists only the old hostname. The zone rule now 301s that hostname before this worker runs.
+  - `App` still calls `receiveCarrySafely`, and startup still waits for `carrySettled`. The kit's `receiveCarry` returns `none` at once when the URL has no `#gw-carry` fragment (kit v0.3.0 `src/carry/receive.ts`), and only the old-host banner ever opened that URL. So the gate adds no wait.
+  - Removing the wiring is a separate cleanup PR. It must take out the banner, `carryFrom`, the receiver and the gate together, and re-run the cloud-saves e2e. Until then the merge note in the 4b entry below still applies.
+  - The parked review item "carry accepted before the IndexedDB write settles" has no remaining trigger, since no offer can arrive.
 
 ## 🟢 2026-09-23 (superseded by the entry above): 4b carry-over — "Move my progress" from the old hostname (kit v0.3.0; #63, deployed at `e7cec3e`)
 
