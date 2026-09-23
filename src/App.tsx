@@ -204,7 +204,8 @@ export default function App() {
   // flag, and the outcomes are folded onto saveRef.current (the CURRENT state) rather than onto the
   // snapshot the run started with. Whether this run may then flush is the gate's call, not ours.
   useEffect(() => {
-    if (!hasSave || auth.loading || !carrySettled) return;
+    if (!hasSave || auth.loading) return;
+    if (!carrySettled) return; // spec §6.4: the Nexus hand-off is applied before the first reconcile
     // Read once, and checked BEFORE `gate.begin`: beginning a run whose snapshot cannot be read
     // would burn the gate's token and its throttle window on a run that cannot happen. Unreachable
     // in practice — `hasSave` and this ref are written together — so it is narrowing, not a branch.
