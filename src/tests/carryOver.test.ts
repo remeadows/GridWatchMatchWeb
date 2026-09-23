@@ -1,0 +1,92 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defaultSaveState, type SaveState } from "../state/save";
+import { projection } from "../state/cloudSaves";
+import {
+  OLD_MATCH_ORIGIN, applyIncoming, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
+  needsReplacePrompt, readCarryMarker, receiveCarryOnce, resetCarryReceiveForTests, slotsToCarry, writeCarryMarker,
+} from "../services/carryOver";
+
+const played = (coins: number): SaveState => ({ ...defaultSaveState(), coins });
+
+function memoryStorage(): Storage {
+  const m = new Map<string, string>();
+  return { get length() { return m.size; }, clear: () => m.clear(), getItem: (k) => m.get(k) ?? null, key: (i) => [...m.keys()][i] ?? null,
+    removeItem: (k) => { m.delete(k); }, setItem: (k, v) => { m.set(k, String(v)); } };
+}
+
+describe("carryFromOrigins", () => {
+  it("is exactly the old https origin in production", () => {
+    expect(carryFromOrigins(undefined)).toEqual(["https://gridwatchmatchweb.warsignallabs.net"]);
+    expect(OLD_MATCH_ORIGIN).toBe("https://gridwatchmatchweb.warsignallabs.net");
+  });
+  it("adds only a loopback test origin", () => {
+    expect(carryFromOrigins("http://localhost:4173")).toEqual([OLD_MATCH_ORIGIN, "http://localhost:4173"]);
+    expect(carryFromOrigins("https://evil.example")).toEqual([OLD_MATCH_ORIGIN]);
+    expect(carryFromOrigins("http://evil.example:80")).toEqual([OLD_MATCH_ORIGIN]);
+  });
+});
+
+describe("slotsToCarry / bannerState", () => {
+  it("sends only non-pristine slots; nothing when everything is default", () => {
+    expect(slotsToCarry(defaultSaveState())).toEqual({});
+    expect(Object.keys(slotsToCarry(played(40)))).toEqual(["campaign"]);
+    expect(bannerState(defaultSaveState(), null)).toBe("nothing");
+    expect(bannerState(played(40), null)).toBe("move");
+  });
+  it("shows moved only while the old progress still equals what was sent", () => {
+    const marker = markerFor(slotsToCarry(played(40)), new Date("2026-09-22T00:00:00Z"));
+    expect(bannerState(played(40), marker)).toBe("moved");
+    expect(bannerState(played(55), marker)).toBe("moved-again");
+  });
+  it("round-trips the marker and ignores a malformed one", () => {
+    const storage = memoryStorage();
+    const marker = markerFor(slotsToCarry(played(40)), new Date("2026-09-22T00:00:00Z"));
+    writeCarryMarker(marker, storage);
+    expect(readCarryMarker(storage)).toEqual(marker);
+    storage.setItem("gridwatch-match-web.carry.v1", "{not json");
+    expect(readCarryMarker(storage)).toBeNull();
+    storage.setItem("gridwatch-match-web.carry.v1", JSON.stringify({ at: 5, sent: [] }));
+    expect(readCarryMarker(storage)).toBeNull();
+  });
+});
+
+describe("receiver helpers", () => {
+  const incoming = { campaign: projection(played(40), "campaign") };
+  it("prompts only when a slot being replaced has progress here", () => {
+    expect(needsReplacePrompt(defaultSaveState(), incoming)).toBe(false);
+    expect(needsReplacePrompt(played(7), incoming)).toBe(true);
+    expect(needsReplacePrompt(played(7), { settings: projection(defaultSaveState(), "settings") })).toBe(false);
+  });
+  it("applies incoming slots through the cloud path", () => {
+    expect(applyIncoming(defaultSaveState(), incoming).coins).toBe(40);
+  });
+  it("auto-accepts into a pristine save, asks otherwise, and declining changes nothing", async () => {
+    const commit = vi.fn();
+    const ask = vi.fn(async () => false);
+    await expect(handleCarryOffer({ current: () => defaultSaveState(), slots: incoming, askReplace: ask, commit })).resolves.toBe("accepted");
+    expect(ask).not.toHaveBeenCalled();
+    expect(commit.mock.calls[0][0].coins).toBe(40);
+    commit.mockClear();
+    await expect(handleCarryOffer({ current: () => played(7), slots: incoming, askReplace: ask, commit })).resolves.toBe("declined");
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(commit).not.toHaveBeenCalled();
+    await expect(handleCarryOffer({ current: () => played(7), slots: incoming, askReplace: async () => true, commit })).resolves.toBe("accepted");
+    expect(commit.mock.calls[0][0].coins).toBe(40);
+  });
+  it("ignores slot names Match does not have", async () => {
+    const commit = vi.fn();
+    await expect(handleCarryOffer({ current: () => defaultSaveState(), slots: { bogus: {} }, askReplace: async () => true, commit })).resolves.toBe("declined");
+    expect(commit).not.toHaveBeenCalled();
+  });
+});
+
+describe("receiveCarryOnce", () => {
+  beforeEach(() => resetCarryReceiveForTests());
+  it("runs receive once however often it is called (React may run an effect twice)", async () => {
+    const receive = vi.fn(async () => "accepted" as const);
+    const [a, b] = [receiveCarryOnce(receive), receiveCarryOnce(receive)];
+    expect(await a).toBe("accepted");
+    expect(await b).toBe("accepted");
+    expect(receive).toHaveBeenCalledTimes(1);
+  });
+});

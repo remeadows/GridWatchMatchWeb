@@ -1,4 +1,5 @@
 import { createAccountKit, type AccountKitConfig } from "@gridwatch/account-kit";
+import { carryFromOrigins } from "./carryOver";
 
 /** Accepts only an absolute http(s) URL and returns its origin; anything else → undefined. */
 export function readPreviewOrigin(value: unknown): string | undefined {
@@ -36,7 +37,8 @@ export function setBackgroundStoredListener(listener: BackgroundStoredListener |
 export const accountKit = createAccountKit({
   returnPath: "/play/match/",
   nexusOrigin: previewOrigin || (typeof window !== "undefined" && import.meta.env.DEV ? window.location.origin : undefined),
-  game: { gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1 },
+  game: { gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1,
+    carryFrom: carryFromOrigins(import.meta.env.VITE_CARRY_TEST_ORIGIN) },
   // Synchronous, and deliberately so: the kit does not wait on the game's bookkeeping before moving
   // on, so anything that must be recorded for this re-flush has to be recorded here and now.
   onBackgroundStored: (slot, payload, revision, userId) => {

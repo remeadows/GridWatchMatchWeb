@@ -14,6 +14,9 @@ describe("account kit wiring", () => {
     expect(readPreviewOrigin("http://localhost:5173/")).toBe("http://localhost:5173");
   });
   it("enables the kit saves client for the two Match slots", () => {
-    expect(accountKit.saves?.game).toEqual({ gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1 });
+    expect(accountKit.saves?.game).toEqual({
+      gameSlug: "gridwatch-match", routeAlias: "match", slots: ["campaign", "settings"], schemaVersion: 1,
+      carryFrom: ["https://gridwatchmatchweb.warsignallabs.net"],
+    });
   });
 });
