@@ -377,11 +377,20 @@ export default function App() {
     const loaded = saveRef.current;
     if (loaded === null) { setCarrySettled(true); return; }
     const carry = accountKit.carry;
+    // Each run attaches its own continuation to the ONE shared receive (receiveCarryOnce), so a
+    // StrictMode re-run, whose first run was cleaned up, still flips carrySettled; a run that was
+    // cleaned up (unmount, or a deps change) sets nothing.
+    let active = true;
     void receiveCarrySafely(() => carry.receive((offer) => handleCarryOffer({
       current: () => saveRef.current ?? loaded, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
     }))).then((result) => {
-      if (result === "accepted") setCarryNotice("Progress moved from the old site.");
-    }).finally(() => setCarrySettled(true));
+      if (active && result === "accepted") setCarryNotice("Progress moved from the old site.");
+    }).finally(() => {
+      if (active) setCarrySettled(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [carrySettled, hasSave, commitSave]);
 
   if (!save) {
