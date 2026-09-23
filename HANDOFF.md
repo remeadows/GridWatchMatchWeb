@@ -1,6 +1,42 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
+
+## 🟡 2026-09-23: 4b carry-over — "Move my progress" from the old hostname (kit v0.3.0; PR pending, not deployed)
+
+Spec §6 in gridwatch-command-nexus (the plan is `docs/superpowers/plans/2026-09-22-4b-carry-handoff.md` there). Page-to-page hand-off, no server work.
+
+**Old hostname** (`gridwatchmatchweb.warsignallabs.net`): `src/components/CarryBanner.tsx` renders above every screen except the game screen, which it would push off-screen.
+- **No progress:** "GridWatch Match has moved." with a "Play on the new site" link.
+- **Local progress:** "Move my progress". It calls `accountKit.carry.send` synchronously in the click and sends only non-pristine slots, so default settings never overwrite custom ones on Nexus.
+- **After an accepted move:** "Your progress is on the new site." with "Continue there" and "Move again". The state is remembered in `gridwatch-match-web.carry.v1` as fingerprints of what was sent. Any later progress switches the banner to "You have new progress since you moved.", so nothing earned there is stranded when step 5's redirect lands.
+
+The old save is never changed. Cloud saves stay Nexus-only.
+
+**Nexus receiver** (`src/App.tsx`): the effect waits for the save to load, then runs `accountKit.carry.receive` through `receiveCarrySafely`/`receiveCarryOnce`. That call always settles: after 20 s with no valid offer, or on a throw, and only once per page even under StrictMode.
+- **Applying:** the handler (`handleCarryOffer` in `src/services/carryOver.ts`) applies the save through `commitSave`, so the replaced slots are flagged unsynced. If any replaced slot has progress here, it first asks "Replace the progress on this site with your progress from the old site?".
+- **Gate:** the cloud-start effect returns early while `carrySettled` is false. That is its own statement right after the 4a guard line. The first reconcile therefore sees the flags and either uploads (no cloud row) or shows the 4a conflict prompt.
+- **Notice:** "Progress moved from the old site." clears on the first navigation.
+
+**Constraint:** neither origin may send `Cross-Origin-Opener-Policy` (it would cut `window.opener`). Nexus strips it from proxied games (Nexus #33), and `src/tests/playPrefixWorker.test.ts` pins the Match worker.
+
+**Tests:**
+- `src/tests/carryOver.test.ts`, `src/tests/carryBanner.test.tsx` (jsdom).
+- `tests/e2e/carry-over.spec.ts` covers the two origins, `localhost:4173` as the old host and `127.0.0.1:4173` as Nexus via `VITE_CARRY_TEST_ORIGIN`. It includes a signed-in test proving no saves GET happens before the hand-off settles.
+- Run the e2e with `CI=1` locally: another checkout may hold port 4173, and `reuseExistingServer` would test its build.
+
+**Deploy:** build from a clean checkout. The e2e build bakes `VITE_CARRY_TEST_ORIGIN` into `dist/`, so check that `dist/assets/*.js` does not contain `localhost:4173` before `wrangler deploy`.
+
+**Acceptance:** a Mac + iPhone Safari pass (plan Task 9).
+- Move with progress; the Nexus tab shows the notice.
+- Signed in, no cloud row → upload.
+- Signed in, divergent cloud row → conflict prompt, with `wrangler tail` running.
+- New progress on the old host → move again.
+- Home Screen launch → timeout message.
+
+Record the banner-live date. Step 5's old-host 301 comes no earlier than two weeks after it.
+
+**Merge note for the Codex Match branch** (it edits the same lines): keep `carryFrom` in the `game` object of `src/services/accountKit.ts`. Keep the separate `if (!carrySettled) return;` in the cloud-start effect and `carrySettled` in its deps. Afterwards, re-run `CI=1 npx playwright test tests/e2e/carry-over.spec.ts`; test 6 fails if the gate is lost.
 
 ## 🟢 2026-09-21: cloud saves 4a LIVE — accepted on Mac + iPhone
 

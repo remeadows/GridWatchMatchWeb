@@ -72,4 +72,20 @@ describe("Match worker default export", () => {
     expect(response.status).toBe(301);
     expect(response.headers.get("Location")).toBe("/play/match/");
   });
+
+  // Spec §6.2: the old-host carry sender opens Nexus with window.open and reads window.opener on
+  // the popup; a Cross-Origin-Opener-Policy header on this origin would sever that opener link. No
+  // origin isolation header is ever set here, for HTML or for other assets. Pin it so it stays that way.
+  it("never sets Cross-Origin-Opener-Policy, for an HTML response or an asset response", async () => {
+    const env = stubEnv(defaultAssets);
+
+    const html = await worker.fetch(new Request("https://gridwatchmatchweb.warsignallabs.net/play/match/"), env);
+    const asset = await worker.fetch(
+      new Request("https://gridwatchmatchweb.warsignallabs.net/play/match/assets/app.js"),
+      env,
+    );
+
+    expect(html.headers.get("Cross-Origin-Opener-Policy")).toBeNull();
+    expect(asset.headers.get("Cross-Origin-Opener-Policy")).toBeNull();
+  });
 });

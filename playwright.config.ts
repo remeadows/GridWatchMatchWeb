@@ -19,7 +19,7 @@ export default defineConfig({
     url: "http://127.0.0.1:4173/play/match/",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: { VITE_NEXUS_ORIGIN: "http://127.0.0.1:4173" }
+    env: { VITE_NEXUS_ORIGIN: "http://127.0.0.1:4173", VITE_CARRY_TEST_ORIGIN: "http://localhost:4173" }
   },
   projects: [
     {
