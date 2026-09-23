@@ -11,7 +11,7 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 - React + TypeScript + Vite for app shell, HUD, modals, meta screens, settings, account, intel, and store stub.
 - Phaser for the board renderer, tweens, particles, input hit testing, and board VFX.
 - Pure TypeScript engine in `src/engine`; no DOM, React, Phaser, browser storage, audio, analytics, or rendering imports inside engine modules.
-- Hosted on Cloudflare Workers + static Assets (served from the root of `GridWatchMatchWeb.warsignallabs.net`). The ONLY backend surface is `worker/index.ts` (`/api/*`): Supabase-auth-verified, server-mediated score submission (see `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`). No real-money fulfillment in this repo. The one secret (`SUPABASE_SERVICE_ROLE_KEY`) lives in wrangler secrets / gitignored `.dev.vars` — never in the repo.
+- Hosted on Cloudflare Workers + static Assets (origin `gridwatch-match.russell-meadows.workers.dev` under `/play/match/`; the canonical player URL is `https://nexus.warsignallabs.net/play/match/`, though the workers.dev origin also serves the game directly at `/play/match/`, and the old hostname `GridWatchMatchWeb.warsignallabs.net` 301s there). The ONLY backend surface is `worker/index.ts` (`/api/*`): Supabase-auth-verified, server-mediated score submission (see `docs/superpowers/plans/2026-07-14-phase3-auth-leaderboards.md`). No real-money fulfillment in this repo. The one secret (`SUPABASE_SERVICE_ROLE_KEY`) lives in wrangler secrets / gitignored `.dev.vars` — never in the repo.
 
 ## Source Of Truth
 
