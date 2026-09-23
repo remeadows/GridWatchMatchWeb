@@ -89,6 +89,16 @@ describe("receiveCarryOnce", () => {
     expect(await b).toBe("accepted");
     expect(receive).toHaveBeenCalledTimes(1);
   });
+  it("caches a synchronous throw as one rejection: receive runs once and both callers see it", async () => {
+    const error = new TypeError("crypto.randomUUID is not a function");
+    const receive = vi.fn((): Promise<"none"> => { throw error; });
+    let a: Promise<unknown> | undefined;
+    let b: Promise<unknown> | undefined;
+    expect(() => { a = receiveCarryOnce(receive); b = receiveCarryOnce(receive); }).not.toThrow();
+    await expect(a).rejects.toBe(error);
+    await expect(b).rejects.toBe(error);
+    expect(receive).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("receiveCarrySafely", () => {

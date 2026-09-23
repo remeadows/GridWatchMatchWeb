@@ -98,9 +98,17 @@ export async function handleCarryOffer(args: {
 }
 
 let pendingReceive: Promise<ReceiveResult> | null = null;
-/** One hand-off per page load, however many times React runs the effect that asks for it. */
+/** One hand-off per page load, however many times React runs the effect that asks for it. A
+ *  synchronous throw is cached too, as a rejection: otherwise nothing is stored and a StrictMode
+ *  re-run would call the kit a second time. `receive` itself still runs synchronously. */
 export function receiveCarryOnce(receive: () => Promise<ReceiveResult>): Promise<ReceiveResult> {
-  pendingReceive ??= receive();
+  if (pendingReceive === null) {
+    try {
+      pendingReceive = receive();
+    } catch (error) {
+      pendingReceive = Promise.reject(error);
+    }
+  }
   return pendingReceive;
 }
 export function resetCarryReceiveForTests(): void { pendingReceive = null; }
