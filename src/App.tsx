@@ -11,6 +11,8 @@ import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, setBackgroundStoredListener } from "./services/accountKit";
+import { handleCarryOffer, receiveCarryOnce } from "./services/carryOver";
+import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { submitScore, type SubmitResult } from "./services/scoreApi";
@@ -77,6 +79,9 @@ export default function App() {
   const auth = useAuth();
   const userId = auth.session?.user.id ?? null;
   const hasSave = save !== null;
+  const onNexus = typeof window !== "undefined" && window.location.origin === accountKit.config.nexusOrigin;
+  const [carrySettled, setCarrySettled] = useState(() => !onNexus || !accountKit.carry);
+  const [carryNotice, setCarryNotice] = useState<string | null>(null);
 
   const saveRef = useRef<SaveState | null>(null);
   // Lets commitSave and the retry listeners read the current user without being re-created.
@@ -199,7 +204,7 @@ export default function App() {
   // flag, and the outcomes are folded onto saveRef.current (the CURRENT state) rather than onto the
   // snapshot the run started with. Whether this run may then flush is the gate's call, not ours.
   useEffect(() => {
-    if (!hasSave || auth.loading) return;
+    if (!hasSave || auth.loading || !carrySettled) return;
     // Read once, and checked BEFORE `gate.begin`: beginning a run whose snapshot cannot be read
     // would burn the gate's token and its throttle window on a run that cannot happen. Unreachable
     // in practice — `hasSave` and this ref are written together — so it is narrowing, not a branch.
@@ -277,7 +282,7 @@ export default function App() {
       cloudSync.storeChanges(flushBase, next, skip);
     });
     // No cleanup: aborting the run is exactly the bug this guards against.
-  }, [hasSave, auth.loading, userId, cloudSync, gate, reconcileNonce]);
+  }, [hasSave, auth.loading, carrySettled, userId, cloudSync, gate, reconcileNonce]);
 
   // A run that ended with an errored slot leaves the gate idle with its stores still held, so it
   // has to be re-armed: back online, tab brought to the front, or the next commit (below). The
@@ -357,6 +362,20 @@ export default function App() {
     if (gate.shouldRetry(userIdRef.current, Date.now())) setReconcileNonce((n) => n + 1);
   }, [cloudSync, gate]);
 
+  // Spec §6.4: a hand-off from the old hostname is applied before the first reconcile, through
+  // commitSave (flags the replaced slots), so the 4a rules take over: upload or conflict prompt.
+  // Declared after commitSave because it needs it; the ordering against the cloud-start effect above
+  // is enforced by `carrySettled` in that effect's guard, not by declaration order.
+  useEffect(() => {
+    if (carrySettled || !hasSave || !accountKit.carry) return;
+    const carry = accountKit.carry;
+    void receiveCarryOnce(() => carry.receive((offer) => handleCarryOffer({
+      current: () => saveRef.current!, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
+    }))).then((result) => {
+      if (result === "accepted") setCarryNotice("Progress moved from the old site.");
+    }).finally(() => setCarrySettled(true));
+  }, [carrySettled, hasSave, commitSave]);
+
   if (!save) {
     return (
       <main className="app-shell loading-shell">
@@ -373,6 +392,8 @@ export default function App() {
 
   return (
     <main className="app-shell">
+      {!onNexus && save && accountKit.carry && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
+      {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
       {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}

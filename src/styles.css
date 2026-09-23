@@ -880,6 +880,32 @@ a.primary-action:focus-visible {
   justify-self: start;
 }
 
+/* Spec §6.3: the old hostname's "moved" strip, under the shared account bar on every screen. */
+.carry-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px 16px;
+  width: 100%;
+  padding: 10px clamp(16px, 3vw, 42px);
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--panel-glass-strong);
+  color: var(--text);
+}
+
+.carry-banner p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.carry-banner p[role="status"] {
+  flex-basis: 100%;
+  color: var(--gold);
+  font-weight: 600;
+  text-align: center;
+}
+
 .hero-card,
 .intel-card,
 .store-card,
