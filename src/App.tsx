@@ -11,7 +11,7 @@ import { type BoardAnimationEvent } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, setBackgroundStoredListener } from "./services/accountKit";
-import { handleCarryOffer, receiveCarryOnce } from "./services/carryOver";
+import { handleCarryOffer, receiveCarrySafely } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
@@ -369,7 +369,7 @@ export default function App() {
   useEffect(() => {
     if (carrySettled || !hasSave || !accountKit.carry) return;
     const carry = accountKit.carry;
-    void receiveCarryOnce(() => carry.receive((offer) => handleCarryOffer({
+    void receiveCarrySafely(() => carry.receive((offer) => handleCarryOffer({
       current: () => saveRef.current!, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
     }))).then((result) => {
       if (result === "accepted") setCarryNotice("Progress moved from the old site.");

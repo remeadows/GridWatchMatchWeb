@@ -97,3 +97,15 @@ export function receiveCarryOnce(receive: () => Promise<ReceiveResult>): Promise
   return pendingReceive;
 }
 export function resetCarryReceiveForTests(): void { pendingReceive = null; }
+
+/** The Nexus start-up path: never throws and never rejects, so the cloud start it gates always
+ *  runs. A synchronous throw from the kit (e.g. crypto.randomUUID missing on a non-secure dev
+ *  origin) or a rejection becomes "failed" with one warning, and the page carries on as "none". */
+export function receiveCarrySafely(receive: () => Promise<ReceiveResult>): Promise<ReceiveResult | "failed"> {
+  return Promise.resolve()
+    .then(() => receiveCarryOnce(receive))
+    .catch((error: unknown) => {
+      console.warn("[carry] the hand-off receiver failed; carrying on without it:", error instanceof Error ? error.message : String(error));
+      return "failed" as const;
+    });
+}

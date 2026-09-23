@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultSaveState, type SaveState } from "../state/save";
 import { projection } from "../state/cloudSaves";
 import {
   OLD_MATCH_ORIGIN, applyIncoming, bannerState, carryFromOrigins, handleCarryOffer, markerFor,
-  needsReplacePrompt, readCarryMarker, receiveCarryOnce, resetCarryReceiveForTests, slotsToCarry, writeCarryMarker,
+  needsReplacePrompt, readCarryMarker, receiveCarryOnce, receiveCarrySafely, resetCarryReceiveForTests, slotsToCarry, writeCarryMarker,
 } from "../services/carryOver";
 
 const played = (coins: number): SaveState => ({ ...defaultSaveState(), coins });
@@ -88,5 +88,33 @@ describe("receiveCarryOnce", () => {
     expect(await a).toBe("accepted");
     expect(await b).toBe("accepted");
     expect(receive).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("receiveCarrySafely", () => {
+  beforeEach(() => resetCarryReceiveForTests());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("turns a synchronous throw from receive into a settled \"failed\" with one warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let started: Promise<unknown> | undefined;
+    expect(() => { started = receiveCarrySafely(() => { throw new TypeError("crypto.randomUUID is not a function"); }); }).not.toThrow();
+    await expect(started).resolves.toBe("failed");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("turns a rejected receive into \"failed\" with one warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(receiveCarrySafely(() => Promise.reject(new Error("boom")))).resolves.toBe("failed");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a normal result through, once per page load, without warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const receive = vi.fn(async () => "accepted" as const);
+    expect(await receiveCarrySafely(receive)).toBe("accepted");
+    expect(await receiveCarrySafely(receive)).toBe("accepted");
+    expect(receive).toHaveBeenCalledTimes(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
