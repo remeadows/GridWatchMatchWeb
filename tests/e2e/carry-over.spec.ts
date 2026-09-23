@@ -78,7 +78,7 @@ interface CarryProbe {
  * checks it exactly as it would the original.
  */
 async function probeOldOrigin(context: BrowserContext): Promise<void> {
-  await context.addInitScript((oldOrigin) => {
+  await context.addInitScript(([oldOrigin, nexusOrigin]) => {
     if (location.origin !== oldOrigin) return;
     const probe = window as unknown as CarryProbe;
     let held: MessageEvent | null = null;
@@ -98,6 +98,7 @@ async function probeOldOrigin(context: BrowserContext): Promise<void> {
     };
     // Registered before any app script, so at the window target it runs ahead of the kit's listener.
     window.addEventListener("message", (event) => {
+      if (event.origin !== nexusOrigin) return; // only Nexus's ready/result; anything else goes to the kit untouched
       const data = event.data as { gw?: unknown; type?: unknown } | null;
       if (!data || data.gw !== "carry") return;
       if (data.type === "ready" && !replaying && held === null) {
@@ -107,7 +108,7 @@ async function probeOldOrigin(context: BrowserContext): Promise<void> {
         probe.__carryResultAt = Date.now();
       }
     }, true);
-  }, OLD);
+  }, [OLD, NEXUS] as const);
 }
 
 test("moves progress into an empty Nexus origin", async ({ page }) => {
