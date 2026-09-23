@@ -76,8 +76,9 @@ npm run test:e2e
 ## Deployment
 
 Hosted on [Cloudflare Workers + static Assets](https://developers.cloudflare.com/workers/) at
-`https://gridwatch-match.russell-meadows.workers.dev` under the `/play/match/` base path. Players reach it only
-through the Nexus proxy at `https://nexus.warsignallabs.net/play/match/`. The old hostname
+`https://gridwatch-match.russell-meadows.workers.dev` under the `/play/match/` base path. The canonical player URL is
+`https://nexus.warsignallabs.net/play/match/`. The workers.dev origin also serves the game directly at
+`https://gridwatch-match.russell-meadows.workers.dev/play/match/`, since the worker does not check the hostname, but it is not a player URL. The old hostname
 `GridWatchMatchWeb.warsignallabs.net` is retired: a Cloudflare zone redirect rule 301s every path on it to Nexus
 before this worker runs.
 
