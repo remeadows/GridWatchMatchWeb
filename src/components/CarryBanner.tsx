@@ -12,6 +12,9 @@ const OUTCOME: Partial<Record<SendResult, string>> = {
   closed: "The new site closed before the move finished. Try again.",
   timeout: "The new site didn't answer. If you opened GridWatch from your Home Screen, open this page in Safari and try again.",
 };
+/** While the kit waits on the Nexus tab the button is held; if that tab reloads mid-prompt, the
+ *  hand-off only ends when it closes ("closed"), so say so rather than leave a dead button. */
+const SENDING = "Finish in the new tab. Close it to try again.";
 
 /** Warned once per page load: the state is recomputed on every render, and a save that cannot be
  *  fingerprinted once cannot be fingerprinted on any later render either. */
@@ -37,6 +40,7 @@ export function CarryBanner({ save, carry, nexusUrl }: { save: SaveState; carry:
   const [marker, setMarker] = useState(() => readCarryMarker());
   const [outcome, setOutcome] = useState<SendResult | "sending" | null>(null);
   const state = safeBannerState(save, marker);
+  const status = outcome === "sending" ? SENDING : outcome ? OUTCOME[outcome] : undefined;
 
   const move = () => {
     const slots = slotsToCarry(save);
@@ -84,7 +88,7 @@ export function CarryBanner({ save, carry, nexusUrl }: { save: SaveState; carry:
     <aside className="carry-banner" aria-label="GridWatch Match has moved">
       <p>{state === "moved-again" ? "You have new progress since you moved." : "GridWatch Match has moved to the GridWatch site."}</p>
       <button type="button" className="primary-action" onClick={move} disabled={outcome === "sending"}>Move my progress</button>
-      {outcome && outcome !== "sending" && OUTCOME[outcome] && <p role="status">{OUTCOME[outcome]}</p>}
+      {status && <p role="status">{status}</p>}
     </aside>
   );
 }

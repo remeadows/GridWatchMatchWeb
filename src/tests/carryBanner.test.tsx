@@ -118,6 +118,13 @@ describe("CarryBanner", () => {
     expect(container.querySelector("[style]")).toBeNull();
   });
 
+  it("sending: says where to finish, and how to get out, while the button is held", () => {
+    render(played(40)); // the fake's send never settles: the Nexus tab is still open
+    act(() => { moveButton()!.click(); });
+    expect(container.querySelector("[role=status]")?.textContent).toBe("Finish in the new tab. Close it to try again.");
+    expect(moveButton()?.disabled).toBe(true);
+  });
+
   it("a save canonicalJson cannot encode falls back to the nothing banner with one warning", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     seedMarkerFor(played(40));
