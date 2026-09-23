@@ -90,8 +90,21 @@ export function applyIncoming(current: SaveState, incoming: Record<string, unkno
 export async function handleCarryOffer(args: {
   current: () => SaveState; slots: Record<string, unknown>; askReplace: () => Promise<boolean>; commit: (next: SaveState) => void;
 }): Promise<"accepted" | "declined"> {
-  if (cloudSlotsOf(args.slots).length === 0) return "declined";
-  if (needsReplacePrompt(args.current(), args.slots) && !(await args.askReplace())) return "declined";
+  const slots = cloudSlotsOf(args.slots);
+  if (slots.length === 0) return "declined";
+  let beforePrompt = args.current();
+  if (needsReplacePrompt(beforePrompt, args.slots)) {
+    // Where the kit's dialog is non-modal (no showModal) the player can play on under the prompt.
+    // A "Replace" covers the slots that had progress when it was asked; a slot that was pristine
+    // then and has progress now was never part of the question, so ask again — and again, by the
+    // same rule, if yet another slot fills up under the second prompt.
+    for (;;) {
+      if (!(await args.askReplace())) return "declined";
+      const latest = args.current();
+      if (!slots.some((slot) => isPristine(beforePrompt, slot) && !isPristine(latest, slot))) break;
+      beforePrompt = latest;
+    }
+  }
   // Re-read after the prompt: the player may have played on while it was open.
   args.commit(applyIncoming(args.current(), args.slots));
   return "accepted";

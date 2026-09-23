@@ -146,3 +146,44 @@ describe("showsCarryBanner", () => {
     expect(showsCarryBanner("http://localhost:4173", carryFromOrigins(undefined), "http://127.0.0.1:4173")).toBe(false);
   });
 });
+
+describe("handleCarryOffer: a slot that gains progress while the replace prompt is open", () => {
+  // The kit's dialog is non-modal where showModal is missing, so the player can play on under it.
+  const withSettings = (save: SaveState): SaveState => ({ ...save, settings: { ...save.settings, reducedMotion: !save.settings.reducedMotion } });
+  const incoming = { campaign: projection(played(40), "campaign"), settings: projection(withSettings(defaultSaveState()), "settings") };
+
+  it("asks again when a slot that was pristine at the prompt is occupied after it; refusing commits nothing", async () => {
+    let state = played(7); // campaign has progress (so the prompt opens), settings is pristine
+    const commit = vi.fn();
+    const ask = vi.fn(async () => {
+      if (ask.mock.calls.length === 1) { state = withSettings(state); return true; } // played on under the prompt
+      return false;
+    });
+    await expect(handleCarryOffer({ current: () => state, slots: incoming, askReplace: ask, commit })).resolves.toBe("declined");
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("asks again, and a second yes replaces from the latest state", async () => {
+    let state = played(7);
+    const commit = vi.fn();
+    const ask = vi.fn(async () => {
+      if (ask.mock.calls.length === 1) state = withSettings({ ...state, coins: 9 });
+      return true;
+    });
+    await expect(handleCarryOffer({ current: () => state, slots: incoming, askReplace: ask, commit })).resolves.toBe("accepted");
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(commit).toHaveBeenCalledTimes(1);
+    expect(commit.mock.calls[0][0].coins).toBe(40);
+    expect(commit.mock.calls[0][0].settings.reducedMotion).toBe(!defaultSaveState().settings.reducedMotion);
+  });
+
+  it("asks once when nothing newly occupied: progress in an already-occupied slot was covered by the question", async () => {
+    let state = played(7);
+    const commit = vi.fn();
+    const ask = vi.fn(async () => { state = { ...state, coins: 9 }; return true; });
+    await expect(handleCarryOffer({ current: () => state, slots: incoming, askReplace: ask, commit })).resolves.toBe("accepted");
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(commit.mock.calls[0][0].coins).toBe(40);
+  });
+});
