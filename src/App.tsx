@@ -370,9 +370,15 @@ export default function App() {
   // is enforced by `carrySettled` in that effect's guard, not by declaration order.
   useEffect(() => {
     if (carrySettled || !hasSave || !accountKit.carry) return;
+    // Same narrowing as the cloud-start effect: `hasSave` and the ref are written together, so this
+    // is never null here; the captured save is only the fallback that lets the type say so. Were it
+    // null, settle rather than return, so the cloud start is never held behind a hand-off that
+    // cannot run.
+    const loaded = saveRef.current;
+    if (loaded === null) { setCarrySettled(true); return; }
     const carry = accountKit.carry;
     void receiveCarrySafely(() => carry.receive((offer) => handleCarryOffer({
-      current: () => saveRef.current!, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
+      current: () => saveRef.current ?? loaded, slots: offer.slots, askReplace: carry.askReplace, commit: commitSave,
     }))).then((result) => {
       if (result === "accepted") setCarryNotice("Progress moved from the old site.");
     }).finally(() => setCarrySettled(true));
