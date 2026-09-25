@@ -1,7 +1,6 @@
 import limits from "./level-limits.json";
 
 export const LEVEL_SCORE_CAP = 25000;
-export const CAMPAIGN_SCORE_CAP = 2500000;
 export const GAME_SLUG = "gridwatch-match";
 export const PLAY_ON_EXTRA_MOVES = 5; // mirror src/data/store.ts playOnExtraMoves
 export const MAX_PLAY_ONS = 20; // generous cap on repeated Play-On uses; keeps moveCount (and thus the moveCount-scaled score bounds) bounded so LEVEL_SCORE_CAP stays the backstop
@@ -14,22 +13,6 @@ export interface Telemetry {
   stars: number;
   playOnUsed: boolean;
   durationSec?: number;
-}
-
-/* Rotating-board category stamps — UTC so every player shares one clock.
-   Copied byte-for-byte in logic from Drift (index.html dailyCategory /
-   weeklyCategory). Change together with Drift's client + worker helpers and the
-   Command Nexus hub's src/lib/periods.ts. */
-export function dailyCategory(now: Date): string {
-  return "daily-" + now.toISOString().slice(0, 10);
-}
-
-export function weeklyCategory(now: Date): string {
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
-  return `weekly-${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
 // MUST mirror src/App.tsx starsEarned — change together.
@@ -97,8 +80,4 @@ export function validateSubmission(body: unknown):
 export function deriveScore(t: Telemetry): number {
   const raw = t.tilesCleared * 10 + t.powerUpEvents * 25 + Math.max(0, t.chainSum) * 50;
   return Math.min(LEVEL_SCORE_CAP, raw);
-}
-
-export function levelCategory(levelId: number): string {
-  return `level-${String(levelId).padStart(3, "0")}`;
 }

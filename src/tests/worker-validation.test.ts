@@ -3,13 +3,10 @@ import {
   LEVEL_SCORE_CAP,
   MAX_PLAY_ONS,
   PLAY_ON_EXTRA_MOVES,
-  dailyCategory,
   deriveScore,
-  levelCategory,
   moveLimitFor,
   starsFor,
   validateSubmission,
-  weeklyCategory,
 } from "../../worker/validation";
 
 const okBody = (over: Record<string, unknown> = {}, tOver: Record<string, unknown> = {}) => ({
@@ -188,14 +185,5 @@ describe("deriveScore anti-inflation", () => {
 
     expect(deriveScore(maxTelemetry)).toBe(24000);
     expect(deriveScore(maxTelemetry)).toBeLessThan(LEVEL_SCORE_CAP);
-  });
-});
-
-describe("categories", () => {
-  it("pads level categories", () => expect(levelCategory(7)).toBe("level-007"));
-  it("stamps ISO periods (spot checks match hub/Drift)", () => {
-    expect(dailyCategory(new Date("2026-07-14T12:00:00Z"))).toBe("daily-2026-07-14");
-    expect(weeklyCategory(new Date("2026-07-14T12:00:00Z"))).toBe("weekly-2026-W29");
-    expect(weeklyCategory(new Date("2021-01-01T12:00:00Z"))).toBe("weekly-2020-W53");
   });
 });

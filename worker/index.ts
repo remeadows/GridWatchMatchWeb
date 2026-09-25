@@ -1,12 +1,5 @@
-import {
-  CAMPAIGN_SCORE_CAP,
-  GAME_SLUG,
-  dailyCategory,
-  deriveScore,
-  levelCategory,
-  validateSubmission,
-  weeklyCategory,
-} from "./validation";
+import { deriveScore, validateSubmission } from "./validation";
+import { runKey, submitArgs, submitStatus, type ScoreMeta } from "./scoreBoard";
 import { prefixRedirectLocation, redirectStatusFor, rewritePlayPath } from "./playPrefix";
 
 const ASSET_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -45,73 +38,9 @@ function sbHeaders(env: Env): Record<string, string> {
   };
 }
 
-let cachedGameId: string | null = null;
-async function gameId(env: Env): Promise<string> {
-  if (cachedGameId) return cachedGameId;
-  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/games?slug=eq.${GAME_SLUG}&select=id`, { headers: sbHeaders(env) });
-  if (!res.ok) throw new Error("games lookup failed");
-  const rows = (await res.json()) as { id: string }[];
-  if (!rows[0]) throw new Error("game row missing");
-  cachedGameId = rows[0].id;
-  return cachedGameId;
-}
-
 async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-interface UpsertResult { improved: boolean; best: number; }
-
-// Improve-only best row per (game, category, user) — mirrors Drift's upsertBest.
-async function upsertBest(
-  env: Env,
-  game: string,
-  userId: string,
-  category: string,
-  score: number,
-  metadata: Record<string, unknown>,
-  proof: unknown,
-  proofHash: string,
-): Promise<UpsertResult> {
-  const row = { game_id: game, user_id: userId, category, score, metadata, proof, proof_hash: proofHash };
-  const ins = await fetch(`${env.SUPABASE_URL}/rest/v1/scores`, {
-    method: "POST",
-    headers: { ...sbHeaders(env), prefer: "return=minimal" },
-    body: JSON.stringify(row),
-  });
-  if (ins.ok) return { improved: true, best: score };
-  if (ins.status !== 409) throw new Error(`insert failed: ${ins.status}`);
-
-  const patch = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/scores?game_id=eq.${game}&user_id=eq.${userId}&category=eq.${category}&score=lt.${score}`,
-    {
-      method: "PATCH",
-      headers: { ...sbHeaders(env), prefer: "return=representation" },
-      body: JSON.stringify({ score, metadata, proof, proof_hash: proofHash, created_at: new Date().toISOString() }),
-    },
-  );
-  if (!patch.ok) throw new Error(`patch failed: ${patch.status}`);
-  const patched = (await patch.json()) as unknown[];
-  if (patched.length > 0) return { improved: true, best: score };
-
-  const standing = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/scores?game_id=eq.${game}&user_id=eq.${userId}&category=eq.${category}&select=score`,
-    { headers: sbHeaders(env) },
-  );
-  const rows = standing.ok ? ((await standing.json()) as { score: number }[]) : [];
-  return { improved: false, best: rows[0]?.score ?? score };
-}
-
-async function campaignTotal(env: Env, game: string, userId: string): Promise<{ total: number; levels: number }> {
-  const res = await fetch(
-    `${env.SUPABASE_URL}/rest/v1/scores?game_id=eq.${game}&user_id=eq.${userId}&category=like.level-*&select=score`,
-    { headers: sbHeaders(env) },
-  );
-  if (!res.ok) throw new Error(`campaign read failed: ${res.status}`);
-  const rows = (await res.json()) as { score: number }[];
-  const total = Math.min(CAMPAIGN_SCORE_CAP, rows.reduce((sum, r) => sum + r.score, 0));
-  return { total, levels: rows.length };
 }
 
 async function handleScore(request: Request, env: Env): Promise<Response> {
@@ -126,34 +55,28 @@ async function handleScore(request: Request, env: Env): Promise<Response> {
   }
   const v = validateSubmission(body);
   if (!v.ok) return json(422, { error: v.error });
+  const b = body as Record<string, unknown>;
 
   const score = deriveScore(v.telemetry);
-  const game = await gameId(env);
-  const metadata = {
-    levelId: v.levelId,
-    stars: v.telemetry.stars,
-    moveCount: v.telemetry.moveCount,
-    playOnUsed: v.telemetry.playOnUsed,
-  };
+  const now = new Date();
+  // Full proof is hashed (as before); only a compact form rides in meta (≤ 4 KB).
   const proof = { v: 1, telemetry: v.telemetry, actionLog: v.actionLog };
   const proofHash = await sha256Hex(JSON.stringify(proof));
+  const { requestId, achievedAt } = runKey(b.runId, b.endedAt, proofHash, now);
+  const meta: ScoreMeta = { v: 1, levelId: v.levelId, telemetry: v.telemetry, actionLogLength: v.actionLog.length };
 
-  // Headline path: per-level best, then the recomputed campaign total. Failures fail the request.
-  const level = await upsertBest(env, game, user.id, levelCategory(v.levelId), score, metadata, proof, proofHash);
-  const campaign = await campaignTotal(env, game, user.id);
-  await upsertBest(env, game, user.id, "standard", campaign.total, { kind: "campaign", levels: campaign.levels }, { v: 1, kind: "campaign" }, await sha256Hex(`campaign:${user.id}:${campaign.total}`));
+  // One write: submit_score (gridwatch-match / campaign / r1). The database keeps the level
+  // best improve-only and re-sums the campaign total for `all` and the week of achievedAt.
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/submit_score`, {
+    method: "POST",
+    headers: sbHeaders(env),
+    body: JSON.stringify(submitArgs({ userId: user.id, levelId: v.levelId, score, meta, proofHash, requestId, achievedAt })),
+  });
+  if (!res.ok) throw new Error(`submit_score failed: ${res.status}`);
 
-  // Rotating boards: best single-run score of the period — best-effort, never fail the request.
-  const now = new Date();
-  for (const category of [dailyCategory(now), weeklyCategory(now)]) {
-    try {
-      await upsertBest(env, game, user.id, category, score, metadata, proof, proofHash);
-    } catch (err) {
-      console.warn(`[score] rotating board ${category} failed:`, err instanceof Error ? err.message : err);
-    }
-  }
-
-  return json(200, { ok: true, levelScore: score, levelImproved: level.improved, levelBest: level.best, campaignScore: campaign.total });
+  const out = submitStatus(await res.json(), score);
+  if (out.log) console.error(`[score] ${out.log}`);
+  return json(out.status, out.body);
 }
 
 export default {
