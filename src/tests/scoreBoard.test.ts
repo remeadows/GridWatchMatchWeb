@@ -100,16 +100,16 @@ describe("submitStatus", () => {
   it("maps ok and duplicate to 200 with the campaign total", () => {
     expect(submitStatus({ status: "ok", improved: true, total: 1500 }, 610)).toEqual({
       status: 200,
-      body: { ok: true, levelScore: 610, levelImproved: true, campaignScore: 1500 },
+      body: { ok: true, levelScore: 610, levelImproved: true, campaignScore: 1500, levelBest: 610 },
     });
     expect(submitStatus({ status: "duplicate", improved: false, total: "1500" }, 610)).toEqual({
       status: 200,
-      body: { ok: true, levelScore: 610, levelImproved: false, campaignScore: 1500 },
+      body: { ok: true, levelScore: 610, levelImproved: false, campaignScore: 1500, levelBest: 1500 },
     });
   });
   it("falls back to the level score when total is missing", () => {
     expect(submitStatus({ status: "ok", improved: true }, 610).body).toEqual({
-      ok: true, levelScore: 610, levelImproved: true, campaignScore: 610,
+      ok: true, levelScore: 610, levelImproved: true, campaignScore: 610, levelBest: 610,
     });
   });
   it("maps rejections to 409 / 422 / 400", () => {

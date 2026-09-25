@@ -63,7 +63,7 @@ describe("/api/score → submit_score", () => {
     const res = await post(body({ runId, endedAt }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, levelScore: 20 * 10 + 1 * 25 + 2 * 50, levelImproved: true, campaignScore: 4200 });
+    expect(await res.json()).toEqual({ ok: true, levelScore: 20 * 10 + 1 * 25 + 2 * 50, levelImproved: true, campaignScore: 4200, levelBest: 325 });
 
     const rpcCalls = calls.filter((c) => c.url.includes("/rest/v1/"));
     expect(rpcCalls).toHaveLength(1);
@@ -97,6 +97,22 @@ describe("/api/score → submit_score", () => {
     await post(body());
     const args = JSON.parse(String(calls.find((c) => c.url.endsWith("/rpc/submit_score"))?.init?.body));
     expect(args.p_request_id).toBe(args.p_proof_hash);
+  });
+
+  it("keeps levelBest in the reply for pre-deploy bundles with no runId/endedAt", async () => {
+    stubFetch({ status: 200, json: { status: "ok", improved: false, total: 4200 } });
+    const res = await post(body());
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { levelBest: unknown };
+    expect(typeof json.levelBest).toBe("number");
+    expect(json.levelBest).toBe(4200);
+  });
+
+  it("maps duplicate to 200 with the campaign total", async () => {
+    stubFetch({ status: 200, json: { status: "duplicate", improved: true, total: 900 } });
+    const res = await post(body());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, levelScore: 325, levelImproved: true, campaignScore: 900, levelBest: 325 });
   });
 
   it("maps request_conflict to 409", async () => {

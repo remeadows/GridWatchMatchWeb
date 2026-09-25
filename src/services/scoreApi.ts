@@ -17,8 +17,10 @@ export interface SubmitResult {
   campaignScore: number;
 }
 
-// Stamped once per win so a resend of the same win is recognised by submit_score
-// (request ids must match ^[A-Za-z0-9_-]{16,64}$).
+// Stamped once per win so it gets its own request id: two wins with an identical move
+// sequence inside the DB's 1 h replay window won't collide on the proof-hash fallback and
+// get rejected with 409. newRunId()'s 32 lowercase hex chars satisfy submit_score's
+// request id pattern (^[A-Za-z0-9_-]{16,64}$).
 export interface RunStamp {
   runId: string;
   endedAt: string;

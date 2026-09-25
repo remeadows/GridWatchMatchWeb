@@ -12,7 +12,8 @@ Last updated: 2026-09-25
 - **Behaviour changes (spec §5):** the weekly board is now "sum of level bests set this week" (it was best single run). There is no daily board. When a win doesn't beat the level best, the line reads `ARCHIVE BEST STANDS — CAMPAIGN TOTAL <n>`, because the per-level best isn't returned any more.
 - **Proof:** `p_meta` holds `{v, levelId, telemetry, actionLogLength}`, and `p_proof_hash` covers the full `{v, telemetry, actionLog}`. The action log itself is no longer stored server-side, because it can reach 64 KB and meta is capped at 4 KB.
 - **Client:** each win is stamped with `runId` (32 hex) and `endedAt`. The worker honours `endedAt` only within [now − 1 h, now + 1 min].
-- **Evidence:** vitest 522/522, `validate:levels`, `npm audit --audit-level=high`, `npm run build`, all green.
+- **Compat:** the reply still carries `levelBest` (= level score if improved, else the campaign total) so tabs holding the pre-deploy bundle don't crash on a not-improved win. The current client ignores it. Remove it one release after deploy.
+- **Evidence:** vitest 524/524, `validate:levels`, `npm audit --audit-level=high`, `npm run build`, all green.
 
 **Next:** Russ merges the PR, then deploys on his go. Deploy waits until Drift's phase-3 screen checks are recorded (Nexus HANDOFF 2026-09-25 🟡 entry). Deploy from a clean checkout of `origin/main` with `npm run build && npx wrangler deploy`, and first check that `dist/assets/*.js` doesn't contain `localhost:4173`. Acceptance, per the spec §6 gate: one real signed-in win each on Mac and iPhone. In Match the result reads `SCORE TRANSMITTED — CAMPAIGN TOTAL <n>`. On Nexus, the Match board shows the row with the `is_you` highlight and `YOU // #n OF m ON THE GRID`, and the Match card and operator console show the rank. Then Breach.
 

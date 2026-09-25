@@ -28,9 +28,12 @@ export function endedAtInWindow(v: unknown, now: Date): v is string {
   return ended >= nowMs - ENDED_AT_MAX_AGE_MS && ended <= nowMs + ENDED_AT_MAX_SKEW_MS;
 }
 
-/* Replay key + run time. The client stamps each win with runId and endedAt; a resend of the
-   same win gets submit_score's stored result back as `duplicate` instead of counting twice.
-   Bundles from before this change send neither: fall back to the proof hash and server time.
+/* Replay key + run time. Each win carries its own runId so two wins with an identical move
+   sequence don't collide on the proof-hash fallback and get rejected as a false replay.
+   A resend of the same stamped request (none today) would get submit_score's stored result
+   back as `duplicate` instead of counting twice. Bundles from before this change send
+   neither runId nor endedAt: they fall back to the proof hash and server time, so an
+   identical replay of one of those old-bundle runs within the DB's 1 h window gets 409.
    A skewed device clock falls back to server time, so honest runs are never rejected
    (the DB refuses achieved_at outside [now − 24 h, now + 5 min]) and a client can't pick an
    old week. */
@@ -97,6 +100,9 @@ export interface ScoreReply {
   levelScore: number;
   levelImproved: boolean;
   campaignScore: number;
+  // Compat for bundles cached before 2026-09-25 (they render levelBest when !levelImproved).
+  // Not read by the current client. Remove one release after the submit_score deploy.
+  levelBest: number;
 }
 
 export interface MappedReply {
@@ -113,9 +119,11 @@ export function submitStatus(result: unknown, score: number): MappedReply {
   const status = r.status;
   if (status === "ok" || status === "duplicate") {
     const total = r.total == null ? NaN : Number(r.total);
+    const improved = r.improved === true;
+    const campaignScore = Number.isFinite(total) ? total : score;
     return {
       status: 200,
-      body: { ok: true, levelScore: score, levelImproved: r.improved === true, campaignScore: Number.isFinite(total) ? total : score },
+      body: { ok: true, levelScore: score, levelImproved: improved, campaignScore, levelBest: improved ? score : campaignScore },
     };
   }
   if (status === "request_conflict") return { status: 409, body: { error: "Run already logged to the archive." } };
