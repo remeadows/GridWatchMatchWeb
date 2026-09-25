@@ -15,7 +15,7 @@ import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } f
 import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
-import { submitScore, type SubmitResult } from "./services/scoreApi";
+import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
 import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
@@ -803,7 +803,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         moveCount: currentSnapshot.moveCount,
         stars,
         playOnUsed,
-      }, engine.actionLog())
+      }, engine.actionLog(), { runId: newRunId(), endedAt: new Date().toISOString() })
         .then((r) => setSubmitState({ kind: "done", result: r }))
         .catch((err) => setSubmitState({ kind: "error", message: err instanceof Error ? err.message : "Transmit failed." }));
     } else {
@@ -1532,7 +1532,7 @@ function submitStatusLine(state: SubmitState): React.ReactNode {
     case "done":
       return state.result.levelImproved
         ? <p className="delta-line">SCORE TRANSMITTED &mdash; CAMPAIGN TOTAL {state.result.campaignScore.toLocaleString()}</p>
-        : <p className="delta-line">ARCHIVE BEST STANDS ({state.result.levelBest.toLocaleString()})</p>;
+        : <p className="delta-line">ARCHIVE BEST STANDS &mdash; CAMPAIGN TOTAL {state.result.campaignScore.toLocaleString()}</p>;
     case "error":
       return <p className="identity-notice" role="alert">{state.message}</p>;
     case "skipped":
