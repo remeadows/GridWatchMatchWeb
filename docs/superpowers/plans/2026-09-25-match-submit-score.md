@@ -24,7 +24,7 @@
 ## Rulings made while planning
 
 - **Meta holds a compact proof; `proof_hash` covers the full one.** Legacy rows stored `{v, telemetry, actionLog}` (the action log can be up to 64 KB), but `p_meta` is capped at 4 KB. `p_meta` is `{v: 1, levelId, telemetry, actionLogLength}`, and `p_proof_hash` is the sha-256 of the full `{v: 1, telemetry, actionLog}` proof, exactly as today. *Cost if wrong:* the action logs for future replay verification are no longer kept server-side. Nothing reads them today. Restoring them later would need a separate proof-storage table (a Nexus migration).
-- **"ARCHIVE BEST STANDS" shows the campaign total, not the level best.** `submit_score` returns only `improved` and the all-time `total`. It does not return the per-entry best, and the worker can't read `board_entries` (privileges are revoked). So when a win didn't beat the stored level best, the line reads `ARCHIVE BEST STANDS — CAMPAIGN TOTAL <n>`, and `levelBest` leaves the response. *Cost if wrong:* a copy tweak.
+- **"ARCHIVE BEST STANDS" shows the campaign total, not the level best.** `submit_score` returns only `improved` and the all-time `total`. It does not return the per-entry best, and the worker can't read `board_entries` (privileges are revoked). So when a win didn't beat the stored level best, the line reads `ARCHIVE BEST STANDS — CAMPAIGN TOTAL <n>`, and the current client stops reading `levelBest`. *(The final review added back a temporary `levelBest` compat field in the worker reply, for tabs running the pre-deploy bundle.)* *Cost if wrong:* a copy tweak.
 - **The client sends `runId` and `endedAt`.** Without them, the fallback request id is the proof hash. Two identical winning move sequences inside the one-hour replay window would then hash identically but carry different server times, and would get `request_conflict` (409) instead of a clean result. A per-win random id avoids that.
 
 ## File structure
@@ -719,8 +719,8 @@ In `submitStatusLine`, replace the not-improved line:
 
 - [ ] **Step 4: Run the tests and the build**
 
-Run: `npx vitest run src/tests/scoreApi.test.ts && npm run build && git grep -n "levelBest" -- src worker`
-Expected: tests pass, the build succeeds (`tsc` for app + worker, then `vite build`), and the grep prints nothing.
+Run: `npx vitest run src/tests/scoreApi.test.ts && npm run build && git grep -n "levelBest" -- src/services src/App.tsx`
+Expected: tests pass, the build succeeds (`tsc` for app + worker, then `vite build`), and the grep prints nothing: the client no longer reads `levelBest`. *(Added after the final review: the worker reply keeps a temporary `levelBest` compat field for pre-deploy bundles, so `worker/scoreBoard.ts` and its tests still mention it. See the HANDOFF **Compat** bullet.)*
 
 - [ ] **Step 5: Commit**
 

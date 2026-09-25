@@ -15,7 +15,7 @@ describe("newRunId", () => {
 
 describe("submitScore", () => {
   it("posts levelId, telemetry, actionLog, runId and endedAt with the bearer token", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
       new Response(JSON.stringify({ ok: true, levelScore: 325, levelImproved: true, campaignScore: 900 }), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -24,9 +24,9 @@ describe("submitScore", () => {
     const result = await submitScore("tok", 4, telemetry, [{ a: 1 }], stamp);
 
     expect(result).toEqual({ ok: true, levelScore: 325, levelImproved: true, campaignScore: 900 });
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((init.headers as Record<string, string>).authorization).toBe("Bearer tok");
-    expect(JSON.parse(String(init.body))).toEqual({ levelId: 4, telemetry, actionLog: [{ a: 1 }], ...stamp });
+    const init = fetchMock.mock.calls[0][1];
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer tok");
+    expect(JSON.parse(String(init?.body))).toEqual({ levelId: 4, telemetry, actionLog: [{ a: 1 }], ...stamp });
   });
 
   it("throws the worker's error message on failure", async () => {
