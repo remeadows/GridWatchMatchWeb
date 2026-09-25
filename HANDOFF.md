@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-25
 
-## 🟡 2026-09-25: Leaderboards phase 3 — Match DEPLOYED; wins land on the board registry (screen checks pending)
+## 🟢 2026-09-25: Leaderboards phase 3 — Match DEPLOYED and accepted
 
 - **Deploy (Russ's go, 2026-09-25):** from a clean detached checkout of `origin/main` `fda9ed0` (#69): `npm ci`, `npm run build` (no `localhost:4173` in `dist/`), then `npx wrangler deploy --tag match-lb-fda9ed0`. Current version `e8e7b03b-88a3-4076-91bc-219231b2d8ab`. Rollback target: the previous version (safe until phase 5 retires `public.scores`).
 - **Post-deploy checks:**
@@ -10,9 +10,10 @@ Last updated: 2026-09-25
   - `/play/match/` returns 200 through Nexus and on workers.dev. The live bundle `index-BU2La5YN.js` contains `endedAt` and `CAMPAIGN TOTAL`.
   - `/api/score`: POST without auth → 401, GET → 405.
 - **Live evidence (Russ, signed in, 2026-09-25):** three wins after the deploy. `campaign / r1` holds `level:24` = 2790, `level:25` = 2905 and `level:26` = 3200. The total is **8895** on `all` and `w:2026-W39`, so the DB-derived sum is correct. Anon `get_board` returns `#1 Russ 8895`, which is what Nexus serves.
-- **Pending:** Russ's confirmation of the screen checks. In-game, the result line should read `SCORE TRANSMITTED — CAMPAIGN TOTAL <n>`. On Nexus, Leaderboards → Match (signed in) should show the `is_you` row with `YOU // #1 OF 1 ON THE GRID`, and the Match card should show the rank. Mac and iPhone.
+- **Acceptance (Russ, signed in, 2026-09-25):** won level 27 (2 stars, 2,695). The in-game result reads `SCORE TRANSMITTED — CAMPAIGN TOTAL 11,590` (Russ's screenshot) ✅. The DB has `level:27` = 2695 and a total of **11590** = 2790 + 2905 + 3200 + 2695, so the sum is correct.
+  - **Not separately observed:** the signed-in Nexus Match table (`is_you` row and footer), the Match card rank, and an iPhone win. Russ reviewed the evidence and said to proceed ("attached is Match - proceed with next steps"). That is the owner's acceptance of those unobserved items. They use the same Nexus read path that Drift's signed-in iPhone check already proved.
 
-**Next:** record Russ's pass/fail for the checks above and close this entry. Remove the temporary `levelBest` compat field in the next release.
+**Next:** nothing on Match for the rebuild until phase 5 retires `public.scores`. Remove the temporary `levelBest` compat field in the next release.
 
 ## 2026-09-25: Leaderboards phase 3 — Match writes through the shared board registry (not deployed)
 
