@@ -207,6 +207,24 @@ export function matchPacingPlan(
     lastImpactAtMs, gravityNotBeforeMs: impacts.length > 0 ? lastImpactAtMs + MATCH_OPEN_HOLD_MS : 0 };
 }
 
+/**
+ * For a clear that makes power-ups: each matched cell, keyed `row,col`, and the cell its remains
+ * fly into. Only the match group that holds a power-up's cell feeds it, and that cell itself
+ * stays out (it is where the power-up lands).
+ */
+export function mergeTargets(pacing: Pick<MatchPacingPlan, "groups">, forged: readonly GridPosition[]): Map<string, GridPosition> {
+  const result = new Map<string, GridPosition>();
+  for (const into of forged) {
+    const group = pacing.groups.find((candidate) => candidate.positions.some((position) => position.row === into.row && position.col === into.col));
+    if (!group) continue;
+    for (const position of group.positions) {
+      if (position.row === into.row && position.col === into.col) continue;
+      result.set(`${position.row},${position.col}`, into);
+    }
+  }
+  return result;
+}
+
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;

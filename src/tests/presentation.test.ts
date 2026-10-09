@@ -5,6 +5,7 @@ import {
   cascadeFallDurationMs,
   cascadeJoltPx,
   cascadeLandingPlan,
+  mergeTargets,
   chainPlaybackRate,
   comboChoreographyPlan,
   comboOverlayPositions,
@@ -512,6 +513,28 @@ describe("cascadeLandingPlan", () => {
     expect(short.strength).toBe(0.35);
     expect(short.squashMs + short.hopMs + short.settleMs).toBe(190);
     expect(cascadeLandingPlan(Number.NaN, 100, 120)).toEqual(cascadeLandingPlan(0, 100, 120));
+  });
+});
+
+describe("mergeTargets", () => {
+  const at = (row: number, col: number) => ({ row, col });
+  const pacing = {
+    groups: [
+      { id: "0,0", positions: [at(0, 0), at(0, 1), at(0, 2), at(0, 3)] },
+      { id: "4,4", positions: [at(4, 4), at(5, 4), at(6, 4)] }
+    ]
+  };
+
+  it("sends the rest of the match that made a power-up into the power-up's cell", () => {
+    const merges = mergeTargets(pacing, [at(0, 1)]);
+    expect([...merges.keys()].sort()).toEqual(["0,0", "0,2", "0,3"]);
+    expect([...merges.values()].every((into) => into.row === 0 && into.col === 1)).toBe(true);
+  });
+
+  it("leaves other matches, and a power-up made outside any match, alone", () => {
+    expect(mergeTargets(pacing, []).size).toBe(0);
+    expect(mergeTargets(pacing, [at(2, 2)]).size).toBe(0);
+    expect(mergeTargets(pacing, [at(0, 1)]).has("5,4")).toBe(false);
   });
 });
 

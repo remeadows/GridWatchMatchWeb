@@ -27,6 +27,7 @@ import {
   CASCADE_JOLT_DOWN_MS,
   CASCADE_JOLT_MIN_CELLS,
   CASCADE_JOLT_RECOVER_MS,
+  CASCADE_LANDING_FULL_STRENGTH_CELLS,
   CASCADE_LANDING_HOP_MS,
   CASCADE_LANDING_SETTLE_MS,
   CASCADE_LANDING_TOTAL_MS,
@@ -88,7 +89,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, mergeTargets, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -198,6 +199,7 @@ const boardChrome = {
 
 const contactShadowKey = "v2-contact-shadow";
 
+
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
   rocket_vertical: "powerup-rocketV",
@@ -216,8 +218,15 @@ const CASCADE_FALL_STRETCH_Y = 1.04;
 const POWERUP_CREATION_CHARGE_MS = 70;
 const POWERUP_CREATION_OVERSHOOT_MS = 130;
 const POWERUP_CREATION_SETTLE_MS = 110;
-const POWERUP_CREATION_INITIAL_SCALE = 0.55;
-const POWERUP_CREATION_OVERSHOOT_SCALE = 1.12;
+// A new power-up is dropped into its cell from above the board: it starts large and comes down
+// hard, squashes, hops and settles. The three beats fill the overshoot and settle time above.
+const POWERUP_CREATION_DROP_SCALE = 1.55;
+const POWERUP_CREATION_DROP_HEIGHT_CELLS = 0.18;
+const POWERUP_CREATION_DROP_MS = 90;
+const POWERUP_CREATION_HOP_MS = 60;
+const POWERUP_CREATION_REST_MS = POWERUP_CREATION_OVERSHOOT_MS + POWERUP_CREATION_SETTLE_MS - POWERUP_CREATION_DROP_MS - POWERUP_CREATION_HOP_MS;
+// The pieces of the match that made it fly into its cell as they break.
+const POWERUP_MERGE_MS = 120;
 
 // Matched tiles burst OUTWARD (explode) rather than shrinking away. The destroy
 // tween scales up past the cell while fading to alpha 0.
@@ -1316,7 +1325,9 @@ export class BoardScene extends Phaser.Scene {
       if (step.kind === "clear") {
         const activeGroups = groups;
         groups = [];
-        this.playResolutionClear(step, activeGroups, complete);
+        const next = steps[steps.indexOf(step) + 1];
+        const forged = next?.kind === "creation" ? createdPowerUpSpawns(next.spawns).map((creation) => creation.position) : [];
+        this.playResolutionClear(step, activeGroups, complete, forged);
       } else if (step.kind === "gravity" || step.kind === "refill") {
         const plan = cascadePresentationPlan(step.before, step.after);
         if (plan.moves.length === 0 && plan.spawns.length === 0) {
@@ -1345,7 +1356,8 @@ export class BoardScene extends Phaser.Scene {
       scoreGained: 0, isWin: false, isFail: false, shuffleAttempts: 0 };
   }
 
-  private playResolutionClear(step: BoardResolutionStep, groups: ResolutionPowerUpGroup[], complete: () => void): void {
+  private playResolutionClear(step: BoardResolutionStep, groups: ResolutionPowerUpGroup[], complete: () => void,
+    forged: readonly GridPosition[] = []): void {
     const events = groups.flatMap(group => group.events);
     const delta = this.resolutionStepDelta(step, events);
     const keys = new Set(step.clears.map(clear => positionKey(clear.position)));
@@ -1381,7 +1393,7 @@ export class BoardScene extends Phaser.Scene {
       if (events.length === 0) this.recordPresentation("match-recognition-complete", String(step.ordinal));
       this.playTilePops(step.before, keys, pacing, () => { popsDone = true; finish(); },
         clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
-        undefined, events.length === 0, groups);
+        undefined, events.length === 0, groups, mergeTargets(pacing, forged));
     };
     if (events.length === 0) {
       this.recordPresentation("match-recognition-start", String(step.ordinal));
@@ -2045,7 +2057,8 @@ export class BoardScene extends Phaser.Scene {
     afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
     allowMatchShake = true,
-    powerUpGroups: readonly PowerUpPresentationGroup[] = []
+    powerUpGroups: readonly PowerUpPresentationGroup[] = [],
+    merges: ReadonlyMap<string, GridPosition> = new Map()
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -2160,6 +2173,8 @@ export class BoardScene extends Phaser.Scene {
           playbackRate: variation.playbackRate
         });
         this.playMatchBurst(entry.object, entry.tint);
+        const mergeInto = merges.get(key);
+        if (mergeInto) this.playMergeFlight(entry.object, piece, mergeInto, entry.tint);
         if (!cleanupScheduled) {
           cleanupScheduled = true;
           this.recordPresentation("debris-cleanup-pending");
@@ -2207,6 +2222,45 @@ export class BoardScene extends Phaser.Scene {
       else startPop();
     }
     afterRender?.(dispatchContact);
+  }
+
+  // A piece of the match that makes a power-up does not just break: what is left of it is pulled
+  // into the cell where the power-up is about to land.
+  private playMergeFlight(
+    object: Phaser.GameObjects.Container,
+    piece: Phaser.GameObjects.Image | Phaser.GameObjects.Text | null,
+    into: GridPosition,
+    tint: number
+  ): void {
+    if (!this.fxLayer || this.reducedMotion) return;
+    const destination = this.cellCenter(into);
+    const isImage = piece instanceof Phaser.GameObjects.Image;
+    const mote = isImage
+      ? this.add.image(object.x, object.y, piece.texture.key, piece.frame.name)
+      : this.add.image(object.x, object.y, vfxTextureKeys.hotCore);
+    if (isImage) mote.setDisplaySize(piece.displayWidth * 0.8, piece.displayHeight * 0.8);
+    else mote.setScale(Math.max(0.5, this.tileSize / 70)).setTint(tint);
+    mote.setAlpha(0.85);
+    mote.setBlendMode(Phaser.BlendModes.ADD);
+    this.fxLayer.add(mote);
+    this.vfxCleanup.trackObject(mote);
+    const flight = this.tweens.add({
+      targets: mote,
+      x: destination.x,
+      y: destination.y,
+      scaleX: mote.scaleX * 0.35,
+      scaleY: mote.scaleY * 0.35,
+      alpha: 0.25,
+      duration: POWERUP_MERGE_MS,
+      // Pulled in: slow to leave, fastest as it arrives.
+      ease: "Cubic.easeIn",
+      onComplete: () => {
+        this.vfxCleanup.release(mote);
+        this.vfxCleanup.release(flight);
+        mote.destroy();
+      }
+    });
+    this.vfxCleanup.trackTween(flight);
   }
 
   private playMatchBurst(object: Phaser.GameObjects.Container, tint: number): void {
@@ -2550,62 +2604,93 @@ export class BoardScene extends Phaser.Scene {
       this.occupantNodes.set(positionKey(creation.position), reveal);
       reveal.setAlpha(0);
       const tint = powerUpCreationTint(creation.powerUp);
-      reveal.setScale(POWERUP_CREATION_INITIAL_SCALE);
+      const dropHeightPx = this.tileSize * POWERUP_CREATION_DROP_HEIGHT_CELLS;
+      reveal.setScale(POWERUP_CREATION_DROP_SCALE);
+      reveal.setPosition(destination.x, destination.y - dropHeightPx);
       reveal.setAngle(-6);
       this.recordPresentation("powerup-create-charge", creation.powerUp.kind);
 
-      for (const offset of [
-        { x: -this.tileSize * 0.9, y: this.tileSize * 0.25 },
-        { x: this.tileSize * 0.75, y: -this.tileSize * 0.5 },
-        { x: this.tileSize * 0.15, y: this.tileSize * 0.9 }
-      ]) {
-        laneBlast(this, this.fxLayer, {
-          x: destination.x + offset.x,
-          y: destination.y + offset.y
-        }, destination, {
-          durationMs: POWERUP_CREATION_CHARGE_MS,
-          scale: Math.max(0.55, this.tileSize / 72),
-          tint
-        }, this.vfxCleanup);
-      }
+      // The cell gathers light while the pieces of the match arrive in it.
+      const gather = this.add.image(destination.x, destination.y, vfxTextureKeys.hotCore);
+      gather.setTint(tint);
+      gather.setBlendMode(Phaser.BlendModes.ADD);
+      gather.setAlpha(0.2);
+      gather.setScale(Math.max(0.3, this.tileSize / 110));
+      this.fxLayer.add(gather);
+      this.vfxCleanup.trackObject(gather);
+      const gatherTween = this.tweens.add({
+        targets: gather,
+        alpha: 0.9,
+        scaleX: gather.scaleX * 2.4,
+        scaleY: gather.scaleY * 2.4,
+        duration: POWERUP_CREATION_CHARGE_MS,
+        ease: "Quad.easeIn",
+        onComplete: () => {
+          this.vfxCleanup.release(gather);
+          this.vfxCleanup.release(gatherTween);
+          gather.destroy();
+        }
+      });
+      this.vfxCleanup.trackTween(gatherTween);
 
       this.time.delayedCall(POWERUP_CREATION_CHARGE_MS, () => {
         if (!this.sys.isActive()) return;
         const impactAtMs = this.time.now;
         this.recordPresentation("powerup-create-impact", creation.powerUp.kind);
         this.cueBoardAudio("powerUpCreate", { gain: 0.58 });
-        shockwave(this, this.fxLayer!, destination.x, destination.y, {
-          durationMs: POWERUP_CREATION_OVERSHOOT_MS + POWERUP_CREATION_SETTLE_MS,
-          radiusPx: this.tileSize * 0.58,
-          tint
-        }, this.vfxCleanup);
-        if (creation.powerUp.kind === "lightBall") shake(this, 0.003, 90, this.reducedMotion);
+        const landing = cascadeLandingPlan(CASCADE_LANDING_FULL_STRENGTH_CELLS, pieceDisplayProfile(this.tileSize).pieceSizePx, this.tileSize);
+        const stable = () => {
+          const markStable = () => {
+            if (this.time.now <= impactAtMs) {
+              this.time.delayedCall(1, markStable);
+              return;
+            }
+            this.recordPresentation("powerup-create-stable", creation.powerUp.kind);
+            done();
+          };
+          markStable();
+        };
+        // Down hard...
         this.tweens.add({
           targets: reveal,
           alpha: 1,
-          scaleX: POWERUP_CREATION_OVERSHOOT_SCALE,
-          scaleY: POWERUP_CREATION_OVERSHOOT_SCALE,
-          angle: 6,
-          duration: POWERUP_CREATION_OVERSHOOT_MS,
-          ease: "Back.easeOut",
+          x: destination.x,
+          y: destination.y + landing.sinkPx,
+          scaleX: landing.squashScaleX,
+          scaleY: landing.squashScaleY,
+          angle: 0,
+          duration: POWERUP_CREATION_DROP_MS,
+          ease: "Quad.easeIn",
           onComplete: () => {
+            if (!this.sys.isActive() || !this.fxLayer) return;
+            // ...and the board feels it.
+            shockwave(this, this.fxLayer, destination.x, destination.y, {
+              durationMs: POWERUP_CREATION_HOP_MS + POWERUP_CREATION_REST_MS,
+              radiusPx: this.tileSize * 0.75,
+              tint
+            }, this.vfxCleanup);
+            impactBurst(this, this.fxLayer, destination.x, destination.y, { intensity: 0.6, lifespanMs: 200, tint }, this.vfxCleanup);
+            this.flashCell(creation.position, tint, POWERUP_CREATION_HOP_MS + POWERUP_CREATION_REST_MS);
+            this.pressShadow(reveal, landing);
+            this.knockBoard({ x: 0, y: 1 });
+            if (creation.powerUp.kind === "lightBall") shake(this, 0.003, 90, this.reducedMotion);
             this.tweens.add({
               targets: reveal,
-              scaleX: 1,
-              scaleY: 1,
-              angle: 0,
-              duration: POWERUP_CREATION_SETTLE_MS,
+              y: destination.y - landing.hopPx,
+              scaleX: 1 - 0.03 * landing.strength,
+              scaleY: 1 + 0.04 * landing.strength,
+              duration: POWERUP_CREATION_HOP_MS,
               ease: "Sine.easeOut",
               onComplete: () => {
-                const markStable = () => {
-                  if (this.time.now <= impactAtMs) {
-                    this.time.delayedCall(1, markStable);
-                    return;
-                  }
-                  this.recordPresentation("powerup-create-stable", creation.powerUp.kind);
-                  done();
-                };
-                markStable();
+                this.tweens.add({
+                  targets: reveal,
+                  y: destination.y,
+                  scaleX: 1,
+                  scaleY: 1,
+                  duration: POWERUP_CREATION_REST_MS,
+                  ease: "Sine.easeIn",
+                  onComplete: stable
+                });
               }
             });
           }
