@@ -15,7 +15,7 @@ production; `main` and the live game are exactly as the 2026-09-25 entry leaves 
   `gridwatch-match-dev`, static files only, `wrangler.dev.jsonc`). Refresh: commit, then
   `npm run cf:dev-instance`. **Never a bare `wrangler deploy`: that is production.** The dev build
   is served from `/`, shows `DEV · <sha>-dev`, never posts a score, and defaults to the dark theme.
-- **Done and on the dev site:** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
+- **Done and on the dev site (`60cefc0-dev`, verified live 2026-10-09):** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
   darker and grittier per Russ; all five power-ups, on the board and in the equipment dock; every
   cell state the engine has (plain, held, design-locked, blocked, `encryptedVolume`,
   `malwarePropagation`, the `honeypot` generator) and the board frame; a soft piece shadow; the

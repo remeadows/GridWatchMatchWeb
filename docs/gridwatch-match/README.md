@@ -227,6 +227,13 @@ Not done, or done only in part. None of it blocks playing the dev build.
   `level34-phone-before-classic.png`, `level34-phone-after-dark.png`. One swap and its cascade,
   recorded: `level1-phone-swap.webm`. Screens: `evidence/2026-10-09-cells-ui/`.
 
+- **Live dev site, `60cefc0-dev`** (2026-10-09): home and a level load at both sizes with the
+  badge, no console error, no failed request and no request other than GET; the dark board
+  downloads 22 `match-v2` pictures and none of the classic ones it replaces, `?theme=classic` the
+  reverse (0 and 15); the acceptance probe gives the same results as on the local build; no menu
+  screen overflows sideways at either size. (Vite's own dev server logs a 404 that no built
+  instance does: check console errors on a build, not on `vite`.)
+
 ### Measured against classic
 
 `art/gridwatch-match/qa/perf-probe.mjs`, level 1, both themes from one local build, installed
