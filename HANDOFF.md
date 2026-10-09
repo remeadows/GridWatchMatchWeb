@@ -67,11 +67,43 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **e2e for music and tile motion together (commit `4b1f515`):** 218/218 on the classic board and
   218/218 on the dark board (bundled Chromium, WebKit for the phone project), 2026-10-09. An
   earlier run for music alone was stopped part-way at Russ's word and is not a result.
+- **Power-up motion, built in three steps (merge `7e0b3db`; on the dev site as `7e0b3db-dev`):**
+  asked what he wanted, Russ picked all four ("More weight and impact", "A better creation
+  moment", "Clearer what each one does", "Faster, less waiting") and said "yes to the design, go
+  ahead".
+  1. *Faster and heavier* (`adc1d01`): rocket flight 420 -> 320 ms with `Quad.easeIn` and a knock
+     at the board edge in its direction of travel; TNT shake 0.008 -> 0.012 and `shoveSurvivors`
+     pushes the pieces round the blast outward; propeller flight 450 -> 340 ms ending in a dive,
+     with a ring and a knock; the light ball's dim/charge/wave/release 120 -> 80/100/90/90 ms;
+     `POWERUP_CASCADE_HOLD_MS` 200 -> 140; each combo about a fifth shorter (charge x0.85,
+     impact and cascade x0.8). **This reverses September's deliberately slower pacing**; the
+     numbers are all in `src/data/presentationTiming.ts`. Two specs were moved on purpose, with a
+     dated comment in each: the combo cascade floor 850 -> 700 ms (`presentation.test.ts`) and
+     the light-ball hold floor 180 -> 130 ms (`tests/e2e/presentation.spec.ts`).
+  2. *Creation* (`06faec1`): a clear step that is followed by a creation step sends the rest of
+     the match into the power-up's cell (`mergeTargets`, `playMergeFlight`); the cell gathers
+     light and the power-up is dropped in from above (drop, squash, hop, settle, ring, flash,
+     knock). 310 ms as before; trace order charge < impact < stable unchanged.
+  3. *Marks* (`3a87343`): `markTargets` draws corner brackets before the hit: the rocket's lane,
+     TNT's blast area, the propeller's target for the whole flight, every piece the light ball
+     picked. Trace kind `target-mark`.
+  The board knock (`joltBoard`/`knockBoard`) now takes a direction; trace kind `powerup-knock`.
+- **Power-ups seen, not felt:** `motion-probe.mjs` (it can use a booster now) on a local build,
+  level 1: the creation beats, every knock and every mark fire with no page error, and the
+  frames show the lane mark, the TNT brackets, the propeller lock, the light ball's marks and the
+  power-up dropping into its cell. Not judged frame by frame: the TNT shove, the merge flights,
+  and any of the ten combos. Whether any of it feels right is Russ's to say.
+- **Seen in passing, not from this work:** after a booster is picked and used by click, a box
+  outline (the booster drag ghost, a DOM element) hangs below the pointer over the board. It is
+  the same on the build before the power-up changes. Not touched.
+- **e2e for the power-up work (commit `7e0b3db`, with music and tile motion):** 218/218 on the
+  classic board and 218/218 on the dark board (bundled Chromium, WebKit for the phone project),
+  2026-10-09.
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
-- **Next pieces, in order, each needing its own short design and Russ's yes:** power-up motion,
-  sound effects.
+- **Next piece, needing its own short design and Russ's yes:** sound effects (the last of the
+  four).
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
