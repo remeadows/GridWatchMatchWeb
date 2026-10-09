@@ -5,8 +5,8 @@ Working record for the brief `README-Claude-Code-GridWatch-Match-Blender-v1.md` 
 on the dev instance (`npm run cf:dev-instance`). Nothing here changes rules, saves, accounts or the
 production build's default look.
 
-Status, 2026-10-09: **the vertical slice is in** — `tile_route`, one socket, the held state and a
-real swap. Everything else in §4 is still to build.
+Status, 2026-10-09: **all five tiles, the socket and the held state are in the game** on the dark
+board. Power-ups, the remaining cell states, the board frame and the UI are still to build (§6).
 
 ## 1. What the game is (inspected, not assumed)
 
@@ -33,10 +33,10 @@ Runtime IDs are the game's (`src/engine/types.ts`) and are never renamed.
 | Runtime ID | Today's picture | Visual asset | State |
 | --- | --- | --- | --- |
 | tile `packet` | cyan double chevron | `tile_route` | **built, in game** |
-| tile `threat` | red triangle | `tile_threat` | to build |
-| tile `firewall` | orange shield | `tile_defense` | to build |
-| tile `key` | gold contact card | `tile_data` | to build |
-| tile `zeroDay` | violet-white piece | — | **no V2 concept: needs a design decision** |
+| tile `threat` | red triangle | `tile_threat` | **built, in game** |
+| tile `firewall` | orange shield | `tile_defense` | **built, in game** |
+| tile `key` | gold contact card | `tile_data` | **built, in game** |
+| tile `zeroDay` | split violet crystal | `tile_zeroday` | **built, in game** (Russ's fifth-tile reference, 2026-10-09) |
 | power-up `rocket` horizontal / vertical | rockets | `powerup_rocket_h` / `_v` | to build (one source, two renders) |
 | power-up `tnt` | charge | `powerup_tnt` | to build |
 | power-up `propeller` | drone | `powerup_propeller` | to build |
@@ -65,8 +65,10 @@ the cell whose tile is being held, which is the only selection state that exists
 - **Colour:** Standard view transform, sRGB. AgX was tried first and turned the emissive cyan
   pastel; Standard keeps the small identity lights saturated.
 - **Materials** are procedural and shared (`gwm_*`): blackened steel, graphite ceramic, brushed
-  titanium, socket steel, well floor, gold contact, smoked glass, four emitters. Wear comes from a
-  convex-edge mask broken up by noise, plus sparse pitting, never uniform scratches.
+  titanium, socket steel, well floor, gold contact, smoked glass, and one emitter per identity
+  colour. The grit is layered: chipping on convex edges (an inside-AO edge mask times noise, its
+  reach kept under the thinnest part's thickness), sparse pitting and directional scuffs, grime in
+  recesses (an ordinary AO mask times noise), and mottling. Never one uniform scratch layer.
 - **Alpha:** pieces are straight alpha on a transparent film; cells are opaque.
 - **Sizes:** 1024 px masters in `art/gridwatch-match/previews/`, 256 px shipping sprites (a piece
   is at most about 140 device pixels wide on today's screens).
@@ -82,7 +84,7 @@ From the repository root (validated with Blender 5.1.0 on macOS):
 ```
 
 `--asset <id>` builds one; `--quality draft` writes only `previews/draft/` for a quick look. A
-final build of the three current assets takes about six minutes. It writes the `.blend` sources
+final build of all eight current assets takes about twenty minutes. It writes the `.blend` sources
 (`art/gridwatch-match/blender/`), the masters, the shipping sprites
 (`public/assets/images/match-v2/`) and `src/data/matchV2Manifest.generated.json`, which is what the
 game loads and what `src/tests/boardTheme.test.ts` checks against the files on disk.
@@ -104,8 +106,8 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 
 1. ~~Inspect, map IDs, set conventions, build the pipeline.~~
 2. ~~Vertical slice: `tile_route`, socket, held state, a real swap, at phone size.~~
-3. Russ's look at the slice on the dev instance; adjust lighting, darkness and scale from that.
-4. Remaining tiles (`threat`, `defense`, `data`) and the `zeroDay` decision.
+3. ~~Russ's look at the slice~~: "make it darker and grittier, then build the other three tiles".
+4. ~~Remaining tiles: `threat`, `defense`, `data`, `zeroDay`; darker and grittier (Russ, 10-09).~~
 5. Five power-ups, then the booster-tray versions of them.
 6. Cell states and overlays, the board frame, the runtime shadow under the new pieces.
 7. UI treatment in React/CSS (HUD, objective, dock, menus, results) and the Tish menu art.
@@ -113,7 +115,6 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 
 ## 7. Open
 
-- **`zeroDay` has no V2 concept.** The brief lists four tile families; the game has five.
 - **Tish:** no rigged model exists in this repo. The menu needs a clean, text-free art plate; the
   V2 menu image has baked UI and cannot be used as a background.
 - **Measured performance** (cold load, frame time, memory against the classic board) is not done.

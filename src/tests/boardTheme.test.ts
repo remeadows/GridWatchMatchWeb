@@ -43,6 +43,10 @@ describe("match v2 asset manifest", () => {
 
   it("maps game IDs to sprites without renaming them", () => {
     expect(matchV2TileAsset("packet")?.visualId).toBe("tile_route");
+    expect(matchV2TileAsset("threat")?.visualId).toBe("tile_threat");
+    expect(matchV2TileAsset("firewall")?.visualId).toBe("tile_defense");
+    expect(matchV2TileAsset("key")?.visualId).toBe("tile_data");
+    expect(matchV2TileAsset("zeroDay")?.visualId).toBe("tile_zeroday");
     expect(matchV2CellAsset("movable")?.visualId).toBe("cell_base");
     expect(matchV2CellAsset("held")?.visualId).toBe("cell_selected");
   });

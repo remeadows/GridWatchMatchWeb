@@ -117,3 +117,56 @@ def polyline_strip(points, width):
         left.append((x + nx * scale, y + ny * scale))
         right.append((x - nx * scale, y - ny * scale))
     return right + list(reversed(left))
+
+
+def inset(outline, distance):
+    """Offset a counter-clockwise outline inward by `distance` (outward if negative), mitred."""
+    count = len(outline)
+    result = []
+    for i in range(count):
+        px, py = outline[i - 1]
+        x, y = outline[i]
+        nx, ny = outline[(i + 1) % count]
+        # inward normals of the two edges that meet here (inward is to the left of travel)
+        normals = []
+        for (ax, ay), (bx, by) in (((px, py), (x, y)), ((x, y), (nx, ny))):
+            length = math.hypot(bx - ax, by - ay)
+            normals.append((-(by - ay) / length, (bx - ax) / length))
+        mx, my = normals[0][0] + normals[1][0], normals[0][1] + normals[1][1]
+        scale = distance / max(0.25, (mx * normals[0][0] + my * normals[0][1]))
+        result.append((x + mx * scale, y + my * scale))
+    return result
+
+
+def truncate(outline, cut):
+    """Cut every corner off an outline, `cut` along each of its two edges."""
+    count = len(outline)
+    result = []
+    for i in range(count):
+        x, y = outline[i]
+        for ox, oy in (outline[i - 1], outline[(i + 1) % count]):
+            length = math.hypot(ox - x, oy - y)
+            result.append((x + (ox - x) * cut / length, y + (oy - y) * cut / length))
+    return result
+
+
+def shift(outline, dx, dy):
+    return [(x + dx, y + dy) for x, y in outline]
+
+
+def scale_about(outline, center, factor):
+    cx, cy = center
+    return [(cx + (x - cx) * factor, cy + (y - cy) * factor) for x, y in outline]
+
+
+def circle(radius, center=(0.0, 0.0), sides=40):
+    cx, cy = center
+    return [(cx + radius * math.cos(2 * math.pi * i / sides), cy + radius * math.sin(2 * math.pi * i / sides)) for i in range(sides)]
+
+
+def rotated_rect(center, half_length, half_width, angle):
+    """Counter-clockwise rectangle whose long axis is turned `angle` radians from +X."""
+    cx, cy = center
+    ux, uy = math.cos(angle), math.sin(angle)
+    corners = ((-half_length, -half_width), (half_length, -half_width), (half_length, half_width), (-half_length, half_width))
+    return [(cx + a * ux - b * uy, cy + a * uy + b * ux) for a, b in corners]

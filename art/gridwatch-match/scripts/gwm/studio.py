@@ -19,12 +19,12 @@ SEED = 923101
 
 QUALITY = {
     "draft": {"samples": 48, "master": 512},
-    "final": {"samples": 320, "master": 1024},
+    "final": {"samples": 256, "master": 1024},
 }
 
 LIGHTS = (
     # name, location, energy (W), size, colour
-    ("gwm_key_upper_left", (-2.6, 2.9, 5.0), 300.0, 2.6, (1.0, 0.965, 0.92)),
+    ("gwm_key_upper_left", (-2.6, 2.9, 5.0), 380.0, 2.2, (1.0, 0.965, 0.92)),
     ("gwm_fill_right", (3.6, -0.4, 4.2), 70.0, 4.5, (0.80, 0.90, 1.0)),
     ("gwm_rim_low", (0.4, -3.8, 2.0), 55.0, 2.4, (0.72, 0.86, 1.0)),
 )
@@ -60,8 +60,8 @@ def _world(scene):
     ramp = tree.nodes.new("ShaderNodeMapRange")
     ramp.inputs["From Min"].default_value = -0.2
     ramp.inputs["From Max"].default_value = 1.0
-    ramp.inputs["To Min"].default_value = 0.02
-    ramp.inputs["To Max"].default_value = 0.55
+    ramp.inputs["To Min"].default_value = 0.01
+    ramp.inputs["To Max"].default_value = 0.42
     tree.links.new(coords.outputs["Generated"], toward_key.inputs[0])
     tree.links.new(toward_key.outputs["Value"], ramp.inputs["Value"])
     tree.links.new(ramp.outputs[0], background.inputs["Strength"])

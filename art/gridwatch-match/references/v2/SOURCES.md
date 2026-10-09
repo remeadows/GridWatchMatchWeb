@@ -15,5 +15,6 @@ Copied 2026-10-09. A different sha256 means the concept was revised: re-check th
 | GridWatch-Match-Gameplay-UI-Dark-Realism-Concept-v2.png | Board, HUD, objective panel, equipment dock | `a067526c…2d351f07` |
 | GridWatch-Match-Menus-and-Controls-Dark-Realism-Concept-v2.png | Campaign, briefing, results, controls | `1af82aa4…569b8ac0` |
 | tish-v3.png | Tish's identity | `52b8523a…1001bbcdc` |
+| GridWatch-Match-zeroDay-Fifth-Tile-Blender-Reference-v2.png | The fifth tile, `zeroDay` (added 2026-10-09) | `de4e7ebc…22c591d9b` |
 
 The brief itself is `README-Claude-Code-GridWatch-Match-Blender-v1.md` in the same Drive folder.

@@ -10,7 +10,7 @@
       "path": "assets/images/match-v2/cells/cell_base.png",
       "width": 256,
       "height": 256,
-      "sha256": "ec10dc57c5d98449122f98d1c45101a2e7bc97301afe1f1be8dee3089d21b662",
+      "sha256": "eb21c1dd92fbe1278b7b0eac5f97a6517f3f1e8703835301914d07aee9f2d6a2",
       "opaqueBounds": [
         0.0,
         0.0,
@@ -27,7 +27,7 @@
       "alpha": "opaque",
       "sourceBlend": "art/gridwatch-match/blender/cell_base.blend",
       "master": "art/gridwatch-match/previews/cell_base-master.png",
-      "samples": 320,
+      "samples": 256,
       "referenceRevision": "dark-realism-concept-v2"
     },
     {
@@ -37,7 +37,7 @@
       "path": "assets/images/match-v2/cells/cell_selected.png",
       "width": 256,
       "height": 256,
-      "sha256": "05ad7176048c7e9705a7d3cb6e566be4a80e0af96a312712f3f28cc8a952d1a9",
+      "sha256": "59c7b8e05a66428d243632c2f91d989fdfdc0f09373bee30c1758e1bb0436318",
       "opaqueBounds": [
         0.0,
         0.0,
@@ -54,7 +54,61 @@
       "alpha": "opaque",
       "sourceBlend": "art/gridwatch-match/blender/cell_selected.blend",
       "master": "art/gridwatch-match/previews/cell_selected-master.png",
-      "samples": 320,
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_data",
+      "runtimeId": "key",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_data.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "b73d6af5808f8bccd1d37a9db9001bed15aa3738b810c561f16139562565f3ef",
+      "opaqueBounds": [
+        0.0781,
+        0.0781,
+        0.9219,
+        0.9258
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_data.blend",
+      "master": "art/gridwatch-match/previews/tile_data-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_defense",
+      "runtimeId": "firewall",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_defense.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "c5e14fd0ecb22582a9b0f158312d6bfd485db509748134af5d83c462ce6544cf",
+      "opaqueBounds": [
+        0.1172,
+        0.0898,
+        0.8828,
+        0.9219
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_defense.blend",
+      "master": "art/gridwatch-match/previews/tile_defense-master.png",
+      "samples": 256,
       "referenceRevision": "dark-realism-concept-v2"
     },
     {
@@ -64,7 +118,7 @@
       "path": "assets/images/match-v2/tiles/tile_route.png",
       "width": 256,
       "height": 256,
-      "sha256": "01fbf3e78ef0cc5c8d4afbc2e8bfc1a03cc473b5e0838f7c2cc45f76fbdf9e79",
+      "sha256": "e8c8ddfb3b30cdd3831b34a1f2227b1eeb2ed8dd94f6ac1af998a64a8e6c5717",
       "opaqueBounds": [
         0.0781,
         0.0898,
@@ -81,7 +135,61 @@
       "alpha": "straight",
       "sourceBlend": "art/gridwatch-match/blender/tile_route.blend",
       "master": "art/gridwatch-match/previews/tile_route-master.png",
-      "samples": 320,
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_threat",
+      "runtimeId": "threat",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_threat.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "96c89151ff3da10ad59fb93c75b0f248883d117d1a8bd2a50a4e8ce3a7692f21",
+      "opaqueBounds": [
+        0.125,
+        0.1992,
+        0.875,
+        0.8711
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_threat.blend",
+      "master": "art/gridwatch-match/previews/tile_threat-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_zeroday",
+      "runtimeId": "zeroDay",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_zeroday.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "2b23ef0b76397d9a02bffde4049f33a8ceafd422a1188118db6a58dcbe6e457c",
+      "opaqueBounds": [
+        0.1055,
+        0.1133,
+        0.8945,
+        0.9023
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_zeroday.blend",
+      "master": "art/gridwatch-match/previews/tile_zeroday-master.png",
+      "samples": 256,
       "referenceRevision": "dark-realism-concept-v2"
     }
   ]
