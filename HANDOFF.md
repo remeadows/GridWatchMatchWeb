@@ -18,7 +18,10 @@ the 2026-09-25 entry leaves them.
   --audit-level=high` FAILS** with 4 high advisories in dev tooling (`wrangler` ≤ 4.148.0 through
   `miniflare` and `sharp`; `source-map-js` 1.2.1 through `vite`/`postcss` and `jsdom`). This
   branch does not touch `package-lock.json`, so `origin/main` fails the same step: it needs its
-  own dependency change on `main`, not a fix inside this art work.
+  own dependency change on `main`, not a fix inside this art work. **That change is PR #78**
+  (`deps/audit-sharp-source-map-js`, opened 2026-10-09 at Russ's word: `overrides.miniflare.sharp`
+  0.35.4 -> 0.35.5 and `source-map-js` 1.2.1 -> 1.2.2 in the lockfile; audit then reports 0).
+  Once it is merged, re-run PR #77's CI; this branch needs no change for it.
 - **What a push does:** the repo is **public**. `main` is protected (pull request required), so
   the push is `git push -u origin dev/dark-realism` and then a PR; CI and CodeQL run on the PR,
   not on the branch push. `core.hooksPath` is `.githooks`, which does not exist, so no pre-push
