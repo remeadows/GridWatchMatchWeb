@@ -16,6 +16,7 @@ import { CarryBanner } from "./components/CarryBanner";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
+import { buildLabel, isDevInstance } from "./services/buildInfo";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
 import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
@@ -414,6 +415,7 @@ export default function App() {
           for the top bar and the account bar only, so the strip would push the board off-screen. */}
       {onCarrySender && save && accountKit.carry && screen.name !== "game" && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
       {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
+      {isDevInstance && <div className="dev-build-badge" aria-hidden="true">DEV · {buildLabel}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
       {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
@@ -618,7 +620,7 @@ type SubmitState =
   | { kind: "sending" }
   | { kind: "done"; result: SubmitResult }
   | { kind: "error"; message: string }
-  | { kind: "skipped"; reason: "test" | "signedOut" };
+  | { kind: "skipped"; reason: "test" | "signedOut" | "devInstance" };
 
 function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   levelId: number;
@@ -795,7 +797,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     saveRef.current = next;
 
     const isTestMode = new URLSearchParams(window.location.search).has("gwTestMode");
-    if (!isTestMode && auth.session) {
+    // The dev instance is a static host with no /api/score, and a play test must never post a score.
+    if (!isTestMode && !isDevInstance && auth.session) {
       const token = auth.session.access_token;
       setSubmitState({ kind: "sending" });
       submitScore(token, currentLevel.id, {
@@ -807,7 +810,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         .then((r) => setSubmitState({ kind: "done", result: r }))
         .catch((err) => setSubmitState({ kind: "error", message: err instanceof Error ? err.message : "Transmit failed." }));
     } else {
-      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : "signedOut" });
+      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : isDevInstance ? "devInstance" : "signedOut" });
     }
 
     setSnapshot(currentSnapshot);

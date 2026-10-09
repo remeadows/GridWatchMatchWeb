@@ -1,0 +1,20 @@
+// GridWatch Match, the DEV instance: a place to play a build of local commits before anything is pushed or released.
+// Russ, 2026-10-08: "create a dev test web site like I did with Drift and Skyhook".
+//
+// Static files only. It has no Worker code, no binding, no route, no var and no secret, so an unreviewed local build
+// can reach nothing but its own files: there is no /api/score here, and the dev build never calls it.
+// (Production is wrangler.jsonc, whose Worker holds SUPABASE_SERVICE_ROLE_KEY. A preview version of that Worker would
+// run with the secret, hence a Worker of its own — the same reasoning as gridwatch-skyhook-dev.)
+// Upload with `npm run cf:dev-instance`, never a bare `wrangler deploy`: that reads wrangler.jsonc and is PRODUCTION.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gridwatch-match-dev",
+  // The same account as production. An account ID names the account; it grants nothing.
+  "account_id": "210e77c9da5741b3aa1b6199a082d70b",
+  "compatibility_date": "2026-07-14",
+  // The dev build is served from the host root (vite.config.ts), so the SPA fallback needs no prefix handling.
+  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
+  "workers_dev": true,
+  "preview_urls": false,
+  "send_metrics": false
+}

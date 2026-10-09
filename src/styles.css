@@ -880,6 +880,24 @@ a.primary-action:focus-visible {
   justify-self: start;
 }
 
+/* Dev instance only (scripts/dev-instance.mjs): which build is on screen. Fixed and inert, so it
+   takes no part in layout and never intercepts a board touch. */
+.dev-build-badge {
+  position: fixed;
+  left: 6px;
+  bottom: 6px;
+  z-index: 50;
+  padding: 2px 6px;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  background: var(--panel-glass-strong);
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+}
+
 /* Spec §6.3: the old hostname's "moved" strip, under the shared account bar on every screen. */
 .carry-banner {
   display: flex;
