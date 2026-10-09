@@ -2,13 +2,14 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PREPARED TO PUSH, not pushed (branch `dev/dark-realism`)
+## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PUSHED, PR #77 open, not merged, not in production (branch `dev/dark-realism`)
 
 **Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
 and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look
-nice - next dev project is mechanics". That is leave to get the branch ready, not yet the push
-itself: **nothing below is on `origin` or in production until he says push**, and production
-deploys stay his. `main` and the live game are exactly as the 2026-09-25 entry leaves them.
+nice - next dev project is mechanics", then "push". The branch was pushed at `b3ef506` and
+**PR #77** opened against `main` (https://github.com/remeadows/GridWatchMatchWeb/pull/77).
+**Merging is his call and production deploys stay his**; `main` and the live game are exactly as
+the 2026-09-25 entry leaves them.
 
 - **Push readiness (checked 2026-10-09 at `9a8ffd6`):** the branch is 12 commits ahead of
   `origin/main` and 0 behind; 125 files, about 40 MB, largest file 1.7 MB; gitleaks finds nothing
