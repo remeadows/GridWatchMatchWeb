@@ -109,7 +109,7 @@ def alpha_bounds(path):
 def build_one(asset_id, quality):
     spec = assets.ASSETS[asset_id]
     scene = studio.reset()
-    settings = studio.build(scene, spec["kind"], quality)
+    settings = studio.build(scene, spec["kind"], quality, spec.get("center_z", 0.09), spec.get("ortho_scale"))
     collection = bpy.data.collections.new(f"gwm_{asset_id}")
     scene.collection.children.link(collection)
     spec["build"](materials.build(), collection)
@@ -145,7 +145,7 @@ def build_one(asset_id, quality):
         "sha256": hashlib.sha256(shipping.read_bytes()).hexdigest(),
         "opaqueBounds": alpha_bounds(shipping),
         "pivot": [0.5, 0.5],
-        "unitsPerFrame": studio.PIECE_ORTHO_SCALE if piece else studio.CELL_ORTHO_SCALE,
+        "unitsPerFrame": spec.get("ortho_scale", studio.PIECE_ORTHO_SCALE) if piece else studio.CELL_ORTHO_SCALE,
         "cameraPitchDeg": studio.PIECE_PITCH_DEG if piece else 0.0,
         "lighting": "baked key upper-left, no contact shadow",
         "alpha": "straight" if piece else "opaque",

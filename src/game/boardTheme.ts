@@ -1,5 +1,5 @@
 import manifestJson from "../data/matchV2Manifest.generated.json";
-import type { TileType } from "../engine/types";
+import type { BoosterType, TileType } from "../engine/types";
 import { defaultBoardTheme } from "../services/buildInfo";
 
 // The one selection point between the shipped board art ("classic") and the Blender-built
@@ -61,6 +61,18 @@ function assetFor(runtimeId: string): MatchV2Asset | undefined {
 export function matchV2TileAsset(tile: TileType): MatchV2Asset | undefined {
   const asset = assetFor(tile);
   return asset?.type === "tile" ? asset : undefined;
+}
+
+export type MatchV2PowerUpId = "rocket_horizontal" | "rocket_vertical" | "propeller" | "tnt" | "lightBall";
+
+export function matchV2PowerUpAsset(powerUp: MatchV2PowerUpId): MatchV2Asset | undefined {
+  return assetFor(`powerup:${powerUp}`);
+}
+
+/** The booster tray shows the same pieces the board does. */
+export function matchV2BoosterAsset(booster: BoosterType): MatchV2Asset | undefined {
+  const powerUp: MatchV2PowerUpId = booster === "rocket" ? "rocket_horizontal" : booster === "rocketVertical" ? "rocket_vertical" : booster;
+  return matchV2PowerUpAsset(powerUp);
 }
 
 export type MatchV2CellState = "movable" | "held";

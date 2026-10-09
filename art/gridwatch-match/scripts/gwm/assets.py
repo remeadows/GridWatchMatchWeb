@@ -183,6 +183,108 @@ def tile_zeroday(mats, collection):
         g.prism(f"zeroday_side_slit_{index}", g.rotated_rect((sx * 0.2395, -0.2395), 0.05, 0.006, math.radians(45 * sx)), 0.056, 0.074, mats["gwm_emit_zero_ring"], collection)
 
 
+def _rocket(mats, collection, vertical):
+    """Slim dark micro-missile with a small red identification band. One source: the vertical
+    rocket is the same build turned a quarter turn and lit again, never a rotated picture."""
+    steel, ceramic, titanium = mats["gwm_blackened_steel"], mats["gwm_graphite_ceramic"], mats["gwm_brushed_titanium"]
+    z = 0.135
+    axis = (0.0, 0.0, z)
+    before = set(collection.objects)
+    g.lathe("rocket_nozzle", [(-0.46, 0.05), (-0.452, 0.068), (-0.395, 0.058)], titanium, collection, center=axis)
+    g.lathe("rocket_engine", [(-0.40, 0.07), (-0.394, 0.09), (-0.292, 0.09), (-0.286, 0.076)], steel, collection, center=axis)
+    g.lathe("rocket_body", [(-0.29, 0.096), (-0.282, 0.108), (0.172, 0.108), (0.18, 0.098)], steel, collection, center=axis)
+    g.lathe("rocket_band", [(0.18, 0.099), (0.186, 0.111), (0.244, 0.111), (0.25, 0.099)], mats["gwm_paint_crimson"], collection, center=axis)
+    nose = [(0.25 + 0.21 * t, 0.104 * (1 - t ** 1.9) + 0.005) for t in (0.0, 0.14, 0.28, 0.42, 0.56, 0.70, 0.82, 0.92, 1.0)]
+    g.lathe("rocket_nose", nose, steel, collection, center=axis, sharp_degrees=50)
+    for index, x in enumerate((-0.19, -0.02)):
+        g.lathe(f"rocket_collar_{index}", [(x - 0.016, 0.108), (x - 0.011, 0.117), (x + 0.011, 0.117), (x + 0.016, 0.108)], titanium, collection, center=axis)
+    # a spine along the top with an access slot, and two swept fins lying in the board plane
+    g.prism("rocket_spine", g.shift(g.chamfered_rect(0.075, 0.024, bl=0.01, br=0.01, tr=0.01, tl=0.01), -0.105, 0.0), z + 0.098, z + 0.124, ceramic, collection, bevel=0.004)
+    g.prism("rocket_slot", g.shift(g.chamfered_rect(0.05, 0.008), -0.105, 0.0), z + 0.124, z + 0.1245, mats["gwm_void"], collection)
+    fin = [(-0.448, 0.066), (-0.31, 0.066), (-0.372, 0.222), (-0.458, 0.222)]
+    g.prism("rocket_fin_upper", fin, z - 0.012, z + 0.012, steel, collection, bevel=0.004)
+    g.prism("rocket_fin_lower", [(x, -y) for x, y in reversed(fin)], z - 0.012, z + 0.012, steel, collection, bevel=0.004)
+    g.prism("rocket_marker", [(0.205, -0.022), (0.235, 0.0), (0.205, 0.022)], z + 0.111, z + 0.1125, titanium, collection)
+    if vertical:
+        for obj in set(collection.objects) - before:
+            obj.rotation_euler = (0.0, 0.0, math.pi / 2)
+
+
+def powerup_rocket_h(mats, collection):
+    _rocket(mats, collection, vertical=False)
+
+
+def powerup_rocket_v(mats, collection):
+    _rocket(mats, collection, vertical=True)
+
+
+def powerup_tnt(mats, collection):
+    """Paired armoured canisters in a bracket, a small amber indicator on each."""
+    steel, ceramic, titanium = mats["gwm_blackened_steel"], mats["gwm_graphite_ceramic"], mats["gwm_brushed_titanium"]
+    z, radius = 0.19, 0.155
+    for index, cx in enumerate((-0.205, 0.205)):
+        axis = (cx, 0.0, z)
+        profile = [(-0.40, 0.10), (-0.392, 0.168), (-0.335, 0.168), (-0.328, radius), (0.328, radius), (0.335, 0.168), (0.392, 0.168), (0.40, 0.10)]
+        g.lathe(f"tnt_canister_{index}", profile, steel, collection, axis="Y", center=axis)
+        for band, y in enumerate((-0.21, 0.21)):
+            g.lathe(f"tnt_clamp_{index}_{band}", [(y - 0.03, radius), (y - 0.026, 0.167), (y + 0.026, 0.167), (y + 0.03, radius)], titanium, collection, axis="Y", center=axis)
+        window = g.shift(g.chamfered_rect(0.042, 0.115, bl=0.016, br=0.016, tr=0.016, tl=0.016), cx, 0.0)
+        g.ring_prism(f"tnt_indicator_frame_{index}", window, g.inset(window, 0.013), z + radius - 0.012, z + radius + 0.008, ceramic, collection, bevel=0.004)
+        g.prism(f"tnt_indicator_{index}", g.inset(window, 0.013), z + radius - 0.012, z + radius + 0.001, mats["gwm_emit_amber"], collection)
+        for mark, y in enumerate((-0.30, 0.30)):
+            g.prism(f"tnt_hazard_{index}_{mark}", g.rotated_rect((cx, y), 0.05, 0.011, math.radians(35 if index else -35)), z + radius + 0.011, z + radius + 0.0115, mats["gwm_flat_crimson"], collection)
+    bracket = g.chamfered_rect(0.07, 0.33, bl=0.03, br=0.03, tr=0.03, tl=0.03)
+    g.prism("tnt_bracket", bracket, 0.02, 0.30, steel, collection, bevel=0.012)
+    g.prism("tnt_bracket_plate", g.chamfered_rect(0.05, 0.15, bl=0.02, br=0.02, tr=0.02, tl=0.02), 0.30, 0.318, ceramic, collection, bevel=0.005)
+    g.prism("tnt_marker", [(-0.022, -0.02), (0.022, -0.02), (0.0, 0.018)], 0.318, 0.3195, titanium, collection)
+    for index, y in enumerate((-0.27, 0.27)):
+        g.prism(f"tnt_rail_{index}", g.shift(g.chamfered_rect(0.39, 0.03), 0.0, y), 0.0, 0.06, steel, collection, bevel=0.008)
+        _fastener(f"tnt_fastener_{index}", (0.0, y * 0.93), 0.30, mats, collection, radius=0.014)
+
+
+def powerup_propeller(mats, collection):
+    """Compact four-duct drone: visible dark blades, small cyan lights on the arms."""
+    steel, ceramic, titanium = mats["gwm_blackened_steel"], mats["gwm_graphite_ceramic"], mats["gwm_brushed_titanium"]
+    for index, (sx, sy) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
+        hub = (sx * 0.25, sy * 0.25)
+        arm_angle = math.atan2(sy, sx)
+        g.prism(f"propeller_arm_{index}", g.rotated_rect((sx * 0.14, sy * 0.14), 0.10, 0.042, arm_angle), 0.05, 0.115, steel, collection, bevel=0.008)
+        g.prism(f"propeller_light_{index}", g.rotated_rect((sx * 0.098, sy * 0.138), 0.042, 0.008, arm_angle - sx * sy * math.pi / 2), 0.19, 0.196, mats["gwm_emit_cyan"], collection)
+        g.ring_prism(f"propeller_duct_{index}", g.circle(0.2, hub), g.circle(0.158, hub), 0.04, 0.15, steel, collection, bevel=0.012)
+        g.ring_prism(f"propeller_duct_lip_{index}", g.circle(0.162, hub), g.circle(0.15, hub), 0.07, 0.132, titanium, collection, bevel=0.003)
+        g.prism(f"propeller_duct_floor_{index}", g.circle(0.158, hub), 0.04, 0.046, mats["gwm_void"], collection)
+        for blade in range(3):
+            angle = math.radians(20 + 120 * blade + 37 * index)
+            center = (hub[0] + 0.082 * math.cos(angle), hub[1] + 0.082 * math.sin(angle))
+            g.prism(f"propeller_blade_{index}_{blade}", g.rotated_rect(center, 0.066, 0.021, angle + 0.22), 0.078, 0.104, ceramic, collection, bevel=0.004)
+        g.disc(f"propeller_hub_{index}", hub, 0.04, 0.06, 0.13, titanium, collection, sides=20, bevel=0.006)
+        g.disc(f"propeller_hub_cap_{index}", hub, 0.018, 0.13, 0.142, steel, collection, sides=12, bevel=0.003)
+    body = g.chamfered_rect(0.15, 0.19, bl=0.06, br=0.06, tr=0.06, tl=0.06)
+    g.prism("propeller_body", body, 0.03, 0.17, steel, collection, bevel=0.014)
+    g.prism("propeller_body_plate", g.inset(body, 0.03), 0.17, 0.19, ceramic, collection, bevel=0.006)
+    g.prism("propeller_marker", [(-0.03, -0.03), (0.03, -0.03), (0.0, 0.03)], 0.19, 0.1915, titanium, collection)
+    for index, y in enumerate((-0.135, 0.135)):
+        _fastener(f"propeller_fastener_{index}", (0.0, y), 0.19, mats, collection, radius=0.012)
+
+
+def powerup_light_ball(mats, collection):
+    """Titanium containment rings around a smoked violet core."""
+    titanium = mats["gwm_brushed_titanium"]
+    center = (0.0, 0.0, 0.36)
+    g.sphere("lightball_core", center, 0.30, mats["gwm_plasma_violet"], collection)
+    section = [(-0.05, 0.298), (0.05, 0.298), (0.05, 0.338), (-0.05, 0.338)]
+    for axis in "XYZ":
+        g.lathe(f"lightball_ring_{axis}", section, titanium, collection, axis=axis, center=center, segments=56, closed=True, sharp_degrees=30)
+    # The hub where the two upper rings cross, and a gold contact on each ring beside it.
+    top = center[2] + 0.338
+    g.disc("lightball_hub", (0.0, 0.0), 0.078, top - 0.03, top + 0.014, mats["gwm_blackened_steel"], collection, sides=8, bevel=0.006)
+    g.disc("lightball_hub_bore", (0.0, 0.0), 0.04, top + 0.014, top + 0.0146, mats["gwm_void"], collection, sides=20)
+    g.disc("lightball_hub_pin", (0.0, 0.0), 0.018, top - 0.01, top + 0.022, titanium, collection, sides=12, bevel=0.003)
+    for index, (x, y) in enumerate(((0.17, 0.0), (-0.17, 0.0), (0.0, 0.17), (0.0, -0.17))):
+        rise = center[2] + math.sqrt(0.338 ** 2 - 0.17 ** 2)
+        g.prism(f"lightball_contact_{index}", g.shift(g.chamfered_rect(0.03, 0.016) if y == 0.0 else g.chamfered_rect(0.016, 0.03), x, y), rise - 0.02, rise + 0.004, mats["gwm_gold_contact"], collection, bevel=0.003)
+
+
 def _cell(mats, collection, selected):
     """A recessed charcoal well. Its outer edge is the cell boundary, so cells abut into one grid."""
     opening = g.chamfered_rect(0.405, 0.405, bl=0.07, br=0.07, tr=0.07, tl=0.07)
@@ -225,6 +327,26 @@ ASSETS = {
     "tile_zeroday": {
         "build": tile_zeroday, "kind": "piece", "type": "tile", "runtime_id": "zeroDay",
         "export": "tiles/tile_zeroday.png", "size": 256,
+    },
+    "powerup_rocket_h": {
+        "build": powerup_rocket_h, "kind": "piece", "type": "powerup", "runtime_id": "powerup:rocket_horizontal",
+        "export": "powerups/powerup_rocket_h.png", "size": 256, "center_z": 0.135, "ortho_scale": 1.04,
+    },
+    "powerup_rocket_v": {
+        "build": powerup_rocket_v, "kind": "piece", "type": "powerup", "runtime_id": "powerup:rocket_vertical",
+        "export": "powerups/powerup_rocket_v.png", "size": 256, "center_z": 0.135, "ortho_scale": 1.04,
+    },
+    "powerup_tnt": {
+        "build": powerup_tnt, "kind": "piece", "type": "powerup", "runtime_id": "powerup:tnt",
+        "export": "powerups/powerup_tnt.png", "size": 256, "center_z": 0.18, "ortho_scale": 0.96,
+    },
+    "powerup_propeller": {
+        "build": powerup_propeller, "kind": "piece", "type": "powerup", "runtime_id": "powerup:propeller",
+        "export": "powerups/powerup_propeller.png", "size": 256, "center_z": 0.10, "ortho_scale": 1.02,
+    },
+    "powerup_light_ball": {
+        "build": powerup_light_ball, "kind": "piece", "type": "powerup", "runtime_id": "powerup:lightBall",
+        "export": "powerups/powerup_light_ball.png", "size": 256, "center_z": 0.36, "ortho_scale": 0.80,
     },
     "cell_base": {
         "build": cell_base, "kind": "cell", "type": "cell", "runtime_id": "cell:movable",

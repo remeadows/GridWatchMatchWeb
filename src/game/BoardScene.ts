@@ -5,10 +5,12 @@ import {
   matchV2Assets,
   matchV2CellAsset,
   matchV2PieceSizePx,
+  matchV2PowerUpAsset,
   matchV2TextureKey,
   matchV2TileAsset,
   activeBoardTheme,
-  type BoardThemeId
+  type BoardThemeId,
+  type MatchV2Asset
 } from "./boardTheme";
 import type { PresentationAudioKey } from "../data/presentationAssets";
 import {
@@ -187,6 +189,10 @@ const powerUpImageKeys = {
   tnt: "powerup-tnt",
   lightBall: "powerup-lightBall"
 } as const;
+
+// The texture each power-up is drawn with. Classic keys until a scene finds the dark-realism
+// sprite loaded (resolvePowerUpTextures), so every effect that draws a power-up follows the theme.
+const powerUpTextures: Record<keyof typeof powerUpImageKeys, string> = { ...powerUpImageKeys };
 
 const CASCADE_BOUNCE_MAX_PX = 14;
 const CASCADE_BOUNCE_FACTOR = 0.08;
@@ -417,24 +423,38 @@ export class BoardScene extends Phaser.Scene {
 
   preload(): void {
     this.boardTheme = activeBoardTheme();
-    // A sprite that fails to load is simply absent: every use checks the texture and falls back
-    // to the classic picture, so a missing file never reaches game state.
-    if (this.boardTheme === "darkRealism") {
-      for (const asset of matchV2Assets) this.load.image(matchV2TextureKey(asset.visualId), assetUrl(asset.path));
+    const dark = this.boardTheme === "darkRealism";
+    // Each classic picture, with the dark-realism sprite that stands in for it when there is one.
+    const classic: Array<[string, string, MatchV2Asset | undefined]> = [
+      [tileImageKeys.packet, assetManifest.images.tiles.packet, matchV2TileAsset("packet")],
+      [tileImageKeys.firewall, assetManifest.images.tiles.firewall, matchV2TileAsset("firewall")],
+      [tileImageKeys.key, assetManifest.images.tiles.key, matchV2TileAsset("key")],
+      [tileImageKeys.threat, assetManifest.images.tiles.threat, matchV2TileAsset("threat")],
+      [tileImageKeys.zeroDay, assetManifest.images.tiles.zeroDay, matchV2TileAsset("zeroDay")],
+      [powerUpImageKeys.rocket_horizontal, assetManifest.images.powerUps.rocketH, matchV2PowerUpAsset("rocket_horizontal")],
+      [powerUpImageKeys.rocket_vertical, assetManifest.images.powerUps.rocketV, matchV2PowerUpAsset("rocket_vertical")],
+      [powerUpImageKeys.propeller, assetManifest.images.powerUps.propeller, matchV2PowerUpAsset("propeller")],
+      [powerUpImageKeys.tnt, assetManifest.images.powerUps.tnt, matchV2PowerUpAsset("tnt")],
+      [powerUpImageKeys.lightBall, assetManifest.images.powerUps.lightBall, matchV2PowerUpAsset("lightBall")]
+    ];
+    if (dark) for (const asset of matchV2Assets) this.load.image(matchV2TextureKey(asset.visualId), assetUrl(asset.path));
+    const classicFor = new Map<string, [string, string]>();
+    for (const [key, path, v2] of classic) {
+      if (dark && v2) classicFor.set(matchV2TextureKey(v2.visualId), [key, path]);
+      else this.load.image(key, assetUrl(path));
     }
-    this.load.image(tileImageKeys.packet, assetUrl(assetManifest.images.tiles.packet));
-    this.load.image(tileImageKeys.firewall, assetUrl(assetManifest.images.tiles.firewall));
-    this.load.image(tileImageKeys.key, assetUrl(assetManifest.images.tiles.key));
-    this.load.image(tileImageKeys.threat, assetUrl(assetManifest.images.tiles.threat));
-    this.load.image(tileImageKeys.zeroDay, assetUrl(assetManifest.images.tiles.zeroDay));
-    this.load.image(powerUpImageKeys.rocket_horizontal, assetUrl(assetManifest.images.powerUps.rocketH));
-    this.load.image(powerUpImageKeys.rocket_vertical, assetUrl(assetManifest.images.powerUps.rocketV));
-    this.load.image(powerUpImageKeys.propeller, assetUrl(assetManifest.images.powerUps.propeller));
-    this.load.image(powerUpImageKeys.tnt, assetUrl(assetManifest.images.powerUps.tnt));
-    this.load.image(powerUpImageKeys.lightBall, assetUrl(assetManifest.images.powerUps.lightBall));
+    // A dark sprite that fails to load is replaced by the classic picture it stood in for; every
+    // use checks which texture exists, so a missing file never reaches game state.
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      const fallback = classicFor.get(file.key);
+      if (!fallback) return;
+      classicFor.delete(file.key);
+      this.load.image(fallback[0], assetUrl(fallback[1]));
+    });
   }
 
   create(): void {
+    this.resolvePowerUpTextures();
     this.fxUnderlay = this.add.container(0, 0);
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
@@ -495,6 +515,12 @@ export class BoardScene extends Phaser.Scene {
     if (this.heldCellKey) this.cellSocketNodes.get(this.heldCellKey)?.setTexture(matchV2TextureKey(base.visualId));
     if (wanted) this.cellSocketNodes.get(wanted)?.setTexture(matchV2TextureKey(held.visualId));
     this.heldCellKey = wanted;
+  }
+
+  private resolvePowerUpTextures(): void {
+    for (const id of Object.keys(powerUpImageKeys) as Array<keyof typeof powerUpImageKeys>) {
+      powerUpTextures[id] = this.v2Texture(matchV2PowerUpAsset(id)) ?? powerUpImageKeys[id];
+    }
   }
 
   private v2Texture(asset: { visualId: string } | undefined): string | null {
@@ -2370,7 +2396,7 @@ export class BoardScene extends Phaser.Scene {
     this.cueBoardAudio("tntArm");
     const fxLayer = this.fxLayer;
     const fuse = this.add.container(origin.x, origin.y);
-    const icon = this.add.image(0, 0, powerUpImageKeys.tnt);
+    const icon = this.add.image(0, 0, powerUpTextures.tnt);
     icon.setDisplaySize(this.tileSize * 0.82, this.tileSize * 0.82);
     const flash = this.add.graphics();
     flash.fillStyle(0xffffff, 0.85);
@@ -2477,8 +2503,8 @@ export class BoardScene extends Phaser.Scene {
     if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
     const layer = this.fxLayer;
     const texture = event.powerUpType.orientation === "horizontal"
-      ? powerUpImageKeys.rocket_horizontal
-      : powerUpImageKeys.rocket_vertical;
+      ? powerUpTextures.rocket_horizontal
+      : powerUpTextures.rocket_vertical;
     const orientation = event.powerUpType.orientation;
     const plan = rocketLanePlan(
       event.origin,
@@ -2644,7 +2670,7 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("propeller-lift");
     this.cueBoardAudio("propellerLift");
     const drone = this.add.container(origin.x, origin.y);
-    const icon = this.add.image(0, 0, powerUpImageKeys.propeller);
+    const icon = this.add.image(0, 0, powerUpTextures.propeller);
     icon.setDisplaySize(this.tileSize * PROPELLER_DRONE_SCALE, this.tileSize * PROPELLER_DRONE_SCALE);
     icon.setBlendMode(Phaser.BlendModes.ADD);
     drone.add(icon);
@@ -3140,7 +3166,9 @@ export class BoardScene extends Phaser.Scene {
       container.add(object);
     } else if (cell.powerUp) {
       const key = imageKeyForPowerUp(cell.powerUp);
-      const object = this.makeSpriteOrLabel(key, profile.powerUpSizePx, powerUpLabel(cell.powerUp));
+      const v2Asset = matchV2PowerUpAsset(powerUpKey(cell.powerUp) as keyof typeof powerUpImageKeys);
+      const size = v2Asset && key === this.v2Texture(v2Asset) ? matchV2PieceSizePx(v2Asset, this.tileSize, 0.88) : profile.powerUpSizePx;
+      const object = this.makeSpriteOrLabel(key, size, powerUpLabel(cell.powerUp));
       object.setName("piece");
       container.add(object);
     } else if (cell.generator) {
@@ -3924,9 +3952,9 @@ function positionsEqual(a: GridPosition, b: GridPosition): boolean {
 
 function imageKeyForPowerUp(powerUp: PowerUpType): string {
   const serialized = serializePowerUp(powerUp);
-  if (serialized === "rocket_h") return powerUpImageKeys.rocket_horizontal;
-  if (serialized === "rocket_v") return powerUpImageKeys.rocket_vertical;
-  return powerUpImageKeys[powerUpKey(powerUp) as keyof typeof powerUpImageKeys];
+  if (serialized === "rocket_h") return powerUpTextures.rocket_horizontal;
+  if (serialized === "rocket_v") return powerUpTextures.rocket_vertical;
+  return powerUpTextures[powerUpKey(powerUp) as keyof typeof powerUpImageKeys];
 }
 
 function tileLabel(tile: TileType): string {

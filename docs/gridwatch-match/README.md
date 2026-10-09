@@ -5,9 +5,9 @@ Working record for the brief `README-Claude-Code-GridWatch-Match-Blender-v1.md` 
 on the dev instance (`npm run cf:dev-instance`). Nothing here changes rules, saves, accounts or the
 production build's default look.
 
-Status, 2026-10-09: **all five tiles, the socket, the held state and the main menu are in the
-game** in the dark theme. Power-ups, the remaining cell states, the board frame and the rest of
-the UI are still to build (§6).
+Status, 2026-10-09: **all five tiles, all five power-ups (board and booster tray), the socket, the
+held state and the main menu are in the game** in the dark theme. The remaining cell states, the
+board frame and the rest of the UI are still to build (§6).
 
 ## 1. What the game is (inspected, not assumed)
 
@@ -38,10 +38,11 @@ Runtime IDs are the game's (`src/engine/types.ts`) and are never renamed.
 | tile `firewall` | orange shield | `tile_defense` | **built, in game** |
 | tile `key` | gold contact card | `tile_data` | **built, in game** |
 | tile `zeroDay` | split violet crystal | `tile_zeroday` | **built, in game** (Russ's fifth-tile reference, 2026-10-09) |
-| power-up `rocket` horizontal / vertical | rockets | `powerup_rocket_h` / `_v` | to build (one source, two renders) |
-| power-up `tnt` | charge | `powerup_tnt` | to build |
-| power-up `propeller` | drone | `powerup_propeller` | to build |
-| power-up `lightBall` | orb | `powerup_light_ball` | to build |
+| power-up `rocket` horizontal / vertical | rockets | `powerup_rocket_h` / `_v` | **built, in game** (one source, lit twice) |
+| power-up `tnt` | charge | `powerup_tnt` | **built, in game** |
+| power-up `propeller` | drone | `powerup_propeller` | **built, in game** |
+| power-up `lightBall` | orb | `powerup_light_ball` | **built, in game** |
+| booster tray (`rocket`, `rocketVertical`, `tnt`, `propeller`, `lightBall`) | booster icons | the power-up sprites above | **in game** |
 | cell, movable | drawn rounded rectangle | `cell_base` | **built, in game** |
 | cell, tile held for a drag | (none) | `cell_selected` | **built, in game** |
 | cell, design-locked (`debugDesignLocked`) | drawn amber clamps and padlock | `cell_locked` | to build |
@@ -85,7 +86,7 @@ From the repository root (validated with Blender 5.1.0 on macOS):
 ```
 
 `--asset <id>` builds one; `--quality draft` writes only `previews/draft/` for a quick look. A
-final build of all eight current assets takes about twenty minutes. It writes the `.blend` sources
+final build of all twelve current assets takes about half an hour. It writes the `.blend` sources
 (`art/gridwatch-match/blender/`), the masters, the shipping sprites
 (`public/assets/images/match-v2/`) and `src/data/matchV2Manifest.generated.json`, which is what the
 game loads and what `src/tests/boardTheme.test.ts` checks against the files on disk.
@@ -95,8 +96,14 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 - `src/game/boardTheme.ts` is the one selection point: `classic` (default) or `darkRealism`.
   `VITE_BOARD_THEME=darkRealism` makes it a build's default (only the dev instance sets it);
   `?theme=classic` or `?theme=dark` overrides on any build. **Rollback is that parameter.**
-- `BoardScene` loads the manifest's sprites only in the dark theme and falls back to the classic
-  picture wherever a sprite is missing or failed to load.
+- `BoardScene` loads the manifest's sprites only in the dark theme, and then does not download
+  the classic picture each one replaces. If a dark sprite fails to load, the classic picture is
+  loaded in its place, and every use checks which texture exists.
+- Power-ups are drawn in a dozen effects (combo charge, rocket flight, drone strike…). Those all
+  read one map, `powerUpTextures`, which a scene points at the dark sprites once they have loaded.
+- Round parts (rocket bodies, canisters, the light ball) are lathed or spherical meshes with their
+  chamfers in the profile; a piece's camera aims at its own mid-height and frames it to fill the
+  sprite (`center_z`, `ortho_scale` in `gwm/assets.py`).
 - **UI.** `main.tsx` puts the active theme on `<html data-board-theme>`; every dark UI rule lives
   in `src/darkRealism.css`, scoped to that attribute or to `dr-*` classes only the dark theme
   renders. The dark main menu is its own component (`src/components/DarkHomeScreen.tsx`) with the
@@ -117,7 +124,7 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 2. ~~Vertical slice: `tile_route`, socket, held state, a real swap, at phone size.~~
 3. ~~Russ's look at the slice~~: "make it darker and grittier, then build the other three tiles".
 4. ~~Remaining tiles: `threat`, `defense`, `data`, `zeroDay`; darker and grittier (Russ, 10-09).~~
-5. Five power-ups, then the booster-tray versions of them.
+5. ~~Five power-ups, and the booster tray showing them~~ (2026-10-09).
 6. Cell states and overlays, the board frame, the runtime shadow under the new pieces.
 7. ~~The Tish main menu~~ (2026-10-09). Still to do: HUD, objective, booster dock, campaign and
    level screens, results, settings, and the phone's bottom tab bar from the concept.

@@ -18,6 +18,7 @@ METALS = {
     "gwm_brushed_titanium": ((0.072, 0.074, 0.080), 1.0, 0.44, (0.72, 0.72, 0.73), 1.00, 0.85, 0.70),
     "gwm_socket_steel": ((0.020, 0.021, 0.024), 1.0, 0.54, (0.30, 0.30, 0.31), 0.70, 0.60, 0.40),
     "gwm_well_floor": ((0.010, 0.0105, 0.012), 0.0, 0.72, (0.07, 0.07, 0.075), 0.25, 0.40, 0.50),
+    "gwm_paint_crimson": ((0.30, 0.010, 0.008), 0.0, 0.46, (0.34, 0.34, 0.35), 0.95, 0.80, 0.30),
     "gwm_gold_contact": ((0.34, 0.22, 0.065), 1.0, 0.42, (0.86, 0.66, 0.30), 0.80, 0.90, 0.35),
 }
 
@@ -188,6 +189,27 @@ def _smoked_glass(name, tint=(0.010, 0.016, 0.018)):
     return material
 
 
+def _plasma(name, colour):
+    """A smoked sphere with live veins inside it: a ridged noise drives the emission, so the light
+    is thin branching lines on a dark body rather than a lit ball."""
+    material, tree, output = _new(name)
+    graph = _Graph(tree)
+    bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (600, 0)
+    tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    bsdf.inputs["Base Color"].default_value = (*[c * 0.06 for c in colour], 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.3
+    bsdf.inputs["Coat Weight"].default_value = 1.0
+    bsdf.inputs["Coat Roughness"].default_value = 0.08
+    # Lit only along the thin contour where the noise crosses its mid value: branching lines.
+    distance = graph.math("ABSOLUTE", graph.math("SUBTRACT", graph.noise(2.6, 4.0, 0.55), 0.5))
+    veins = graph.remap(distance, 0.0, 0.022, 1.0, 0.0)
+    halo = graph.remap(distance, 0.0, 0.11, 0.22, 0.0)
+    tree.links.new(graph.math("MULTIPLY_ADD", veins, 5.0, graph.math("ADD", halo, 0.02)), bsdf.inputs["Emission Strength"])
+    bsdf.inputs["Emission Color"].default_value = (*colour, 1.0)
+    return material
+
+
 def _flat(name, colour, roughness):
     material, tree, output = _new(name)
     bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
@@ -206,5 +228,7 @@ def build():
     for name, (colour, strength) in EMITTERS.items():
         library[name] = _emitter(name, colour, strength)
     library["gwm_smoked_glass"] = _smoked_glass("gwm_smoked_glass")
+    library["gwm_plasma_violet"] = _plasma("gwm_plasma_violet", (0.26, 0.06, 1.0))
+    library["gwm_flat_crimson"] = _flat("gwm_flat_crimson", (0.36, 0.012, 0.010), 0.6)
     library["gwm_void"] = _flat("gwm_void", (0.004, 0.004, 0.005), 0.9)
     return library

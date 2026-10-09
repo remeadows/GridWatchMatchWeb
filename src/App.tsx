@@ -14,7 +14,7 @@ import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/a
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { DarkHomeScreen } from "./components/DarkHomeScreen";
-import { activeBoardTheme } from "./game/boardTheme";
+import { activeBoardTheme, matchV2BoosterAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
@@ -1177,11 +1177,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {boosterTypes.map((booster) => {
           const available = save.boosters[booster] ?? 0;
           const selected = selectedBooster === booster;
-          const boosterImage = booster === "rocket"
+          const classicBoosterImage = booster === "rocket"
             ? assetManifest.images.boosters.rocketH
             : booster === "rocketVertical"
               ? assetManifest.images.boosters.rocketV
               : assetManifest.images.boosters[booster];
+          const boosterImage = (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
           return (
             <button
               key={booster}

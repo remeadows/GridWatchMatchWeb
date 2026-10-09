@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   matchV2Assets,
+  matchV2BoosterAsset,
   matchV2CellAsset,
   matchV2PieceSizePx,
+  matchV2PowerUpAsset,
   matchV2TileAsset,
   resolveBoardPixelRatio,
   resolveBoardTheme
@@ -47,6 +49,14 @@ describe("match v2 asset manifest", () => {
     expect(matchV2TileAsset("firewall")?.visualId).toBe("tile_defense");
     expect(matchV2TileAsset("key")?.visualId).toBe("tile_data");
     expect(matchV2TileAsset("zeroDay")?.visualId).toBe("tile_zeroday");
+    expect(matchV2PowerUpAsset("rocket_horizontal")?.visualId).toBe("powerup_rocket_h");
+    expect(matchV2PowerUpAsset("rocket_vertical")?.visualId).toBe("powerup_rocket_v");
+    expect(matchV2PowerUpAsset("tnt")?.visualId).toBe("powerup_tnt");
+    expect(matchV2PowerUpAsset("propeller")?.visualId).toBe("powerup_propeller");
+    expect(matchV2PowerUpAsset("lightBall")?.visualId).toBe("powerup_light_ball");
+    expect(matchV2BoosterAsset("rocket")?.visualId).toBe("powerup_rocket_h");
+    expect(matchV2BoosterAsset("rocketVertical")?.visualId).toBe("powerup_rocket_v");
+    expect(matchV2BoosterAsset("lightBall")?.visualId).toBe("powerup_light_ball");
     expect(matchV2CellAsset("movable")?.visualId).toBe("cell_base");
     expect(matchV2CellAsset("held")?.visualId).toBe("cell_selected");
   });

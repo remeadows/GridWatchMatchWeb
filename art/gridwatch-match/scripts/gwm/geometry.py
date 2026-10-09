@@ -170,3 +170,52 @@ def rotated_rect(center, half_length, half_width, angle):
     ux, uy = math.cos(angle), math.sin(angle)
     corners = ((-half_length, -half_width), (half_length, -half_width), (half_length, half_width), (-half_length, half_width))
     return [(cx + a * ux - b * uy, cy + a * uy + b * ux) for a, b in corners]
+
+
+def _finish_round(name, bm, material, collection, sharp_degrees):
+    """Round parts carry their chamfers in the profile, so no bevel: smooth, with real creases."""
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    mesh = bpy.data.meshes.new(name)
+    bm.to_mesh(mesh)
+    bm.free()
+    for polygon in mesh.polygons:
+        polygon.use_smooth = True
+    mesh.set_sharp_from_angle(angle=math.radians(sharp_degrees))
+    obj = bpy.data.objects.new(name, mesh)
+    collection.objects.link(obj)
+    if material is not None:
+        mesh.materials.append(material)
+    return obj
+
+
+def lathe(name, profile, material, collection, axis="X", center=(0.0, 0.0, 0.0), segments=40, closed=False, sharp_degrees=38):
+    """Revolve `profile`, a list of (distance along the axis, radius), around a world axis through
+    `center`. Open profiles get flat end caps; `closed` joins the last point back to the first,
+    for a ring with a solid section."""
+    cx, cy, cz = center
+    bm = bmesh.new()
+    rings = []
+    for along, radius in profile:
+        ring = []
+        for i in range(segments):
+            angle = 2 * math.pi * i / segments
+            u, v = radius * math.cos(angle), radius * math.sin(angle)
+            x, y, z = {"X": (along, u, v), "Y": (u, along, v), "Z": (u, v, along)}[axis]
+            ring.append(bm.verts.new((cx + x, cy + y, cz + z)))
+        rings.append(ring)
+    pairs = list(zip(rings, rings[1:])) + ([(rings[-1], rings[0])] if closed else [])
+    for a, b in pairs:
+        for i in range(segments):
+            j = (i + 1) % segments
+            bm.faces.new((a[i], a[j], b[j], b[i]))
+    if not closed:
+        bm.faces.new(rings[0])
+        bm.faces.new(rings[-1])
+    return _finish_round(name, bm, material, collection, sharp_degrees)
+
+
+def sphere(name, center, radius, material, collection):
+    bm = bmesh.new()
+    bmesh.ops.create_uvsphere(bm, u_segments=48, v_segments=24, radius=radius)
+    bmesh.ops.translate(bm, verts=bm.verts, vec=center)
+    return _finish_round(name, bm, material, collection, 60)
