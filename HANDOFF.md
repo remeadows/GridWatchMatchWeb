@@ -27,25 +27,51 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   because iOS ignores an element's volume (so the old music most likely played at full volume on
   iPhones: not checked on a device). One audio context is shared with the board sounds and woken
   by the first gesture. Russ approved this design ("yes to the design").
-- **Candidates:** six generated (A and B for menu, gameplay, boss; 150 s each), sent to Russ, and
-  prepared as loop files with `scripts/prepare-music.sh` (trimmed of their fades, levelled to
-  -24 LUFS, 112 kbps, 1.5 to 2 MB each). The raw candidates live only in the session scratch
-  folder.
-- **⚠ Audition state, deliberately NOT committed:** the working tree holds the six prepared files
-  (`public/assets/audio/web-overrides/music_{menu,gameplay,boss}_{a,b}.mp3`), a temporary
-  `?music=` switch in `src/services/audio.ts` (`b` = all B; `aba` = per track: menu, gameplay,
-  boss) and `scripts/prepare-music.sh`. The dev site serves that as `7c94af2-dirty-dev`. When
-  Russ picks: keep the three chosen files under final names, delete the other three, remove the
-  switch, commit, re-upload. Levels in `MUSIC_TRACKS` (menu 0.8, gameplay 0.6, boss 0.75) are a
-  first guess to tune with him.
-- **Verified:** unit 546/546, `tsc` clean; `art/gridwatch-match/qa/music-probe.mjs` passes in
-  installed Chrome and bundled WebKit on a local build and in Chrome on the live dev site (first
-  gesture starts the music, the loop overlaps two copies and never goes silent, a level start
-  crossfades to the gameplay track). **Not yet run on this branch: the e2e suite.** Nothing here
-  has been heard by me; the sound is Russ's to judge.
+- **Tracks, picked by Russ:** six were generated (A and B for menu, gameplay, boss). After
+  hearing them in the game: "the music in A, B and boss was great", then, asked which to ship,
+  "Both, alternating". All six are in `public/assets/audio/music/` (`menu_a.mp3` ... `boss_b.mp3`,
+  1.5 to 2 MB each, about 10.7 MB together; a player downloads only the one playing). A track
+  plays its other file the next time it comes round, and gameplay changes file from one level to
+  the next (`playMusic(track, { fresh: true })` at level start); which file a session begins on
+  is random. Local commit `0a3df36`, on the dev site as `0a3df36-dev`.
+- **How a generated track becomes a loop file:** `scripts/prepare-music.sh <source> <out>
+  <start-s> <end-s>` cuts off the generated fades, levels to -24 LUFS and encodes 112 kbps MP3.
+  The raw generated files live only in the session scratch folder, not in the repo. Levels in
+  `MUSIC_TRACKS` (`src/services/audio.ts`: menu 0.8, gameplay 0.6, boss 0.75) are a first guess;
+  Russ has not said they are wrong.
+- **Not for `web-overrides/`:** `src/tests/assets.test.ts` allows only the approved board sounds
+  in `public/assets/audio/web-overrides/`, which is why music has its own folder. The old
+  `bgm_*.mp3` files stay where they are, unused by the web game: `npm run sync:assets` copies
+  them from the iOS project.
+- **Verified:** unit 550/550, levels 100/100, `tsc` clean; `art/gridwatch-match/qa/music-probe.mjs`
+  passes in installed Chrome and bundled WebKit on a local build and in Chrome on the live dev
+  site (first gesture starts the music, the loop overlaps two copies and never goes silent, a
+  level start crossfades to the gameplay track). e2e: see the next line. Nothing here has been
+  heard by me; the sound is Russ's to judge. Not checked on a physical phone.
+- **Tile motion, built (local commit `0efa0c3`):** Russ picked "More weight and impact" and said
+  "yes to the design, go ahead". A fall is constant acceleration (`cascadeFallDurationMs`: 250 ms
+  for one cell, time with the square root of distance, cap still 540 ms; `Quad.easeIn`). On
+  landing the piece squashes against the floor of its cell, hops once and settles, harder the
+  further it fell (`cascadeLandingPlan`, 55 + 70 + 65 = 190 ms as before); its shadow tightens
+  (`pressShadow`); eight pieces at once or a three-cell drop knocks the board down by 3.5% of a
+  cell (`cascadeJoltPx`, driven from `update()` so cancelling tweens cannot leave the board
+  displaced). A swapped piece lifts while it travels and is set down; a refused swap is knocked
+  back. Sizes are fractions of the cell, not fixed pixels. Both themes; reduced motion skips it
+  all. Constants are in `src/data/presentationTiming.ts`. Not changed: rules, the length of a
+  move, the hold before a match breaks, how clears look.
+- **Seen, not felt:** `art/gridwatch-match/qa/motion-probe.mjs` captures a swap and its cascade
+  from the browser's screencast at about 60 frames a second. On level 1 the landing frames show
+  the piece accelerating in, flattening on contact and settling, with no clipping. That was a
+  one-cell drop (the lightest landing); a long drop and the board knock have not been looked at
+  frame by frame. Whether it feels right is Russ's to say.
+- **e2e for music and tile motion together (commit `4b1f515`):** 218/218 on the classic board and
+  218/218 on the dark board (bundled Chromium, WebKit for the phone project), 2026-10-09. An
+  earlier run for music alone was stopped part-way at Russ's word and is not a result.
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
+- **Next pieces, in order, each needing its own short design and Russ's yes:** power-up motion,
+  sound effects.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
