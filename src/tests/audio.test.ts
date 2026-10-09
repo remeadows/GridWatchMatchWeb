@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
@@ -5,6 +8,7 @@ import { presentationAudioManifest } from "../data/presentationAssets";
 import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import {
   AudioService,
+  musicFiles,
   type BoardAudioBackend,
   type BoardAudioPlayback,
   type BoardAudioSource
@@ -168,12 +172,13 @@ describe("board audio service", () => {
 });
 
 describe("music through the audio service", () => {
-  function musicService(settings: SettingsState = enabledSettings) {
+  function musicService(settings: SettingsState = enabledSettings, firstMusicFile = () => 0) {
     const started: string[] = [];
     const stopped: string[] = [];
     const service = new AudioService({
       createBoardBackend: () => null,
       now: () => 0,
+      firstMusicFile,
       createMusicVoice: (url) => ({
         start: () => {
           started.push(url);
@@ -191,16 +196,60 @@ describe("music through the audio service", () => {
     service.configure(settings);
     return { service, started, stopped };
   }
+  const file = (url: string) => url.replace(/^.*assets\/audio\//, "");
 
-  it("starts each track's own file once, however often it is asked for", () => {
+  it("gives every track two prepared files of its own", () => {
+    const all = (["menu", "gameplay", "boss"] as const).flatMap((track) => musicFiles(track));
+    expect(all).toHaveLength(6);
+    expect(new Set(all).size).toBe(6);
+    for (const name of all) {
+      expect(name).toMatch(/^music\/(menu|gameplay|boss)_[ab]\.mp3$/);
+      expect(existsSync(join(process.cwd(), "public/assets/audio", name)), name).toBe(true);
+    }
+  });
+
+  it("starts a track once, however often the same track is asked for", () => {
     const { service, started } = musicService();
     service.playMusic("menu");
     service.playMusic("menu");
-    service.playMusic("gameplay");
-    service.playMusic("boss");
-    expect(started).toHaveLength(3);
-    expect(new Set(started).size).toBe(3);
-    for (const url of started) expect(url).toMatch(/assets\/audio\/.+\.mp3$/);
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([musicFiles("menu")[0]]);
+  });
+
+  it("plays a track's other file the next time the track comes round", () => {
+    const { service, started } = musicService();
+    service.playMusic("menu");
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("menu");
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([
+      musicFiles("menu")[0],
+      musicFiles("gameplay")[0],
+      musicFiles("menu")[1],
+      musicFiles("gameplay")[1],
+      musicFiles("menu")[0]
+    ]);
+  });
+
+  it("changes file from one level to the next without leaving the game", () => {
+    const { service, started } = musicService();
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("boss", { fresh: true });
+    service.playMusic("gameplay", { fresh: true });
+    expect(started.map(file)).toEqual([
+      musicFiles("gameplay")[0],
+      musicFiles("gameplay")[1],
+      musicFiles("boss")[0],
+      musicFiles("gameplay")[0]
+    ]);
+  });
+
+  it("can begin on either file", () => {
+    const { service, started } = musicService(enabledSettings, () => 0.99);
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([musicFiles("menu")[1]]);
   });
 
   it("plays nothing while music is off, and stops what is playing when it is turned off", () => {

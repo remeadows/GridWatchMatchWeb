@@ -40,7 +40,7 @@ await page.addInitScript(() => {
 const voices = () =>
   page.evaluate(() =>
     window.__voices
-      .filter((v) => /bgm_|music_/.test(v.element.src))
+      .filter((v) => /\/audio\/(music\/|bgm_)/.test(v.element.src))
       .map((v) => ({
         file: v.element.src.split("/").pop(),
         playing: !v.element.paused && !v.element.ended,

@@ -6,12 +6,21 @@ import { createElementVoice, MusicPlayer, type MusicVoice } from "./music";
 
 export type MusicTrack = "menu" | "gameplay" | "boss";
 
-/** Each track's file and how loud it sits under the effects (1 is the file's own level). */
-const MUSIC_TRACKS: Record<MusicTrack, { file: string; level: number }> = {
-  menu: { file: "bgm_menu.mp3", level: 0.45 },
-  gameplay: { file: "bgm_gameplay.mp3", level: 0.45 },
-  boss: { file: "bgm_boss.mp3", level: 0.45 }
+/**
+ * Each track's files and how loud it sits under the effects (1 is the file's own level, and
+ * scripts/prepare-music.sh brings every file to one loudness). A track has more than one file so
+ * it does not sound the same every time: each time the track comes round, the next file plays.
+ */
+const MUSIC_TRACKS: Record<MusicTrack, { files: readonly string[]; level: number }> = {
+  menu: { files: ["music/menu_a.mp3", "music/menu_b.mp3"], level: 0.8 },
+  gameplay: { files: ["music/gameplay_a.mp3", "music/gameplay_b.mp3"], level: 0.6 },
+  boss: { files: ["music/boss_a.mp3", "music/boss_b.mp3"], level: 0.75 }
 };
+
+export function musicFiles(track: MusicTrack): readonly string[] {
+  return MUSIC_TRACKS[track].files;
+}
+
 type SoundName =
   | "sfx_breach_alert.mp3"
   | "sfx_chain_cascade.mp3"
@@ -48,6 +57,8 @@ interface AudioServiceOptions {
   createBoardBackend?: () => BoardAudioBackend | null;
   createAudio?: (url: string) => HTMLAudioElement | null;
   createMusicVoice?: (url: string) => MusicVoice | null;
+  /** Which of a track's files plays first, as a fraction in [0, 1). Random unless given. */
+  firstMusicFile?: () => number;
   now?: () => number;
   playFallback?: (url: string, volume: number) => void;
 }
@@ -60,6 +71,8 @@ interface ActiveBoardSource {
 
 export class AudioService {
   private readonly music: MusicPlayer;
+  private musicTrack: MusicTrack | null = null;
+  private readonly musicTurn: Record<MusicTrack, number>;
   private gestureUnlockInstalled = false;
   private settings: SettingsState | null = null;
   private boardBackend: BoardAudioBackend | null = null;
@@ -81,22 +94,34 @@ export class AudioService {
       createVoice: options.createMusicVoice ?? ((url) => createElementVoice(url, sharedAudioContext())),
       now: this.now
     });
+    const first = options.firstMusicFile ?? Math.random;
+    const firstTurn = (track: MusicTrack) => Math.floor(first() * MUSIC_TRACKS[track].files.length);
+    this.musicTurn = { menu: firstTurn("menu"), gameplay: firstTurn("gameplay"), boss: firstTurn("boss") };
     this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
   }
 
   configure(settings: SettingsState): void {
     this.settings = settings;
-    if (!settings.musicEnabled) this.music.stop();
+    if (!settings.musicEnabled) this.stopMusic();
   }
 
-  playMusic(track: MusicTrack): void {
+  /**
+   * Play a track. Asking again for the one that is playing changes nothing, unless `fresh` says
+   * this is a new occasion for it (the next level): then the track's next file is crossfaded in.
+   */
+  playMusic(track: MusicTrack, options: { fresh?: boolean } = {}): void {
     if (!this.settings?.musicEnabled) return;
     this.installGestureUnlock();
-    const { file, level } = MUSIC_TRACKS[track];
-    this.music.play(audioUrl(file), level);
+    const { files, level } = MUSIC_TRACKS[track];
+    if (this.musicTrack === track && options.fresh) this.musicTurn[track] += 1;
+    else if (this.musicTrack !== null && this.musicTrack !== track) this.musicTurn[this.musicTrack] += 1;
+    this.musicTrack = track;
+    this.music.play(audioUrl(files[this.musicTurn[track] % files.length]), level);
   }
 
   stopMusic(): void {
+    if (this.musicTrack !== null) this.musicTurn[this.musicTrack] += 1;
+    this.musicTrack = null;
     this.music.stop();
   }
 

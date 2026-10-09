@@ -731,7 +731,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       setStatus("running");
       setShowTutorial((!saveRef.current.completedTutorial || saveRef.current.tutorialReplayRequested) && !new URLSearchParams(window.location.search).has("gwTestMode"));
       tutorialInitialMoveRef.current = engine.snapshot.moveCount;
-      audioService.playMusic(loaded.bossLevel ? "boss" : "gameplay");
+      audioService.playMusic(loaded.bossLevel ? "boss" : "gameplay", { fresh: true });
       analytics.track({ name: "level_start", params: { levelId: loaded.id, boss: loaded.bossLevel } });
     }).catch((error) => {
       if (active) {
