@@ -609,6 +609,7 @@
 }
 
 :root[data-board-theme="darkRealism"] .primary-action {
+  border-radius: 3px;
   border-color: color-mix(in srgb, var(--cyan) 62%, var(--dr-steel));
   background: linear-gradient(180deg, #15566b 0%, var(--dr-teal) 58%, #0a2a36 100%);
   color: var(--white);

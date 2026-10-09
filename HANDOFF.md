@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: Dark-realism art upgrade — LOCAL ONLY, in progress (branch `dev/dark-realism`)
+## 🟡 2026-10-09: Dark-realism art upgrade — LOCAL ONLY, built, awaiting Russ's review (branch `dev/dark-realism`)
 
 **Russ's rules for this work (2026-10-08):** local commits only — no push, no PR, no GitHub branch —
 and a dev site for his play tests. Production deploys stay his. Nothing below is on `origin` or in
@@ -15,24 +15,27 @@ production; `main` and the live game are exactly as the 2026-09-25 entry leaves 
   `gridwatch-match-dev`, static files only, `wrangler.dev.jsonc`). Refresh: commit, then
   `npm run cf:dev-instance`. **Never a bare `wrangler deploy`: that is production.** The dev build
   is served from `/`, shows `DEV · <sha>-dev`, never posts a score, and defaults to the dark theme.
-- **Done and on the dev site (`6d678e5-dev`):** the Blender pipeline (`art/gridwatch-match/`);
-  all five tiles (`tile_route`, `tile_threat`, `tile_defense`, `tile_data`, `tile_zeroday`), darker
-  and grittier per Russ; all five power-ups, on the board and in the booster tray; the socket and
-  the held-cell state; the board canvas in device pixels; the Tish main menu
-  (`src/components/DarkHomeScreen.tsx`, `src/darkRealism.css`).
+- **Done and on the dev site:** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
+  darker and grittier per Russ; all five power-ups, on the board and in the equipment dock; every
+  cell state the engine has (plain, held, design-locked, blocked, `encryptedVolume`,
+  `malwarePropagation`, the `honeypot` generator) and the board frame; a soft piece shadow; the
+  board canvas in device pixels; the Tish main menu (`src/components/DarkHomeScreen.tsx`); the
+  game HUD, objective, dock and result dialog, and the shared treatment on the other screens, with
+  a phone tab bar (`src/darkRealism.css`, CSS on the classic markup).
 - **How it is switched:** `src/game/boardTheme.ts`. Classic is the default; only the dev-instance
   build sets `VITE_BOARD_THEME=darkRealism`; `?theme=classic|dark` overrides. A production build
   is unchanged.
-- **Next, in order:** (1) cell states still drawn the old way on the dark board — design-locked,
-  blocked, the `encryptedVolume` and `malwarePropagation` overlays, the `honeypot` generator — and
-  the board frame, and the runtime shadow under the new pieces; (2) HUD, objective panel, booster
-  dock; (3) campaign and level screens, results, settings, the phone's bottom tab bar; (4) the
-  full loop, measured performance against classic, then the brief's acceptance list.
-- **Verification so far:** unit tests 529/529; e2e 218/218 in both themes with WebKit for the
-  five-tile commit `b5d56b0`; home and navigation specs 60/60 in both themes for the menu. A full
-  e2e run in both themes for the menu and power-up commits (`1def334`, `6d678e5`) was started
-  2026-10-09 09:50 EDT; **its result is not recorded here yet.** Not measured: frame time, memory,
-  load against classic; nothing checked on a physical phone.
+- **Not done** (the list is `docs/gridwatch-match/README.md` §7): nothing was checked on a
+  physical phone; Tish is two plates, not a rigged model; the result dialog still says
+  "3 star(s)" rather than showing stars; the effects are the classic effects; `cell_blocked` has
+  not been seen in play; Intel, Account, Store and Rules have the shared treatment only.
+- **Verification:** unit tests 533/533; levels 100/100; e2e 218/218 in classic and 218/218 in
+  dark (bundled Chromium, WebKit for the phone project) for commit `6745e82`; the acceptance and
+  performance probes in README §10. On this Mac both themes hold 60 Hz at every size; **a real
+  phone's frame rate is unmeasured.**
+- **Next, when Russ has looked:** his notes on the look; a phone check; then the decision that
+  is his: whether and how this goes to `main` and production (a production build needs
+  `VITE_BOARD_THEME=darkRealism` or the default flipped in `src/services/buildInfo.ts`).
 - **Left as found:** an untracked `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
   and `git stash@{0}` (a stale lockfile bump from the old branch) are not mine to remove.
 - **QA probes:** `art/gridwatch-match/qa/`.

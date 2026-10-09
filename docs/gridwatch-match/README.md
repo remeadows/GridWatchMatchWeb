@@ -5,9 +5,10 @@ Working record for the brief `README-Claude-Code-GridWatch-Match-Blender-v1.md` 
 on the dev instance (`npm run cf:dev-instance`). Nothing here changes rules, saves, accounts or the
 production build's default look.
 
-Status, 2026-10-09: **all five tiles, all five power-ups (board and booster tray), the socket, the
-held state and the main menu are in the game** in the dark theme. The remaining cell states, the
-board frame and the rest of the UI are still to build (§6).
+Status, 2026-10-09: **everything in the brief's inventory is in the game** in the dark theme: five
+tiles, five power-ups (board and equipment dock), every cell state the engine has, the board
+frame, the game HUD and dock, the main menu, and the shared treatment on the other screens. What
+is not done is listed in §7.
 
 ## 1. What the game is (inspected, not assumed)
 
@@ -116,11 +117,35 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
   `art/gridwatch-match/scripts/export_menu_plates.sh` to `public/assets/images/match-v2/menu/`.
   They are plates, not Blender models: **no rigged Tish exists.** All words and numbers on the
   menu are live; nothing is taken from the concept's baked text.
+- **Cell states.** `renderCell` picks one rendered cell per position (plain well, malware well,
+  generator, blocked cover) and then lays the overlays that register on it: the encrypted pane
+  over the tile, the lock clamps over that. A locked cell is a plain well plus the clamps, so no
+  state is baked into a tile. Remaining strength (`hp`) is a live number on a small plate whose
+  size comes from the cell. The held treatment swaps a socket's texture and puts back whatever
+  that socket was showing. Every one of these falls back to the classic drawing if its sprite is
+  missing.
+- **Board frame.** `board_frame` is the surround modelled round a one-cell opening, 0.1875 cell
+  wide. `BoardScene.syncBoardFrame` cuts the sprite into four corners and four one-cell lengths
+  (`matchV2FrameSlices`) and lays them round whatever `rows × cols` the level has; each length is
+  its own beam with a joint at both ends, so the cuts fall on real seams. The frame lives in its
+  own container and is rebuilt only when the board's place or size changes. `boardTileSize` sizes
+  the cells so the frame is always inside the canvas (the classic board's sizing is the same
+  function with a 12 px margin and no frame).
+- **Shadow.** Dark pieces sit down in a well, so in place of the classic's hard ellipse below a
+  piece they get one soft shared shadow texture, offset away from the key light.
+- **Game screen and the other screens.** Same markup as classic; `darkRealism.css` restyles the
+  HUD (a grid: back, level, moves, breach timer when there is one, score, rules), the objective,
+  the equipment dock (five bays, count in the corner), the result dialog, the top bar, sector and
+  level cards and the settings switches (still the same checkboxes). On a phone the navigation is
+  a tab bar fixed to the foot of the screen, with icons drawn as CSS masks; on the game screen it
+  stays the compact row under the brand, because the board and dock need the height. The global
+  dark `button` rule is wrapped in `:where()` so it never outranks a classed button.
 - **Device pixels.** The classic canvas is the CSS size, so a phone draws each cell about 46 px
   wide and stretches it three times. The dark theme sizes the canvas in device pixels (capped at
   3×) and zooms it back (`GameCanvas.tsx`); `?hidpi=0` turns that off for comparison. The scene
-  reads only its own scale, so layout and input follow; drawn line widths are still in canvas
-  pixels and so are thinner at 3× (to review with the remaining state overlays).
+  reads only its own scale, so layout and input follow. The dark board's own chrome is now sprites
+  or sized from the cell; the effects (`vfx.ts`) still draw their lines in canvas pixels, so on
+  a 3× canvas those lines are a third as wide as on classic (§7).
 
 ## 6. Plan
 
@@ -129,14 +154,33 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 3. ~~Russ's look at the slice~~: "make it darker and grittier, then build the other three tiles".
 4. ~~Remaining tiles: `threat`, `defense`, `data`, `zeroDay`; darker and grittier (Russ, 10-09).~~
 5. ~~Five power-ups, and the booster tray showing them~~ (2026-10-09).
-6. Cell states and overlays, the board frame, the runtime shadow under the new pieces.
-7. ~~The Tish main menu~~ (2026-10-09). Still to do: HUD, objective, booster dock, campaign and
-   level screens, results, settings, and the phone's bottom tab bar from the concept.
-8. Full loop check, measured performance against the classic baseline, then the acceptance list.
+6. ~~Cell states and overlays, the board frame, the runtime shadow under the new pieces~~
+   (2026-10-09).
+7. ~~The Tish main menu; HUD, objective, equipment dock; campaign and level screens, results,
+   settings; the phone's tab bar~~ (2026-10-09).
+8. Full loop check, measured performance against the classic baseline, then the acceptance list
+   (§10).
 
 ## 7. Open
 
-- **Measured performance** (cold load, frame time, memory against the classic board) is not done.
+Not done, or done only in part. None of it blocks playing the dev build.
+
+- **No physical phone.** Everything was checked in the installed Chrome and in Playwright's WebKit
+  at iPhone 15 size. Touch feel, a real phone's frame rate with a 3× canvas, and a dim screen in
+  daylight are unverified. `?hidpi=0` is the switch if a phone struggles with the larger canvas.
+- **Tish is two plates, not a model.** No rigged Tish exists; that stays separate work.
+- **Results view.** The result dialog has the shared treatment and its real score and stars, but
+  the stars are still the sentence "3 star(s)", not the concept's three gold stars, and there is
+  no rewards breakdown beyond what the game already shows. No mission-briefing screen was added:
+  the game goes straight from the level tile to the board, and the brief says not to add a step.
+- **`cell_blocked` has not been seen in play.** No shipped level starts with a blocked cell, so it
+  is verified as a render and a mapping test only.
+- **Effects are the classic effects.** Match bursts, rocket trails, the TNT blast and the rest
+  keep their shapes, colours and timing. On a 3× canvas their drawn lines are a third as wide.
+- **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were
+  checked for layout at both sizes, not designed screen by screen against a concept.
+- **Heap after repeated level entry** climbs about 0.16 MB per entry over thirty entries, by the
+  same amount in classic and dark (§10). It predates this work and was not chased.
 
 ## 8. Evidence for the slice (2026-10-09, commit `36b0c45`)
 
@@ -160,3 +204,67 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
   of its buttons) 60/60 in each theme, WebKit included. The full suite was not re-run for the
   menu commit.
 - Screenshots: `evidence/2026-10-09-five-tiles/`, `evidence/2026-10-09-menu/`.
+
+## 10. Evidence for the cell states, frame and UI (2026-10-09, commit `6745e82`)
+
+- `npm run test`: 533/533. `npm run validate:levels`: 100 passed. `tsc --noEmit`: clean.
+- e2e for the menu and power-up commits (`1def334`, `6d678e5`): 218/218 classic and 218/218 dark,
+  bundled Chromium and WebKit.
+- e2e for `6745e82`: **218/218 classic, 218/218 dark** (same projects, 15.7 and 15.8 minutes).
+  Committed after that run and not re-run through e2e: one CSS declaration (the dark primary
+  button's corner radius), this record and the QA probes.
+- `art/gridwatch-match/qa/acceptance-probe.mjs` on a local build of the dev instance, dark board,
+  iPhone 15 size (`evidence/2026-10-09-acceptance/acceptance-local-build.jsonl`):
+  - every dark sprite refused (18 requests): the board loads on the classic pictures, the level-1
+    swap takes a move, no page error. With only the frame, the lock clamps and one tile refused,
+    the rest stay dark and those three fall back (`level34-three-sprites-refused.png`);
+  - a level entered and left ten times: one canvas while playing, none on the menu, no page error;
+  - page hidden for 1.5 s mid-level and shown again: the next swap takes a move;
+  - menu → Quick Deploy → a swap → win → Next Level → fail → Retry → back → home → reload: the
+    campaign reads 0 / 100, then 1 / 100 before and after the reload; level 1 shows ★★★ and level
+    2 Ready; Resume Operations opens Operations.
+- Shapes with colour removed: `level100-phone-grayscale.png`. Same viewport before and after:
+  `level34-phone-before-classic.png`, `level34-phone-after-dark.png`. One swap and its cascade,
+  recorded: `level1-phone-swap.webm`. Screens: `evidence/2026-10-09-cells-ui/`.
+
+### Measured against classic
+
+`art/gridwatch-match/qa/perf-probe.mjs`, level 1, both themes from one local build, installed
+Chrome on this Mac (12 cores); "phone" is iPhone 15 emulation at device pixel ratio 3. Raw lines:
+`evidence/2026-10-09-acceptance/perf-local-build.jsonl`.
+
+| | Classic | Dark |
+| --- | --- | --- |
+| Board pictures on disk | 10 files, 2,439 KB | 18 files, 1,278 KB |
+| Those as GPU textures (RGBA) | 10.0 MB (512 px each) | 4.7 MB (256 px; frame 352 px) |
+| Image bytes for a level, to 4 s after ready | 3,371 KB (5,823 KB with the CPU slowed) | 2,747 KB |
+| Board ready after navigation, CPU ×1 (3 runs) | 171–345 ms | 166–170 ms |
+| Board ready, CPU slowed ×4 | 636–701 ms | 595–609 ms |
+| Canvas, desktop / phone | 528² / 327² px | 1056² / 981² px |
+| Frame interval at rest, median / p95 | 16.7 / 16.8 ms | 16.7 / 16.8 ms |
+| Frame interval through a swap and cascade | 16.7 / 16.8 ms, at most one 33 ms frame | the same |
+| JS heap after play | 20–26 MB | 19–20 MB |
+| JS heap, entry 1 → 30 of a level | 16.4 → 21.3 MB | 15.6 → 21.0 MB |
+
+What this does and does not show: the dark board is lighter to download and holds less texture
+memory, and on this Mac both themes sit on the 60 Hz frame cap at every size, with the CPU slowed
+four times as well. Load times are over loopback, so they compare the two themes and say nothing
+about a network. The dark canvas has four times the pixels on the desktop and nine times on the
+phone; a slowed CPU does not model a phone's GPU, so **a real phone's frame rate is unmeasured.**
+
+### Acceptance list (brief §8)
+
+Visual: tiles and power-ups follow V2 ✔ (by eye against the references); distinguishable at
+gameplay size and in grayscale ✔; tile and background separate ✔ on these screens, **dim phone
+unverified**; one shadow per piece, no neon halos ✔; held, locked, blocked, normal distinct ✔
+(blocked from its render only); Tish: plates, limitation reported ✔; UI live, no baked values ✔;
+board size and cell size from the game ✔.
+
+Functional: swaps, invalid swaps, matches, cascades, input locking ✔ (e2e, both themes); rocket
+orientation ✔ (one model lit twice, mapped by engine key, e2e rocket specs); boosters and
+inventory ✔ (e2e); overlays update ✔ (e2e; drawn each render from the snapshot); win, fail,
+retry, next, resume, save ✔ (probe above, e2e); account, currency, progression ✔ (e2e,
+untouched code; the dev site posts no score by design); missing assets fail safely ✔; no asset
+errors or failed requests ✔ on the built dev instance; load, frame time, memory compared ✔ on
+this Mac, **not on a phone**; background and re-entry ✔ with the heap note in §7; build, type
+check and tests ✔ (the repo has no lint script).
