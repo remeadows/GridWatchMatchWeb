@@ -16,7 +16,7 @@
     "cf:dev-instance": "node scripts/dev-instance.mjs"
   },
   "dependencies": {
-    "@gridwatch/account-kit": "git+https://github.com/remeadows/gridwatch-account-kit.git#v0.3.0",
+    "@gridwatch/account-kit": "git+https://github.com/remeadows/gridwatch-account-kit.git#v0.3.1",
     "@supabase/supabase-js": "^2.110.5",
     "@vitejs/plugin-react": "^6.0.2",
     "phaser": "^4.2.0",
