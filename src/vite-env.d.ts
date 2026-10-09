@@ -8,4 +8,6 @@ interface ImportMetaEnv {
   readonly VITE_DEV_INSTANCE?: string;
   /** The dev-instance build's commit label. Unset in prod. */
   readonly VITE_BUILD_LABEL?: string;
+  /** "darkRealism" makes the Blender-built board art this build's default. Unset in prod. */
+  readonly VITE_BOARD_THEME?: string;
 }

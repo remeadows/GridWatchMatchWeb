@@ -3,6 +3,8 @@ import Phaser from "phaser";
 import { BoardScene, type BoardAnimationEvent } from "./BoardScene";
 import type { BoardAction, BoardSnapshot, BoosterType } from "../engine";
 import { audioService } from "../services/audio";
+import { defaultBoardTheme } from "../services/buildInfo";
+import { resolveBoardPixelRatio, resolveBoardTheme } from "./boardTheme";
 
 interface GameCanvasProps {
   snapshot: BoardSnapshot | null;
@@ -74,17 +76,25 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     // game clock from ever running AHEAD of wall time, which the win-sequence
     // timing test relies on. Production keeps the default rAF loop.
     const gwTestMode = new URLSearchParams(window.location.search).get("gwTestMode") === "1";
+    const container = containerRef.current;
+    const pixelRatio = resolveBoardPixelRatio(
+      window.location.search,
+      resolveBoardTheme(window.location.search, defaultBoardTheme),
+      window.devicePixelRatio
+    );
     const game = new Phaser.Game({
       type: Phaser.AUTO,
-      parent: containerRef.current,
+      parent: container,
       backgroundColor: "#050b12",
       ...(gwTestMode ? { fps: { forceSetTimeOut: true } } : {}),
-      width: containerRef.current.clientWidth || 720,
-      height: containerRef.current.clientHeight || 720,
-      scale: {
-        mode: Phaser.Scale.RESIZE,
-        autoCenter: Phaser.Scale.CENTER_BOTH
-      },
+      width: Math.round((container.clientWidth || 720) * pixelRatio),
+      height: Math.round((container.clientHeight || 720) * pixelRatio),
+      // RESIZE always makes the canvas the CSS size. To draw real device pixels the canvas is
+      // sized by hand instead and zoomed back down to the container; the scene only ever reads
+      // its own scale size, so everything in it follows.
+      scale: pixelRatio === 1
+        ? { mode: Phaser.Scale.RESIZE, autoCenter: Phaser.Scale.CENTER_BOTH }
+        : { mode: Phaser.Scale.NONE, zoom: 1 / pixelRatio },
       scene: BoardScene,
       input: {
         activePointers: 2
@@ -106,6 +116,12 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
       onAnimationError: (animationId: number) => onAnimationErrorRef.current(animationId)
     });
     gameRef.current = game;
+    const resizeObserver = pixelRatio === 1 ? null : new ResizeObserver(() => {
+      const width = Math.round(container.clientWidth * pixelRatio);
+      const height = Math.round(container.clientHeight * pixelRatio);
+      if (width > 0 && height > 0 && (width !== game.scale.width || height !== game.scale.height)) game.scale.resize(width, height);
+    });
+    resizeObserver?.observe(container);
     const visibilityChanged = () => {
       const scene = game.scene.getScene("BoardScene") as BoardScene | undefined;
       scene?.setPresentationPaused(document.hidden);
@@ -114,6 +130,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     game.events.once(Phaser.Core.Events.READY, visibilityChanged);
     return () => {
       document.removeEventListener("visibilitychange", visibilityChanged);
+      resizeObserver?.disconnect();
       containerRef.current?.removeEventListener("pointerdown", unlockBoardSounds);
       game.destroy(true);
       gameRef.current = null;

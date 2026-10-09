@@ -1,5 +1,16 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
+import { defaultBoardTheme } from "../services/buildInfo";
+import {
+  darkRealismChrome,
+  matchV2Assets,
+  matchV2CellAsset,
+  matchV2PieceSizePx,
+  matchV2TextureKey,
+  matchV2TileAsset,
+  resolveBoardTheme,
+  type BoardThemeId
+} from "./boardTheme";
 import type { PresentationAudioKey } from "../data/presentationAssets";
 import {
   WIN_ROW_DESTRUCTION_POP_MS,
@@ -389,6 +400,10 @@ export class BoardScene extends Phaser.Scene {
   private winTick: (() => void) | null = null;
   private playback: ResolutionPlayback | null = null;
   private occupantInstanceId = 0;
+  private boardTheme: BoardThemeId = "classic";
+  // Dark realism only: each movable cell's socket image, and which one shows the held treatment.
+  private cellSocketNodes = new Map<string, Phaser.GameObjects.Image>();
+  private heldCellKey: string | null = null;
 
   constructor() {
     super("BoardScene");
@@ -402,6 +417,12 @@ export class BoardScene extends Phaser.Scene {
   }
 
   preload(): void {
+    this.boardTheme = resolveBoardTheme(window.location.search, defaultBoardTheme);
+    // A sprite that fails to load is simply absent: every use checks the texture and falls back
+    // to the classic picture, so a missing file never reaches game state.
+    if (this.boardTheme === "darkRealism") {
+      for (const asset of matchV2Assets) this.load.image(matchV2TextureKey(asset.visualId), assetUrl(asset.path));
+    }
     this.load.image(tileImageKeys.packet, assetUrl(assetManifest.images.tiles.packet));
     this.load.image(tileImageKeys.firewall, assetUrl(assetManifest.images.tiles.firewall));
     this.load.image(tileImageKeys.key, assetUrl(assetManifest.images.tiles.key));
@@ -458,7 +479,30 @@ export class BoardScene extends Phaser.Scene {
     this.setPresentationPaused(document.hidden);
   }
 
-  update(): void { this.winTick?.(); }
+  update(): void {
+    this.winTick?.();
+    this.syncHeldCell();
+  }
+
+  // The held treatment follows the drag itself rather than each place a drag can end, so no exit
+  // path can leave a cell lit.
+  private syncHeldCell(): void {
+    if (this.boardTheme !== "darkRealism") return;
+    const wanted = this.drag && !this.drag.committed ? positionKey(this.drag.start) : null;
+    if (wanted === this.heldCellKey) return;
+    const base = matchV2CellAsset("movable");
+    const held = matchV2CellAsset("held");
+    if (!base || !held || !this.textures.exists(matchV2TextureKey(held.visualId))) return;
+    if (this.heldCellKey) this.cellSocketNodes.get(this.heldCellKey)?.setTexture(matchV2TextureKey(base.visualId));
+    if (wanted) this.cellSocketNodes.get(wanted)?.setTexture(matchV2TextureKey(held.visualId));
+    this.heldCellKey = wanted;
+  }
+
+  private v2Texture(asset: { visualId: string } | undefined): string | null {
+    if (this.boardTheme !== "darkRealism" || !asset) return null;
+    const key = matchV2TextureKey(asset.visualId);
+    return this.textures.exists(key) ? key : null;
+  }
 
   private disposeVfx(): void {
     this.winTimeline?.cancel();
@@ -674,17 +718,20 @@ export class BoardScene extends Phaser.Scene {
     }
     this.layer.removeAll(true);
     this.occupantNodes.clear();
+    this.cellSocketNodes.clear();
+    this.heldCellKey = null;
     this.clearLockedCellVisuals();
     if (clearFx && !this.playback) this.fxLayer?.removeAll(true);
     this.updateGeometry();
 
     const boardWidth = this.tileSize * this.snapshot.grid.cols;
     const boardHeight = this.tileSize * this.snapshot.grid.rows;
+    const dark = this.boardTheme === "darkRealism";
     const background = this.add.graphics();
-    background.fillStyle(boardChrome.fill, boardChrome.fillAlpha);
-    background.fillRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, 10);
-    background.lineStyle(2, boardChrome.stroke, boardChrome.strokeAlpha);
-    background.strokeRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, 10);
+    background.fillStyle(dark ? darkRealismChrome.boardFill : boardChrome.fill, dark ? darkRealismChrome.boardFillAlpha : boardChrome.fillAlpha);
+    background.fillRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
+    background.lineStyle(2, dark ? darkRealismChrome.boardStroke : boardChrome.stroke, dark ? darkRealismChrome.boardStrokeAlpha : boardChrome.strokeAlpha);
+    background.strokeRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
     this.layer.add(background);
 
     for (const position of this.snapshot.grid.allPositions) {
@@ -718,10 +765,21 @@ export class BoardScene extends Phaser.Scene {
     const cellStrokeAlpha = isDesignLocked ? 0.85 : cell.isMovable ? boardChrome.movableStrokeAlpha : boardChrome.blockedStrokeAlpha;
 
     const graphics = this.add.graphics();
-    graphics.fillStyle(cellFill, cellAlpha);
-    graphics.fillRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
-    graphics.lineStyle(1, cellStroke, cellStrokeAlpha);
-    graphics.strokeRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
+    const dark = this.boardTheme === "darkRealism";
+    const socketKey = cell.generator || !(cell.isMovable || isDesignLocked) ? null : this.v2Texture(matchV2CellAsset("movable"));
+    if (socketKey) {
+      // The socket is a rendered recessed well that fills the cell exactly, so cells abut.
+      const socket = this.add.image(topLeft.x + this.tileSize / 2, topLeft.y + this.tileSize / 2, socketKey);
+      socket.setDisplaySize(this.tileSize, this.tileSize);
+      this.layer.add(socket);
+      this.cellSocketNodes.set(positionId, socket);
+    } else {
+      const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked;
+      graphics.fillStyle(blocked ? darkRealismChrome.blockedCell : cellFill, blocked ? darkRealismChrome.blockedCellAlpha : cellAlpha);
+      graphics.fillRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
+      graphics.lineStyle(1, blocked ? darkRealismChrome.blockedStroke : cellStroke, blocked ? darkRealismChrome.blockedStrokeAlpha : cellStrokeAlpha);
+      graphics.strokeRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
+    }
     if (cell.underlay) {
       graphics.fillStyle(0xb4164a, 0.38);
       graphics.fillRoundedRect(topLeft.x + 5, topLeft.y + 5, this.tileSize - 10, this.tileSize - 10, radius);
@@ -3074,7 +3132,11 @@ export class BoardScene extends Phaser.Scene {
     container.add(shadow);
 
     if (cell.baseTile) {
-      const object = this.makeSpriteOrLabel(tileImageKeys[cell.baseTile], profile.pieceSizePx, tileLabel(cell.baseTile));
+      const v2Asset = matchV2TileAsset(cell.baseTile);
+      const v2Key = this.v2Texture(v2Asset);
+      const object = v2Asset && v2Key
+        ? this.makeSpriteOrLabel(v2Key, matchV2PieceSizePx(v2Asset, this.tileSize), tileLabel(cell.baseTile))
+        : this.makeSpriteOrLabel(tileImageKeys[cell.baseTile], profile.pieceSizePx, tileLabel(cell.baseTile));
       object.setName("piece");
       container.add(object);
     } else if (cell.powerUp) {

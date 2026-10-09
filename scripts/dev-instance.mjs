@@ -49,7 +49,8 @@ const dirty = capture("git", ["status", "--porcelain", "--untracked-files=no"]) 
 const label = `${commit}${dirty}-dev`;
 
 // VITE_DEV_INSTANCE moves the build to the host root, shows the label, and stops the client posting scores.
-run("npm", ["run", "build"], { VITE_DEV_INSTANCE: "1", VITE_BUILD_LABEL: label });
+// VITE_BOARD_THEME makes the work-in-progress dark-realism board art the default here (?theme=classic for the old).
+run("npm", ["run", "build"], { VITE_DEV_INSTANCE: "1", VITE_BUILD_LABEL: label, VITE_BOARD_THEME: "darkRealism" });
 
 const index = readFileSync(join(root, "dist", "index.html"), "utf8");
 if (index.includes("/play/match/")) fail("dist/index.html still points under /play/match/: this is not a dev-instance build");

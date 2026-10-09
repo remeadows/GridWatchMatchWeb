@@ -1,0 +1,88 @@
+{
+  "generatedBy": "art/gridwatch-match/scripts/build.py",
+  "blender": "5.1.0",
+  "seed": 923101,
+  "assets": [
+    {
+      "visualId": "cell_base",
+      "runtimeId": "cell:movable",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_base.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "ec10dc57c5d98449122f98d1c45101a2e7bc97301afe1f1be8dee3089d21b662",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_base.blend",
+      "master": "art/gridwatch-match/previews/cell_base-master.png",
+      "samples": 320,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_selected",
+      "runtimeId": "cell:held",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_selected.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "05ad7176048c7e9705a7d3cb6e566be4a80e0af96a312712f3f28cc8a952d1a9",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_selected.blend",
+      "master": "art/gridwatch-match/previews/cell_selected-master.png",
+      "samples": 320,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_route",
+      "runtimeId": "packet",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_route.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "01fbf3e78ef0cc5c8d4afbc2e8bfc1a03cc473b5e0838f7c2cc45f76fbdf9e79",
+      "opaqueBounds": [
+        0.0781,
+        0.0898,
+        0.9219,
+        0.9258
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_route.blend",
+      "master": "art/gridwatch-match/previews/tile_route-master.png",
+      "samples": 320,
+      "referenceRevision": "dark-realism-concept-v2"
+    }
+  ]
+}
