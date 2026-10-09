@@ -1,5 +1,6 @@
 import manifestJson from "../data/matchV2Manifest.generated.json";
 import type { TileType } from "../engine/types";
+import { defaultBoardTheme } from "../services/buildInfo";
 
 // The one selection point between the shipped board art ("classic") and the Blender-built
 // dark-realism set ("darkRealism", art/gridwatch-match). Classic is the default unless the build
@@ -22,6 +23,11 @@ export interface MatchV2Asset {
 }
 
 export const matchV2Assets: readonly MatchV2Asset[] = manifestJson.assets;
+
+/** The theme this page load uses: the board, the canvas resolution and the UI all read this. */
+export function activeBoardTheme(): BoardThemeId {
+  return resolveBoardTheme(typeof window === "undefined" ? "" : window.location.search, defaultBoardTheme);
+}
 
 export function resolveBoardTheme(search: string, buildDefault: BoardThemeId): BoardThemeId {
   const requested = new URLSearchParams(search).get("theme");

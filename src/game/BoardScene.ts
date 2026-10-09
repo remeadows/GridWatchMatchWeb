@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
-import { defaultBoardTheme } from "../services/buildInfo";
 import {
   darkRealismChrome,
   matchV2Assets,
@@ -8,7 +7,7 @@ import {
   matchV2PieceSizePx,
   matchV2TextureKey,
   matchV2TileAsset,
-  resolveBoardTheme,
+  activeBoardTheme,
   type BoardThemeId
 } from "./boardTheme";
 import type { PresentationAudioKey } from "../data/presentationAssets";
@@ -417,7 +416,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.boardTheme = resolveBoardTheme(window.location.search, defaultBoardTheme);
+    this.boardTheme = activeBoardTheme();
     // A sprite that fails to load is simply absent: every use checks the texture and falls back
     // to the classic picture, so a missing file never reaches game state.
     if (this.boardTheme === "darkRealism") {

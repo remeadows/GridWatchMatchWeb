@@ -3,8 +3,7 @@ import Phaser from "phaser";
 import { BoardScene, type BoardAnimationEvent } from "./BoardScene";
 import type { BoardAction, BoardSnapshot, BoosterType } from "../engine";
 import { audioService } from "../services/audio";
-import { defaultBoardTheme } from "../services/buildInfo";
-import { resolveBoardPixelRatio, resolveBoardTheme } from "./boardTheme";
+import { activeBoardTheme, resolveBoardPixelRatio } from "./boardTheme";
 
 interface GameCanvasProps {
   snapshot: BoardSnapshot | null;
@@ -79,7 +78,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     const container = containerRef.current;
     const pixelRatio = resolveBoardPixelRatio(
       window.location.search,
-      resolveBoardTheme(window.location.search, defaultBoardTheme),
+      activeBoardTheme(),
       window.devicePixelRatio
     );
     const game = new Phaser.Game({

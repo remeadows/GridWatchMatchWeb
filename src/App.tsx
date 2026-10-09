@@ -13,6 +13,8 @@ import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHu
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
+import { DarkHomeScreen } from "./components/DarkHomeScreen";
+import { activeBoardTheme } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
@@ -417,7 +419,9 @@ export default function App() {
       {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
       {isDevInstance && <div className="dev-build-badge" aria-hidden="true">DEV · {buildLabel}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
-      {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}
+      {screen.name === "home" && (activeBoardTheme() === "darkRealism"
+        ? <DarkHomeScreen save={save} onResume={() => navigate({ name: "areas" })} onQuickDeploy={(levelId) => navigate({ name: "game", levelId })} />
+        : <HomeScreen save={save} navigate={navigate} />)}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
       {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} auth={auth} />}

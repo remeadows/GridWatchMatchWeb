@@ -1,0 +1,338 @@
+/* The dark-realism theme's UI treatment (docs/gridwatch-match). Everything here is scoped to
+   :root[data-board-theme="darkRealism"] or to dr-* classes that only the dark theme renders, so
+   the classic look is untouched and rolling back is the theme switch (src/game/boardTheme.ts). */
+
+:root[data-board-theme="darkRealism"] {
+  --bg: #050607;
+  --bg-mid: #0a0c0f;
+  --panel: #0e1114;
+  --panel-2: #14181c;
+  --muted: #8f9aa5;
+  --line: rgba(172, 184, 196, 0.16);
+  --line-strong: rgba(172, 184, 196, 0.4);
+  --ink: #020303;
+  --panel-glass: rgba(7, 9, 11, 0.86);
+  --panel-glass-strong: rgba(4, 5, 6, 0.95);
+  --hero-scrim: rgba(2, 3, 4, 0.92);
+  --dr-steel: #2a3038;
+  --dr-steel-light: #59636e;
+  --dr-teal: #0d3442;
+}
+
+:root[data-board-theme="darkRealism"] .app-shell {
+  background: linear-gradient(180deg, var(--bg-mid) 0%, var(--bg) 46%, var(--ink) 100%);
+}
+
+/* ---- Main menu ------------------------------------------------------------------------- */
+
+.dr-home {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-rows: minmax(340px, 1fr) auto;
+  /* fills the view under the account bar and the top bar */
+  min-height: calc(100vh - var(--gw-account-bar-height, 0px) - 96px);
+  overflow: hidden;
+  background: var(--ink);
+}
+
+.dr-home-city,
+.dr-home-tish {
+  position: absolute;
+  pointer-events: none;
+  user-select: none;
+}
+
+.dr-home-city {
+  inset: 0;
+  z-index: -3;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 42% 26%;
+}
+
+/* Darkness for legibility only where text sits: the title corner and the foot under the panel. */
+.dr-home::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(118deg, rgba(2, 3, 4, 0.86) 0%, rgba(2, 3, 4, 0.5) 30%, transparent 56%),
+    linear-gradient(180deg, transparent 52%, rgba(2, 3, 4, 0.9) 82%, var(--ink) 100%);
+}
+
+.dr-home-art {
+  position: relative;
+  min-width: 0;
+  padding: clamp(16px, 3.4vw, 34px) clamp(16px, 3.4vw, 42px);
+}
+
+/* The plate is Tish at her desk on a transparent ground. On a phone she stands to the right of
+   the title and runs down behind the panel, which hides the desk; the plate's cut left edge is
+   faded out. */
+.dr-home-tish {
+  top: 5%;
+  right: -11%;
+  z-index: -1;
+  height: 140%;
+  width: auto;
+  max-width: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 20%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 20%);
+}
+
+.dr-home-kicker {
+  display: block;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+.dr-home-title {
+  margin: 10px 0 0;
+  font-size: clamp(2rem, 9.4vw, 3.4rem);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.75);
+}
+
+.dr-home-title span,
+.dr-home-title strong {
+  display: block;
+}
+
+.dr-home-title strong {
+  margin-top: 0.14em;
+  color: var(--cyan);
+  font-size: 0.62em;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+}
+
+.dr-home-network {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  max-width: 44%;
+  margin: 14px 0 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+
+.dr-home-network small {
+  color: var(--muted);
+  font-size: inherit;
+}
+
+.dr-home-agent {
+  position: absolute;
+  right: clamp(14px, 3vw, 40px);
+  top: clamp(16px, 3.4vw, 34px);
+  padding-top: 7px;
+  border-top: 2px solid var(--cyan);
+  color: var(--text);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.9);
+}
+
+.dr-home-panel {
+  display: grid;
+  gap: 12px;
+  margin: 0 clamp(10px, 2.4vw, 28px) clamp(14px, 2.4vw, 28px);
+  padding: clamp(14px, 2.6vw, 22px);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(10, 12, 15, 0.9), rgba(4, 5, 6, 0.97));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 -18px 40px rgba(0, 0, 0, 0.55);
+}
+
+.dr-home-campaign {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.dr-home-campaign strong {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.dr-home-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--dr-steel);
+  overflow: hidden;
+}
+
+.dr-home-track span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan-glow);
+}
+
+.dr-action {
+  position: relative;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 46px;
+  border: 1px solid var(--dr-steel-light);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(20, 24, 28, 0.92), rgba(8, 10, 12, 0.96));
+  color: var(--text);
+  font-size: 0.98rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+.dr-action::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.dr-action.dr-action-primary {
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--dr-steel));
+  background: linear-gradient(180deg, #15566b 0%, var(--dr-teal) 58%, #0a2a36 100%);
+  color: var(--white);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 0 22px color-mix(in srgb, var(--cyan) 16%, transparent);
+}
+
+.dr-action:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--white);
+}
+
+.dr-home-next {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.dr-home-next strong {
+  color: var(--cyan);
+  font-weight: 700;
+}
+
+.dr-home-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.dr-home-selected,
+.dr-home-sector > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dr-home-selected img {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+.dr-home-selected span,
+.dr-home-sector {
+  display: grid;
+  gap: 5px;
+}
+
+.dr-home-sector > span {
+  justify-content: space-between;
+}
+
+.dr-home-status small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.dr-home-status strong {
+  font-size: 0.86rem;
+}
+
+/* Wide screens: the copy and the panel take the left, Tish the right; the plate's cut left edge
+   is faded out because the desk no longer runs off the side of the view. */
+@media (min-width: 900px) {
+  .dr-home {
+    grid-template-columns: minmax(380px, 46%) minmax(0, 1fr);
+    grid-template-rows: 1fr auto;
+    min-height: calc(100vh - var(--gw-account-bar-height, 0px) - 73px);
+  }
+
+  .dr-home::before {
+    background:
+      linear-gradient(100deg, rgba(2, 3, 4, 0.9) 0%, rgba(2, 3, 4, 0.62) 34%, transparent 62%),
+      linear-gradient(180deg, transparent 62%, rgba(2, 3, 4, 0.82) 100%);
+  }
+
+  .dr-home-art {
+    grid-column: 1 / -1;
+    grid-row: 1 / -1;
+  }
+
+  /* Cover-fit from the top third keeps her head in frame at any aspect. */
+  .dr-home-tish {
+    inset: 0 0 0 auto;
+    width: 60%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 50% 26%;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 22%);
+    mask-image: linear-gradient(90deg, transparent 0%, #000 22%);
+  }
+
+  .dr-home-title {
+    font-size: clamp(3.4rem, 5.6vw, 4.6rem);
+  }
+
+  .dr-home-network {
+    max-width: none;
+  }
+
+  .dr-home-panel {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0 0 clamp(20px, 4vw, 46px) clamp(16px, 3.4vw, 42px);
+  }
+}

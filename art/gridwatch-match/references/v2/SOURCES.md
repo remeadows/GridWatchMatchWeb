@@ -17,4 +17,11 @@ Copied 2026-10-09. A different sha256 means the concept was revised: re-check th
 | tish-v3.png | Tish's identity | `52b8523a…1001bbcdc` |
 | GridWatch-Match-zeroDay-Fifth-Tile-Blender-Reference-v2.png | The fifth tile, `zeroDay` (added 2026-10-09) | `de4e7ebc…22c591d9b` |
 
+Main-menu art plates (added 2026-10-09; exported by `scripts/export_menu_plates.sh`):
+
+| File | Use | sha256 |
+| --- | --- | --- |
+| GridWatch-Match-Rainy-City-Background-No-UI-v2.png | Menu background, opaque | `86cf133a…43dcf6416` |
+| GridWatch-Match-Tish-Foreground-Transparent-No-UI-v2.png | Tish at her desk, real alpha | `2fa2ba12…eb1fba048` |
+
 The brief itself is `README-Claude-Code-GridWatch-Match-Blender-v1.md` in the same Drive folder.

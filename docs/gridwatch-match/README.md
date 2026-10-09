@@ -5,8 +5,9 @@ Working record for the brief `README-Claude-Code-GridWatch-Match-Blender-v1.md` 
 on the dev instance (`npm run cf:dev-instance`). Nothing here changes rules, saves, accounts or the
 production build's default look.
 
-Status, 2026-10-09: **all five tiles, the socket and the held state are in the game** on the dark
-board. Power-ups, the remaining cell states, the board frame and the UI are still to build (§6).
+Status, 2026-10-09: **all five tiles, the socket, the held state and the main menu are in the
+game** in the dark theme. Power-ups, the remaining cell states, the board frame and the rest of
+the UI are still to build (§6).
 
 ## 1. What the game is (inspected, not assumed)
 
@@ -96,6 +97,14 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
   `?theme=classic` or `?theme=dark` overrides on any build. **Rollback is that parameter.**
 - `BoardScene` loads the manifest's sprites only in the dark theme and falls back to the classic
   picture wherever a sprite is missing or failed to load.
+- **UI.** `main.tsx` puts the active theme on `<html data-board-theme>`; every dark UI rule lives
+  in `src/darkRealism.css`, scoped to that attribute or to `dr-*` classes only the dark theme
+  renders. The dark main menu is its own component (`src/components/DarkHomeScreen.tsx`) with the
+  classic screen's data, actions, labels and test id, so the same e2e test covers both.
+- **Menu art.** The city and Tish are two text-free plates Russ supplied (ChatGPT), converted by
+  `art/gridwatch-match/scripts/export_menu_plates.sh` to `public/assets/images/match-v2/menu/`.
+  They are plates, not Blender models: **no rigged Tish exists.** All words and numbers on the
+  menu are live; nothing is taken from the concept's baked text.
 - **Device pixels.** The classic canvas is the CSS size, so a phone draws each cell about 46 px
   wide and stretches it three times. The dark theme sizes the canvas in device pixels (capped at
   3×) and zooms it back (`GameCanvas.tsx`); `?hidpi=0` turns that off for comparison. The scene
@@ -110,13 +119,12 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 4. ~~Remaining tiles: `threat`, `defense`, `data`, `zeroDay`; darker and grittier (Russ, 10-09).~~
 5. Five power-ups, then the booster-tray versions of them.
 6. Cell states and overlays, the board frame, the runtime shadow under the new pieces.
-7. UI treatment in React/CSS (HUD, objective, dock, menus, results) and the Tish menu art.
+7. ~~The Tish main menu~~ (2026-10-09). Still to do: HUD, objective, booster dock, campaign and
+   level screens, results, settings, and the phone's bottom tab bar from the concept.
 8. Full loop check, measured performance against the classic baseline, then the acceptance list.
 
 ## 7. Open
 
-- **Tish:** no rigged model exists in this repo. The menu needs a clean, text-free art plate; the
-  V2 menu image has baked UI and cannot be used as a background.
 - **Measured performance** (cold load, frame time, memory against the classic board) is not done.
 
 ## 8. Evidence for the slice (2026-10-09, commit `36b0c45`)
@@ -131,3 +139,13 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
   (0,0)→(1,0) resolves to 24/25 moves and 3/20 packets, no console error, no failed request.
 - Screenshots: `evidence/2026-10-09-slice/` (dark and classic at phone size, the held cell).
 - Not measured: cold load, frame time and memory against the classic board; a real phone.
+
+## 9. Evidence for the five tiles and the menu (2026-10-09)
+
+- Five tiles, commit `b5d56b0`: `npm run test` 529/529; `npm run test:e2e` 218/218 as the repo
+  defines it (bundled Chromium, and WebKit for the iPhone 15 project), and 218/218 again built
+  with `VITE_BOARD_THEME=darkRealism`.
+- Main menu: unit tests 529/529; `app.spec.ts` and `carry-over.spec.ts` (the home screen and both
+  of its buttons) 60/60 in each theme, WebKit included. The full suite was not re-run for the
+  menu commit.
+- Screenshots: `evidence/2026-10-09-five-tiles/`, `evidence/2026-10-09-menu/`.
