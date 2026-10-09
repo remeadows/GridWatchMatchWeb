@@ -3,6 +3,8 @@ import { Grid2D, emptyCell, type BoardSnapshot, type PowerUpEvent, type PowerUpT
 import {
   canonicalComboKey,
   cascadeFallDurationMs,
+  cascadeJoltPx,
+  cascadeLandingPlan,
   chainPlaybackRate,
   comboChoreographyPlan,
   comboOverlayPositions,
@@ -463,10 +465,65 @@ describe("matchTimeline", () => {
 });
 
 describe("cascadeFallDurationMs", () => {
-  it("uses distance-based falls with the specified minimum and cap", () => {
-    expect(cascadeFallDurationMs(1)).toBe(260);
-    expect(cascadeFallDurationMs(2)).toBeGreaterThan(cascadeFallDurationMs(1));
+  it("falls under constant acceleration: time goes with the square root of the distance", () => {
+    expect(cascadeFallDurationMs(1)).toBe(250);
+    expect(cascadeFallDurationMs(4)).toBe(500);
+    expect(cascadeFallDurationMs(2)).toBe(Math.round(250 * Math.SQRT2));
+    // Each further cell costs less time than the one before it.
+    const step = (cells: number) => cascadeFallDurationMs(cells + 1) - cascadeFallDurationMs(cells);
+    expect(step(1)).toBeGreaterThan(step(2));
+    expect(step(2)).toBeGreaterThan(step(3));
+  });
+
+  it("keeps the old floor and cap, so no fall is longer than before", () => {
+    expect(cascadeFallDurationMs(0)).toBe(250);
+    expect(cascadeFallDurationMs(0.4)).toBe(250);
     expect(cascadeFallDurationMs(7)).toBe(540);
+    expect(cascadeFallDurationMs(Number.NaN)).toBe(250);
+  });
+});
+
+describe("cascadeLandingPlan", () => {
+  it("lands harder the further the piece fell, up to a cap", () => {
+    const one = cascadeLandingPlan(1, 100, 120);
+    const three = cascadeLandingPlan(3, 100, 120);
+    const five = cascadeLandingPlan(5, 100, 120);
+    const nine = cascadeLandingPlan(9, 100, 120);
+    expect(one.strength).toBeLessThan(three.strength);
+    expect(three.strength).toBeLessThan(five.strength);
+    expect(five.strength).toBe(1);
+    expect(nine).toEqual(five);
+    expect(one.squashScaleY).toBeGreaterThan(five.squashScaleY);
+    expect(one.hopPx).toBeLessThan(five.hopPx);
+  });
+
+  it("squashes wider and shorter, with its foot kept on the floor", () => {
+    const plan = cascadeLandingPlan(5, 100, 120);
+    expect(plan.squashScaleX).toBeCloseTo(1.12, 5);
+    expect(plan.squashScaleY).toBeCloseTo(0.84, 5);
+    // The foot of a 100 px piece is at +50; squashed to 84 px it is at +42, so the centre drops 8.
+    expect(plan.sinkPx).toBeCloseTo(8, 5);
+    expect(plan.hopPx).toBeCloseTo(6, 5);
+  });
+
+  it("never lands softer than the lightest landing, and takes 190 ms in all", () => {
+    const short = cascadeLandingPlan(0.2, 100, 120);
+    expect(short.strength).toBe(0.35);
+    expect(short.squashMs + short.hopMs + short.settleMs).toBe(190);
+    expect(cascadeLandingPlan(Number.NaN, 100, 120)).toEqual(cascadeLandingPlan(0, 100, 120));
+  });
+});
+
+describe("cascadeJoltPx", () => {
+  it("leaves the board still for an ordinary cascade", () => {
+    expect(cascadeJoltPx(3, 1, 120)).toBe(0);
+    expect(cascadeJoltPx(7, 2, 120)).toBe(0);
+  });
+
+  it("knocks the board for a lot of pieces or a long drop, by a fraction of a cell", () => {
+    expect(cascadeJoltPx(8, 1, 120)).toBe(4);
+    expect(cascadeJoltPx(2, 3, 120)).toBe(4);
+    expect(cascadeJoltPx(20, 7, 40)).toBe(1);
   });
 });
 

@@ -24,8 +24,12 @@ import {
 } from "../data/gameplayTiming";
 import {
   CASCADE_FALL_MAX_MS,
+  CASCADE_JOLT_DOWN_MS,
+  CASCADE_JOLT_MIN_CELLS,
+  CASCADE_JOLT_RECOVER_MS,
+  CASCADE_LANDING_HOP_MS,
   CASCADE_LANDING_SETTLE_MS,
-  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_LANDING_TOTAL_MS,
   CASCADE_START_AFTER_IMPACT_MS,
   COMBO_CHOREOGRAPHY_MAX_MS,
   DRAG_LIFT_MS,
@@ -56,6 +60,8 @@ import {
   PROPELLER_LIFT_MS,
   PROPELLER_RETICLE_DELAY_MS,
   PROPELLER_SECONDARY_STAGGER_MS,
+  SWAP_LIFT_SCALE,
+  SWAP_SET_DOWN_SQUASH,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
   TNT_CASCADE_AFTER_DETONATION_MS
@@ -77,7 +83,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -199,10 +205,9 @@ const powerUpImageKeys = {
 // sprite loaded (resolvePowerUpTextures), so every effect that draws a power-up follows the theme.
 const powerUpTextures: Record<keyof typeof powerUpImageKeys, string> = { ...powerUpImageKeys };
 
-const CASCADE_BOUNCE_MAX_PX = 14;
-const CASCADE_BOUNCE_FACTOR = 0.08;
-const CASCADE_SQUASH_SCALE_X = 0.96;
-const CASCADE_SQUASH_SCALE_Y = 1.05;
+// A falling piece is drawn very slightly long and narrow; it is the landing that squashes it.
+const CASCADE_FALL_STRETCH_X = 0.97;
+const CASCADE_FALL_STRETCH_Y = 1.04;
 const POWERUP_CREATION_CHARGE_MS = 70;
 const POWERUP_CREATION_OVERSHOOT_MS = 130;
 const POWERUP_CREATION_SETTLE_MS = 110;
@@ -324,7 +329,7 @@ const CLEAR_AND_CASCADE_BUDGET_MS =
   MATCH_POP_COMPRESSION_MS +
   Math.max(
     MATCH_WAVE_MAX_MS + MATCH_IMPACT_MS,
-    CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS
+    CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS
   );
 const POWERUP_POP_STAGGER_BUDGET_MS = Math.max(
   TNT_FUSE_MS + TNT_RADIAL_STAGGER_MAX_MS,
@@ -337,8 +342,7 @@ const POWERUP_RESOLVE_BUDGET_MS =
   MATCH_POP_COMPRESSION_MS +
   MATCH_IMPACT_MS +
   CASCADE_FALL_MAX_MS +
-  CASCADE_LANDING_SQUASH_MS +
-  CASCADE_LANDING_SETTLE_MS;
+  CASCADE_LANDING_TOTAL_MS;
 
 // Conservative single-wave recovery estimate, never an action-queue timer.
 export const RESOLVE_ANIMATION_BUDGET_MS =
@@ -400,6 +404,7 @@ export class BoardScene extends Phaser.Scene {
   private lastScaleHeight = 0;
   private lastAnimationId = 0;
   private reducedMotion = false;
+  private boardJolt: { startMs: number; px: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
   private activePresentationSequenceId = 0;
@@ -513,6 +518,56 @@ export class BoardScene extends Phaser.Scene {
   update(): void {
     this.winTick?.();
     this.syncHeldCell();
+    this.syncBoardJolt();
+  }
+
+  // A hard landing knocks the whole board down a pixel or two and lets it come back. It is
+  // driven from the frame loop, not a tween, so nothing that cancels tweens can leave the board
+  // displaced.
+  private joltBoard(px: number): void {
+    if (this.reducedMotion || px <= 0) return;
+    this.boardJolt = { startMs: this.time.now, px };
+    this.recordPresentation("cascade-jolt", `px=${px}`);
+  }
+
+  private syncBoardJolt(): void {
+    const camera = this.cameras?.main;
+    if (!camera) return;
+    const jolt = this.boardJolt;
+    if (!jolt) {
+      if (camera.scrollY !== 0) camera.scrollY = 0;
+      return;
+    }
+    const elapsed = this.time.now - jolt.startMs;
+    if (elapsed >= CASCADE_JOLT_DOWN_MS + CASCADE_JOLT_RECOVER_MS) {
+      this.boardJolt = null;
+      camera.scrollY = 0;
+      return;
+    }
+    const depth = elapsed < CASCADE_JOLT_DOWN_MS
+      ? Math.sin((elapsed / CASCADE_JOLT_DOWN_MS) * (Math.PI / 2))
+      : Math.cos(((elapsed - CASCADE_JOLT_DOWN_MS) / CASCADE_JOLT_RECOVER_MS) * (Math.PI / 2));
+    // Scrolling the camera up moves everything it shows down.
+    camera.scrollY = -jolt.px * depth;
+  }
+
+  // The pool of shadow under a piece tightens and darkens as the piece hits the floor.
+  private pressShadow(sprite: Phaser.GameObjects.Container, landing: CascadeLandingPlan): void {
+    const shadow = sprite.getByName("shadow") as (Phaser.GameObjects.Image | Phaser.GameObjects.Graphics) | null;
+    if (!shadow) return;
+    const rest = { alpha: shadow.alpha, scaleX: shadow.scaleX, scaleY: shadow.scaleY };
+    this.tweens.add({
+      targets: shadow,
+      alpha: Math.min(1, rest.alpha * (1 + 0.5 * landing.strength)),
+      scaleX: rest.scaleX * (1 - 0.1 * landing.strength),
+      scaleY: rest.scaleY * (1 - 0.1 * landing.strength),
+      duration: landing.squashMs,
+      ease: "Quad.easeOut",
+      onComplete: () => {
+        // A little short of the piece's own settle, which is when a re-render may replace the sprite.
+        this.tweens.add({ targets: shadow, ...rest, duration: landing.hopMs + landing.settleMs - 15, ease: "Sine.easeOut" });
+      }
+    });
   }
 
   // The held treatment follows the drag itself rather than each place a drag can end, so no exit
@@ -602,8 +657,8 @@ export class BoardScene extends Phaser.Scene {
       activation: 0,
       creation: POWERUP_CREATION_CHARGE_MS + POWERUP_CREATION_OVERSHOOT_MS + POWERUP_CREATION_SETTLE_MS,
       clear: RESOLVE_ANIMATION_BUDGET_MS,
-      gravity: CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS,
-      refill: CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS,
+      gravity: CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS,
+      refill: CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS,
       malware: 0, shuffle: SWAP_TRAVEL_MS + SWAP_SETTLE_MS, settled: 0
     });
     this.playbackWatchdog = this.time.delayedCall(budget, () => {
@@ -655,7 +710,7 @@ export class BoardScene extends Phaser.Scene {
     const completedAnimationId = this.activeAnimationId;
     if (completedAnimationId === null) return;
     this.clearPlaybackWatchdog();
-    this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_SETTLE_MS);
+    this.recordPresentation("resolution-complete", undefined, this.reducedMotion ? 0 : CASCADE_LANDING_HOP_MS + CASCADE_LANDING_SETTLE_MS);
     this.activeAnimationId = null;
     this.activeResolvedSnapshot = null;
     if (completedAnimationId !== null) this.onAnimationComplete?.(completedAnimationId);
@@ -1445,21 +1500,30 @@ export class BoardScene extends Phaser.Scene {
     let remaining = ghosts.length;
     for (const ghost of ghosts) {
       const start = { x: ghost.object.x, y: ghost.object.y };
+      // The pieces run into each other and are knocked back past where they started.
       this.tweens.add({
         targets: ghost.object,
-        x: Phaser.Math.Linear(start.x, ghost.to.x, 0.42),
-        y: Phaser.Math.Linear(start.y, ghost.to.y, 0.42),
+        x: Phaser.Math.Linear(start.x, ghost.to.x, 0.36),
+        y: Phaser.Math.Linear(start.y, ghost.to.y, 0.36),
         duration: motionTiming.invalidSwap,
-        yoyo: true,
-        ease: "Sine.easeOut",
+        ease: "Quad.easeIn",
         onComplete: () => {
-          ghost.object.destroy();
-          remaining -= 1;
-          if (remaining === 0) {
-            this.renderSnapshot();
-            this.recordPresentation("invalid-swap-return");
-            this.finishAnimation();
-          }
+          this.tweens.add({
+            targets: ghost.object,
+            x: start.x,
+            y: start.y,
+            duration: motionTiming.invalidSwap,
+            ease: "Back.easeOut",
+            onComplete: () => {
+              ghost.object.destroy();
+              remaining -= 1;
+              if (remaining === 0) {
+                this.renderSnapshot();
+                this.recordPresentation("invalid-swap-return");
+                this.finishAnimation();
+              }
+            }
+          });
         }
       });
     }
@@ -1500,23 +1564,28 @@ export class BoardScene extends Phaser.Scene {
     destination: { x: number; y: number },
     onComplete: () => void
   ): void {
-    const horizontal = Math.abs(destination.x - sprite.x) >= Math.abs(destination.y - sprite.y);
+    // The piece is picked up off the board, carried across, and set down: it grows as it lifts,
+    // and gives slightly as it meets the floor of its new cell.
+    this.tweens.add({ targets: sprite, x: destination.x, y: destination.y, duration: SWAP_TRAVEL_MS, ease: "Cubic.easeInOut" });
     this.tweens.add({
       targets: sprite,
-      x: destination.x,
-      y: destination.y,
-      scaleX: horizontal ? 1.055 : 0.955,
-      scaleY: horizontal ? 0.955 : 1.055,
-      duration: SWAP_TRAVEL_MS,
-      ease: "Sine.easeInOut",
+      scaleX: SWAP_LIFT_SCALE,
+      scaleY: SWAP_LIFT_SCALE,
+      duration: SWAP_TRAVEL_MS / 2,
+      ease: "Sine.easeOut",
+      yoyo: true,
       onComplete: () => {
         this.tweens.add({
           targets: sprite,
-          scaleX: 1,
-          scaleY: 1,
-          duration: SWAP_SETTLE_MS,
-          ease: "Sine.easeOut",
-          onComplete
+          scaleX: 1 + SWAP_SET_DOWN_SQUASH,
+          scaleY: 1 - SWAP_SET_DOWN_SQUASH,
+          duration: SWAP_SETTLE_MS / 2,
+          ease: "Quad.easeOut",
+          yoyo: true,
+          onComplete: () => {
+            sprite.setScale(1);
+            onComplete();
+          }
         });
       }
     });
@@ -2345,44 +2414,68 @@ export class BoardScene extends Phaser.Scene {
       }
     };
 
+    const pieceSizePx = pieceDisplayProfile(this.tileSize).pieceSizePx;
+    const longestFallCells = Math.max(...allTweens.map((entry) => entry.distanceCells));
+    const joltPx = cascadeJoltPx(allTweens.length, longestFallCells, this.tileSize);
+    // The knock comes with the heaviest landing: the long drop if there is one, else the first.
+    const joltFromCells = longestFallCells >= CASCADE_JOLT_MIN_CELLS ? longestFallCells : 0;
+    let jolted = false;
+
     for (const entry of allTweens) {
-      const start = { x: entry.sprite.x, y: entry.sprite.y };
       const fallDuration = Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
       this.recordPresentation(
         "cascade-fall-plan",
         `distanceCells=${entry.distanceCells.toFixed(3)};durationMs=${fallDuration}`
       );
-      const bounceFromY = entry.to.y + Math.min(CASCADE_BOUNCE_MAX_PX, Math.abs(entry.to.y - start.y) * CASCADE_BOUNCE_FACTOR);
+      const landing = cascadeLandingPlan(entry.distanceCells, pieceSizePx, this.tileSize);
       this.tweens.add({
         targets: entry.sprite,
         x: entry.to.x,
-        y: bounceFromY,
-        scaleX: CASCADE_SQUASH_SCALE_X,
-        scaleY: CASCADE_SQUASH_SCALE_Y,
+        y: entry.to.y,
+        scaleX: CASCADE_FALL_STRETCH_X,
+        scaleY: CASCADE_FALL_STRETCH_Y,
         duration: fallDuration,
-        ease: "Sine.easeIn",
+        // Constant acceleration from rest: the piece is moving fastest when it lands.
+        ease: "Quad.easeIn",
         onComplete: () => {
           if (!firstLandingRecorded) {
             firstLandingRecorded = true;
             this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
             this.cueBoardAudio("cascadeLand", { gain: 0.34 });
           }
+          if (joltPx > 0 && !jolted && entry.distanceCells >= joltFromCells) {
+            jolted = true;
+            this.joltBoard(joltPx);
+          }
+          this.pressShadow(entry.sprite, landing);
+          // Squash against the floor of the cell (the foot stays put), one small hop, settle.
           this.tweens.add({
             targets: entry.sprite,
-            scaleX: 1,
-            scaleY: 1,
-            duration: CASCADE_LANDING_SQUASH_MS,
-            ease: "Sine.easeOut",
+            y: entry.to.y + landing.sinkPx,
+            scaleX: landing.squashScaleX,
+            scaleY: landing.squashScaleY,
+            duration: landing.squashMs,
+            ease: "Quad.easeOut",
             onComplete: () => {
               this.tweens.add({
                 targets: entry.sprite,
-                x: entry.to.x,
-                y: entry.to.y,
-                scaleX: 1,
-                scaleY: 1,
-                duration: CASCADE_LANDING_SETTLE_MS,
+                y: entry.to.y - landing.hopPx,
+                scaleX: 1 - 0.03 * landing.strength,
+                scaleY: 1 + 0.04 * landing.strength,
+                duration: landing.hopMs,
                 ease: "Sine.easeOut",
-                onComplete: done
+                onComplete: () => {
+                  this.tweens.add({
+                    targets: entry.sprite,
+                    x: entry.to.x,
+                    y: entry.to.y,
+                    scaleX: 1,
+                    scaleY: 1,
+                    duration: landing.settleMs,
+                    ease: "Sine.easeIn",
+                    onComplete: done
+                  });
+                }
               });
             }
           });

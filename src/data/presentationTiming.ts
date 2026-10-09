@@ -63,12 +63,31 @@ export const POWERUP_CASCADE_HOLD_MS = 200;
 export const MATCH_WAVE_PER_GRID_MS = 25;
 export const MATCH_WAVE_MAX_MS = 80;
 export const CASCADE_START_AFTER_IMPACT_MS = 230;
-export const CASCADE_FALL_BASE_MS = 190;
-export const CASCADE_FALL_PER_CELL_MS = 70;
-export const CASCADE_FALL_MIN_MS = 260;
+// A piece falls under constant acceleration, so its fall time grows with the square root of the
+// distance: CASCADE_FALL_ONE_CELL_MS for one cell, capped at CASCADE_FALL_MAX_MS.
+export const CASCADE_FALL_ONE_CELL_MS = 250;
+export const CASCADE_FALL_MIN_MS = 250;
 export const CASCADE_FALL_MAX_MS = 540;
-export const CASCADE_LANDING_SQUASH_MS = 95;
-export const CASCADE_LANDING_SETTLE_MS = 95;
+// Landing: squash against the floor of the cell, one small hop, settle. 190 ms in all.
+export const CASCADE_LANDING_SQUASH_MS = 55;
+export const CASCADE_LANDING_HOP_MS = 70;
+export const CASCADE_LANDING_SETTLE_MS = 65;
+export const CASCADE_LANDING_TOTAL_MS = CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_HOP_MS + CASCADE_LANDING_SETTLE_MS;
+// How hard a landing is, by fall distance: a one-cell drop is light, this many cells is the hardest.
+export const CASCADE_LANDING_FULL_STRENGTH_CELLS = 5;
+export const CASCADE_LANDING_MIN_STRENGTH = 0.35;
+export const CASCADE_LANDING_SQUASH_DEPTH = 0.16;
+export const CASCADE_LANDING_SQUASH_SPREAD = 0.12;
+export const CASCADE_LANDING_HOP_TILE_FRACTION = 0.05;
+// The board takes a small downward knock when this much lands at once, or from this high.
+export const CASCADE_JOLT_MIN_PIECES = 8;
+export const CASCADE_JOLT_MIN_CELLS = 3;
+export const CASCADE_JOLT_TILE_FRACTION = 0.035;
+export const CASCADE_JOLT_DOWN_MS = 40;
+export const CASCADE_JOLT_RECOVER_MS = 110;
+// A swapped piece is lifted off the board while it travels, and set down as it stops.
+export const SWAP_LIFT_SCALE = 1.08;
+export const SWAP_SET_DOWN_SQUASH = 0.05;
 export const CHAIN_PLAYBACK_RATE_STEP = 0.035;
 export const CHAIN_PLAYBACK_RATE_MAX_DEPTH = 5;
 export const TILE_POP_PLAYBACK_RATE_MIN = 0.94;
@@ -89,5 +108,6 @@ export const PRESENTATION_TIMING = {
   matchWaveMaxMs: MATCH_WAVE_MAX_MS,
   cascadeStartAfterImpactMs: CASCADE_START_AFTER_IMPACT_MS,
   cascadeLandingSquashMs: CASCADE_LANDING_SQUASH_MS,
+  cascadeLandingHopMs: CASCADE_LANDING_HOP_MS,
   cascadeLandingSettleMs: CASCADE_LANDING_SETTLE_MS
 } as const;

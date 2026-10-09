@@ -1,12 +1,21 @@
 import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent, TileType } from "../engine";
 import { computeCentroidStagger } from "./motion";
 import {
-  CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
   CASCADE_FALL_MIN_MS,
-  CASCADE_FALL_PER_CELL_MS,
-  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_FALL_ONE_CELL_MS,
+  CASCADE_JOLT_MIN_CELLS,
+  CASCADE_JOLT_MIN_PIECES,
+  CASCADE_JOLT_TILE_FRACTION,
+  CASCADE_LANDING_FULL_STRENGTH_CELLS,
+  CASCADE_LANDING_HOP_MS,
+  CASCADE_LANDING_HOP_TILE_FRACTION,
+  CASCADE_LANDING_MIN_STRENGTH,
   CASCADE_LANDING_SETTLE_MS,
+  CASCADE_LANDING_SQUASH_DEPTH,
+  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_LANDING_SQUASH_SPREAD,
+  CASCADE_LANDING_TOTAL_MS,
   CASCADE_START_AFTER_IMPACT_MS,
   CASCADE_RECOGNITION_HOLD_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
@@ -630,7 +639,7 @@ export function lightBallWavePlan(
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {
   const stagger = clampFinite(maxStaggerMs, 0, MATCH_WAVE_MAX_MS);
-  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS;
+  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS;
   const impactCompletionMs = MATCH_IMPACT_MS + stagger;
 
   return {
@@ -647,7 +656,48 @@ export function matchTimeline(maxStaggerMs: number): MatchTimeline {
 
 export function cascadeFallDurationMs(distanceCells: number): number {
   const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
-  return Math.min(CASCADE_FALL_MAX_MS, Math.max(CASCADE_FALL_MIN_MS, CASCADE_FALL_BASE_MS + distance * CASCADE_FALL_PER_CELL_MS));
+  // Constant acceleration from rest: time grows with the square root of the distance.
+  return Math.round(Math.min(CASCADE_FALL_MAX_MS, Math.max(CASCADE_FALL_MIN_MS, CASCADE_FALL_ONE_CELL_MS * Math.sqrt(distance))));
+}
+
+/** How a piece that fell `distanceCells` meets the floor of its cell: squash, one hop, settle. */
+export interface CascadeLandingPlan {
+  /** 0 to 1: how hard the landing is. */
+  strength: number;
+  squashScaleX: number;
+  squashScaleY: number;
+  /** How far the squashed piece's centre drops so that its foot stays on the floor. */
+  sinkPx: number;
+  hopPx: number;
+  squashMs: number;
+  hopMs: number;
+  settleMs: number;
+}
+
+export function cascadeLandingPlan(distanceCells: number, pieceSizePx: number, tileSize: number): CascadeLandingPlan {
+  const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
+  // Impact speed under constant acceleration goes with the square root of the height.
+  const strength = Math.min(1, Math.max(CASCADE_LANDING_MIN_STRENGTH, Math.sqrt(distance / CASCADE_LANDING_FULL_STRENGTH_CELLS)));
+  const squashScaleY = 1 - CASCADE_LANDING_SQUASH_DEPTH * strength;
+  return {
+    strength,
+    squashScaleX: 1 + CASCADE_LANDING_SQUASH_SPREAD * strength,
+    squashScaleY,
+    sinkPx: (Math.max(0, pieceSizePx) * (1 - squashScaleY)) / 2,
+    hopPx: Math.max(0, tileSize) * CASCADE_LANDING_HOP_TILE_FRACTION * strength,
+    squashMs: CASCADE_LANDING_SQUASH_MS,
+    hopMs: CASCADE_LANDING_HOP_MS,
+    settleMs: CASCADE_LANDING_SETTLE_MS
+  };
+}
+
+/**
+ * The downward knock the board takes when a cascade lands, in pixels, or 0 for an ordinary one:
+ * it needs a lot of pieces at once or a long drop.
+ */
+export function cascadeJoltPx(pieceCount: number, longestFallCells: number, tileSize: number): number {
+  if (pieceCount < CASCADE_JOLT_MIN_PIECES && longestFallCells < CASCADE_JOLT_MIN_CELLS) return 0;
+  return Math.max(1, Math.round(Math.max(0, tileSize) * CASCADE_JOLT_TILE_FRACTION));
 }
 
 export function eventIntensity(affectedCount: number, isCombo: boolean): number {
