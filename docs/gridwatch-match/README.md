@@ -288,7 +288,8 @@ check and tests ✔ (the repo has no lint script).
   opens the sector list; Quick Deploy starts the next unplayed level. Each button now says so
   under its name ("Choose a sector and level", "Play Level N · sector now"); the names are
   unchanged.
-- Checked: unit tests 533/533; `app.spec.ts` and `carry-over.spec.ts` 60/60 in each theme. The
-  full e2e suite was started after the upload; its result is in `HANDOFF.md` once it finishes.
-  Screens: `evidence/2026-10-09-first-notes/`.
+- Checked: unit tests 533/533; the full e2e suite for commit `047b701`, **218/218 classic and
+  218/218 dark** (bundled Chromium, WebKit for the phone project); live on `047b701-dev` with no
+  console error and both menu buttons going where they say. Screens:
+  `evidence/2026-10-09-first-notes/`.
 - He also queued a later task (animations, sound, music): see the top entry of `HANDOFF.md`.

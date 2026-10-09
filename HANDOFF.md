@@ -15,7 +15,7 @@ production; `main` and the live game are exactly as the 2026-09-25 entry leaves 
   `gridwatch-match-dev`, static files only, `wrangler.dev.jsonc`). Refresh: commit, then
   `npm run cf:dev-instance`. **Never a bare `wrangler deploy`: that is production.** The dev build
   is served from `/`, shows `DEV · <sha>-dev`, never posts a score, and defaults to the dark theme.
-- **Done and on the dev site (`60cefc0-dev`, verified live 2026-10-09):** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
+- **Done and on the dev site (`047b701-dev`, verified live 2026-10-09):** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
   darker and grittier per Russ; all five power-ups, on the board and in the equipment dock; every
   cell state the engine has (plain, held, design-locked, blocked, `encryptedVolume`,
   `malwarePropagation`, the `honeypot` generator) and the board frame; a soft piece shadow; the
@@ -30,7 +30,7 @@ production; `main` and the live game are exactly as the 2026-09-25 entry leaves 
   "3 star(s)" rather than showing stars; the effects are the classic effects; `cell_blocked` has
   not been seen in play; Intel, Account, Store and Rules have the shared treatment only.
 - **Verification:** unit tests 533/533; levels 100/100; e2e 218/218 in classic and 218/218 in
-  dark (bundled Chromium, WebKit for the phone project) for commit `6745e82`; the acceptance and
+  dark (bundled Chromium, WebKit for the phone project) for commits `6745e82` and `047b701`; the acceptance and
   performance probes in README §10. On this Mac both themes hold 60 Hz at every size; **a real
   phone's frame rate is unmeasured.**
 - **Next, when Russ has looked:** his notes on the look; a phone check; then the decision that
