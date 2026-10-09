@@ -530,7 +530,9 @@ test.describe("single light ball", () => {
     expect(charge.atMs).toBeLessThan(release.atMs);
     expect(release.atMs).toBeLessThan(undim.atMs);
     expect(undim.atMs).toBeLessThan(cascade.atMs);
-    expect(cascade.atMs - undim.atMs).toBeGreaterThanOrEqual(180);
+    // The hold before the board falls was 200 ms (bound 180) until 2026-10-09, when Russ asked for
+    // power-ups to resolve sooner; it is 140 ms now.
+    expect(cascade.atMs - undim.atMs).toBeGreaterThanOrEqual(130);
     // Task 6 adds 20 ms to each of four wave intervals; retain the same 50 ms headroom.
     // Bound the primary effect, not the additional activation/clear before gravity.
     expect(undim.plannedAtMs - dim.plannedAtMs).toBeLessThanOrEqual(1_130);

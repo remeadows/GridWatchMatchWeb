@@ -222,7 +222,8 @@ describe("comboChoreographyPlan", () => {
     expect(plan.screenFlashCount).toBeLessThanOrEqual(1);
     expect(plan.chargeAtMs).toBeGreaterThanOrEqual(180);
     expect(plan.chargeAtMs).toBeLessThanOrEqual(300);
-    expect(plan.cascadeAtMs).toBeGreaterThanOrEqual(850);
+    // 850 until 2026-10-09, when Russ asked for power-ups to resolve sooner and each combo lost about a fifth.
+    expect(plan.cascadeAtMs).toBeGreaterThanOrEqual(700);
     expect(plan.cascadeAtMs).toBeLessThanOrEqual(1_450);
     expect(plan.batches.every((batch, index) => index === 0 || batch.atMs >= plan.batches[index - 1].atMs)).toBe(true);
   });

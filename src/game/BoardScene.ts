@@ -56,6 +56,7 @@ import {
   ROCKET_LANE_FLIGHT_MS,
   ROCKET_TRAIL_CLEANUP_MS,
   ROCKET_TRAIL_LIFESPAN_MS,
+  POWERUP_JOLT_TILE_FRACTION,
   PROPELLER_FLIGHT_MS,
   PROPELLER_LIFT_MS,
   PROPELLER_RETICLE_DELAY_MS,
@@ -64,7 +65,11 @@ import {
   SWAP_SET_DOWN_SQUASH,
   SWAP_SETTLE_MS,
   SWAP_TRAVEL_MS,
-  TNT_CASCADE_AFTER_DETONATION_MS
+  TNT_CASCADE_AFTER_DETONATION_MS,
+  TNT_SHOVE_BACK_MS,
+  TNT_SHOVE_OUT_MS,
+  TNT_SHOVE_REACH_CELLS,
+  TNT_SHOVE_TILE_FRACTION
 } from "../data/presentationTiming";
 import {
   cloneCell,
@@ -256,9 +261,9 @@ const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
   TNT_SHARD_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
 // Web-only tuning: Phaser camera shake intensity.
-const TNT_SHAKE_INTENSITY = 0.008;
+const TNT_SHAKE_INTENSITY = 0.012;
 // Web-only tuning: Phaser camera shake duration.
-const TNT_SHAKE_DURATION_MS = 220;
+const TNT_SHAKE_DURATION_MS = 260;
 // Web-only tuning: Phaser rocket sprite scale.
 const ROCKET_HEAD_SCALE = 0.72;
 // Web-only tuning: Phaser rocket choreography budget, including edge burst cleanup tails.
@@ -404,7 +409,7 @@ export class BoardScene extends Phaser.Scene {
   private lastScaleHeight = 0;
   private lastAnimationId = 0;
   private reducedMotion = false;
-  private boardJolt: { startMs: number; px: number } | null = null;
+  private boardJolt: { startMs: number; x: number; y: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
   private activePresentationSequenceId = 0;
@@ -524,10 +529,42 @@ export class BoardScene extends Phaser.Scene {
   // A hard landing knocks the whole board down a pixel or two and lets it come back. It is
   // driven from the frame loop, not a tween, so nothing that cancels tweens can leave the board
   // displaced.
-  private joltBoard(px: number): void {
+  private joltBoard(px: number, direction: { x: number; y: number } = { x: 0, y: 1 }, kind = "cascade-jolt"): void {
     if (this.reducedMotion || px <= 0) return;
-    this.boardJolt = { startMs: this.time.now, px };
-    this.recordPresentation("cascade-jolt", `px=${px}`);
+    this.boardJolt = { startMs: this.time.now, x: direction.x * px, y: direction.y * px };
+    this.recordPresentation(kind, `x=${direction.x * px};y=${direction.y * px}`);
+  }
+
+  // What a power-up's hit does to the board: a knock of a few hundredths of a cell.
+  private knockBoard(direction: { x: number; y: number }): void {
+    this.joltBoard(Math.max(1, Math.round(this.tileSize * POWERUP_JOLT_TILE_FRACTION)), direction, "powerup-knock");
+  }
+
+  // A blast shoves the pieces it did not destroy away from it; they spring back. Short enough to
+  // be over before the board falls.
+  private shoveSurvivors(origin: GridPosition, destroyed: ReadonlyArray<GridPosition>): void {
+    if (this.reducedMotion) return;
+    const gone = new Set(destroyed.map((position) => positionKey(position)));
+    const center = this.cellCenter(origin);
+    for (const [key, node] of this.occupantNodes) {
+      if (gone.has(key) || !node.active) continue;
+      const dx = node.x - center.x;
+      const dy = node.y - center.y;
+      const cells = Math.hypot(dx, dy) / Math.max(1, this.tileSize);
+      if (cells === 0 || cells > TNT_SHOVE_REACH_CELLS) continue;
+      const push = (this.tileSize * TNT_SHOVE_TILE_FRACTION * (1 - cells / (TNT_SHOVE_REACH_CELLS + 1))) / (cells * this.tileSize);
+      const home = { x: node.x, y: node.y };
+      this.tweens.add({
+        targets: node,
+        x: home.x + dx * push,
+        y: home.y + dy * push,
+        duration: TNT_SHOVE_OUT_MS,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          if (node.active) this.tweens.add({ targets: node, x: home.x, y: home.y, duration: TNT_SHOVE_BACK_MS, ease: "Back.easeOut" });
+        }
+      });
+    }
   }
 
   private syncBoardJolt(): void {
@@ -535,20 +572,20 @@ export class BoardScene extends Phaser.Scene {
     if (!camera) return;
     const jolt = this.boardJolt;
     if (!jolt) {
-      if (camera.scrollY !== 0) camera.scrollY = 0;
+      if (camera.scrollX !== 0 || camera.scrollY !== 0) camera.setScroll(0, 0);
       return;
     }
     const elapsed = this.time.now - jolt.startMs;
     if (elapsed >= CASCADE_JOLT_DOWN_MS + CASCADE_JOLT_RECOVER_MS) {
       this.boardJolt = null;
-      camera.scrollY = 0;
+      camera.setScroll(0, 0);
       return;
     }
     const depth = elapsed < CASCADE_JOLT_DOWN_MS
       ? Math.sin((elapsed / CASCADE_JOLT_DOWN_MS) * (Math.PI / 2))
       : Math.cos(((elapsed - CASCADE_JOLT_DOWN_MS) / CASCADE_JOLT_RECOVER_MS) * (Math.PI / 2));
     // Scrolling the camera up moves everything it shows down.
-    camera.scrollY = -jolt.px * depth;
+    camera.setScroll(-jolt.x * depth, -jolt.y * depth);
   }
 
   // The pool of shadow under a piece tightens and darkens as the piece hits the floor.
@@ -2702,6 +2739,7 @@ export class BoardScene extends Phaser.Scene {
       }, this.vfxCleanup);
       this.recordPresentation("shake-request", String(TNT_SHAKE_INTENSITY));
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
+      this.shoveSurvivors(event.origin, event.affectedPositions);
       plan.impacts.forEach(({ position, atMs }) => {
         const impact = () => {
           if (!this.sys.isActive() || !this.fxLayer) return;
@@ -2832,7 +2870,8 @@ export class BoardScene extends Phaser.Scene {
           x: end.x,
           y: end.y,
           duration: head.flightMs,
-          ease: "Linear",
+          // It leaves the launch cell from rest and is still gathering speed when it hits the edge.
+          ease: "Quad.easeIn",
           onUpdate: () => {
             const axisDistance = orientation === "horizontal"
               ? Math.abs(end.x - origin.x)
@@ -2855,10 +2894,11 @@ export class BoardScene extends Phaser.Scene {
             this.cueBoardAudio("rocketImpact", { gain: 0.38 });
             if (hasTrailBudget) trail.stop();
             impactBurst(this, layer, end.x, end.y, {
-              intensity: 0.58,
+              intensity: 0.8,
               lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
               tint: 0x8af1ff
             }, this.vfxCleanup);
+            this.knockBoard(orientation === "horizontal" ? { x: head.direction, y: 0 } : { x: 0, y: head.direction });
             this.vfxCleanup.release(sprite);
             this.vfxCleanup.release(flightTween);
             sprite.destroy();
@@ -2939,7 +2979,8 @@ export class BoardScene extends Phaser.Scene {
           from: 0,
           to: 1,
           duration: PROPELLER_FLIGHT_MS,
-          ease: "Sine.easeInOut",
+          // Slow off the lift, fastest at the end: it drops onto its target.
+          ease: "Quad.easeIn",
           onUpdate: (tween) => {
             const progress = tween.getValue() ?? 0;
             const point = interpolatePath(path, progress);
@@ -2955,7 +2996,9 @@ export class BoardScene extends Phaser.Scene {
             audioService.vibrate(18);
             drone.destroy();
             this.recordPropellerStrike(targets.length);
-            impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.72, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.9, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 0.7, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
+            this.knockBoard({ x: 0, y: 1 });
             targets.slice(1).forEach((target, index) => {
               this.vfxCleanup.schedule(this, (index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
                 if (!this.sys.isActive() || !this.fxLayer) return;
