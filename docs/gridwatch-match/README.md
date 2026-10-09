@@ -117,5 +117,16 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 - **Tish:** no rigged model exists in this repo. The menu needs a clean, text-free art plate; the
   V2 menu image has baked UI and cannot be used as a background.
 - **Measured performance** (cold load, frame time, memory against the classic board) is not done.
-- Playwright's bundled browsers for this version are not installed on this Mac; the e2e suite was
-  run with the installed Chrome for both projects (the mobile project normally uses WebKit).
+
+## 8. Evidence for the slice (2026-10-09, commit `36b0c45`)
+
+- `npm run test`: 529/529. `npm run validate:levels`: 100 passed.
+- The repo's e2e suite, 218/218, twice: once as production builds it (classic board) and once
+  built with `VITE_BOARD_THEME=darkRealism` (dark board, device-pixel canvas). Both runs used the
+  installed Chrome for the desktop and the iPhone 15 projects, because Playwright's bundled
+  browsers for this version are not downloaded on this Mac; **the mobile project normally runs
+  WebKit, and that was not run.**
+- On the dev instance, at 1280×800 and iPhone 15 size, in both themes: the level-1 swap
+  (0,0)→(1,0) resolves to 24/25 moves and 3/20 packets, no console error, no failed request.
+- Screenshots: `evidence/2026-10-09-slice/` (dark and classic at phone size, the held cell).
+- Not measured: cold load, frame time and memory against the classic board; a real phone.
