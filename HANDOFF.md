@@ -21,11 +21,31 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **Music as found:** `bgm_menu.mp3`, `bgm_gameplay.mp3`, `bgm_boss.mp3` are three different
   30-second files played with `HTMLAudioElement.loop` at volume 0.45 (`src/services/audio.ts`,
   called from `src/App.tsx`), which leaves a gap at each loop point.
-- **State:** one gameplay candidate generated (150 s) and sent to Russ to hear; nothing wired,
-  no code changed. Waiting on his verdict and his yes to the playback design. Generated files
-  are in the session scratch folder until he picks; nothing is committed under `public/` yet.
-  The plan's credit counter did not move after that generation, so the price of music on this
-  plan is unmeasured (their terms list 62 generation minutes a month for Creator).
+- **Music playback, built (local commit `7c94af2`):** `src/services/music.ts` (`MusicPlayer`)
+  replaces the looping `<audio>` element. A track is streamed, loops by crossfading into a fresh
+  copy 4 s before its end, and changes track over 1.5 s; levels go through a Web Audio gain node
+  because iOS ignores an element's volume (so the old music most likely played at full volume on
+  iPhones: not checked on a device). One audio context is shared with the board sounds and woken
+  by the first gesture. Russ approved this design ("yes to the design").
+- **Candidates:** six generated (A and B for menu, gameplay, boss; 150 s each), sent to Russ, and
+  prepared as loop files with `scripts/prepare-music.sh` (trimmed of their fades, levelled to
+  -24 LUFS, 112 kbps, 1.5 to 2 MB each). The raw candidates live only in the session scratch
+  folder.
+- **⚠ Audition state, deliberately NOT committed:** the working tree holds the six prepared files
+  (`public/assets/audio/web-overrides/music_{menu,gameplay,boss}_{a,b}.mp3`), a temporary
+  `?music=` switch in `src/services/audio.ts` (`b` = all B; `aba` = per track: menu, gameplay,
+  boss) and `scripts/prepare-music.sh`. The dev site serves that as `7c94af2-dirty-dev`. When
+  Russ picks: keep the three chosen files under final names, delete the other three, remove the
+  switch, commit, re-upload. Levels in `MUSIC_TRACKS` (menu 0.8, gameplay 0.6, boss 0.75) are a
+  first guess to tune with him.
+- **Verified:** unit 546/546, `tsc` clean; `art/gridwatch-match/qa/music-probe.mjs` passes in
+  installed Chrome and bundled WebKit on a local build and in Chrome on the live dev site (first
+  gesture starts the music, the loop overlaps two copies and never goes silent, a level start
+  crossfades to the gameplay track). **Not yet run on this branch: the e2e suite.** Nothing here
+  has been heard by me; the sound is Russ's to judge.
+- **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
+  price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
+  Creator; 15 were generated).
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
