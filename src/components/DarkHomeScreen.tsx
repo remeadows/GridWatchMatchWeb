@@ -53,13 +53,19 @@ export function DarkHomeScreen({ save, onResume, onQuickDeploy }: DarkHomeScreen
             <span style={{ width: `${completedLevels}%` }} />
           </div>
         </div>
-        <button className="dr-action dr-action-primary" onClick={onResume}>Resume Operations</button>
-        <button className="dr-action" onClick={() => onQuickDeploy(nextLevel)}>Quick Deploy</button>
-        <p className="dr-home-next">
-          <strong>Level {nextLevel}</strong>
-          <span aria-hidden="true"> · </span>
-          <span>{area.name}</span>
-        </p>
+        {/* Each action says what it does: one opens the sector list, the other starts the next level. */}
+        <button className="dr-action dr-action-primary" onClick={onResume}>
+          <span className="dr-action-label">Resume Operations</span>
+          <small className="dr-action-hint">Choose a sector and level</small>
+        </button>
+        <button className="dr-action" onClick={() => onQuickDeploy(nextLevel)}>
+          <span className="dr-action-label">Quick Deploy</span>
+          <small className="dr-action-hint">
+            Play <strong>Level {nextLevel}</strong>
+            <span aria-hidden="true"> · </span>
+            {area.name} now
+          </small>
+        </button>
         <div className="dr-home-status">
           <div className="dr-home-selected">
             <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt={`${hero.displayName}, selected agent`} />

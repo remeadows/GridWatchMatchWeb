@@ -36,6 +36,21 @@ production; `main` and the live game are exactly as the 2026-09-25 entry leaves 
 - **Next, when Russ has looked:** his notes on the look; a phone check; then the decision that
   is his: whether and how this goes to `main` and production (a production build needs
   `VITE_BOARD_THEME=darkRealism` or the default flipped in `src/services/buildInfo.ts`).
+- **⏭ TASK QUEUED BY RUSS (2026-10-09) — do after this development's changes are committed:**
+  tune the **tile animations**, the **power-up animations**, the **sound effects** and the
+  **music**. His words: "tweak the tile animations, the powerup animations, the sound and music
+  (i hate the music) - after we commit changes during this development". Not started; do not
+  begin it inside this art work. Where those live: motion and timing in `src/game/motion.ts`,
+  `src/game/presentation.ts`, `src/game/vfx.ts`, `src/game/vfxTiming.ts` and the playback code in
+  `src/game/BoardScene.ts`; audio in `src/services/audio.ts`, files in `public/assets/audio/`
+  (`bgm_menu.mp3`, `bgm_gameplay.mp3`, `bgm_boss.mp3`, the `sfx_*` and `vo_*` clips). The effects
+  were left exactly as classic by this work (`docs/gridwatch-match/README.md` §7), so that task
+  starts from the shipped behaviour. Ask Russ what he wants the music to be before replacing it.
+- **Russ's first notes on the dev build (2026-10-09):** "It's looking good". Two fixes made from
+  them, dark theme only: a "collect" objective now shows the piece it names beside the words
+  ("No one knows what a 'Packet' is unless you show them"), and the two menu actions say what
+  they do under their names (Resume Operations opens the sector list; Quick Deploy starts the
+  next level).
 - **Left as found:** an untracked `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
   and `git stash@{0}` (a stale lockfile bump from the old branch) are not mine to remove.
 - **QA probes:** `art/gridwatch-match/qa/`.

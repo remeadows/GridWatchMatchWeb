@@ -14,7 +14,7 @@ import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/a
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { DarkHomeScreen } from "./components/DarkHomeScreen";
-import { activeBoardTheme, matchV2BoosterAsset } from "./game/boardTheme";
+import { activeBoardTheme, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
@@ -1151,11 +1151,16 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       </div>
 
       <div className="objective-row">
-        {objectives.map((objective) => (
-          <div className="objective-chip" key={objective.id}>
-            {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
-          </div>
-        ))}
+        {objectives.map((objective) => {
+          // Dark realism: a "collect" objective shows the piece it names, so the word has a face.
+          const picture = activeBoardTheme() === "darkRealism" && objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          return (
+            <div className="objective-chip" key={objective.id}>
+              {picture && <img className="objective-picture" src={assetUrl(picture.path)} alt="" />}
+              {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
+            </div>
+          );
+        })}
       </div>
 
       <div className="game-board-panel">

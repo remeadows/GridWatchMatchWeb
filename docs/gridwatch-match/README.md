@@ -275,3 +275,20 @@ untouched code; the dev site posts no score by design); missing assets fail safe
 errors or failed requests ✔ on the built dev instance; load, frame time, memory compared ✔ on
 this Mac, **not on a phone**; background and re-entry ✔ with the heap note in §7; build, type
 check and tests ✔ (the repo has no lint script).
+
+## 11. Russ's first notes on the dev build (2026-10-09)
+
+"It's looking good", and two things the screen did not explain:
+
+- **"No one knows what a 'Packet' is unless you show them."** In the dark theme a collect
+  objective now shows the piece it names beside its words (`App.tsx`, the objective chip; the
+  text is unchanged, so the tests that read it still do). "Clear N cells" objectives name no
+  piece and stay words only.
+- **"What's the difference between Resume Operations and Quick Deploy?"** Resume Operations
+  opens the sector list; Quick Deploy starts the next unplayed level. Each button now says so
+  under its name ("Choose a sector and level", "Play Level N · sector now"); the names are
+  unchanged.
+- Checked: unit tests 533/533; `app.spec.ts` and `carry-over.spec.ts` 60/60 in each theme. The
+  full e2e suite was started after the upload; its result is in `HANDOFF.md` once it finishes.
+  Screens: `evidence/2026-10-09-first-notes/`.
+- He also queued a later task (animations, sound, music): see the top entry of `HANDOFF.md`.
