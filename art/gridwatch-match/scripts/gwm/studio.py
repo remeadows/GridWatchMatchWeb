@@ -71,7 +71,7 @@ def _world(scene):
 
 
 def build(scene, kind, quality, center_z=0.09, ortho_scale=None):
-    """Add the camera, lights and render settings for a 'piece' or a 'cell' sprite. `center_z` is
+    """Add the camera, lights and render settings for a 'piece', 'cell' or 'overlay' sprite. `center_z` is
     the piece's mid-height: the pitched camera aims there, so a tall piece stays centred on the
     sprite's pivot instead of drifting up the frame. `ortho_scale` overrides the units across the frame for a piece
     much smaller or larger than a tile, so every sprite fills its frame about equally."""
@@ -89,9 +89,11 @@ def build(scene, kind, quality, center_z=0.09, ortho_scale=None):
         camera.location = (0.0, target[1] - 8.0 * math.sin(pitch), target[2] + 8.0 * math.cos(pitch))
         camera_data.ortho_scale = ortho_scale or PIECE_ORTHO_SCALE
     else:
+        # 'cell' (opaque, fills the frame) and 'overlay' (transparent around its parts): both are
+        # seen from straight above so they register exactly on the grid.
         target = (0.0, 0.0, 0.0)
         camera.location = (0.0, 0.0, 8.0)
-        camera_data.ortho_scale = CELL_ORTHO_SCALE
+        camera_data.ortho_scale = ortho_scale or CELL_ORTHO_SCALE
     _look_at(camera, target)
     scene.camera = camera
 

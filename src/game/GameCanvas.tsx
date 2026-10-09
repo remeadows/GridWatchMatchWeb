@@ -84,7 +84,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: container,
-      backgroundColor: "#050b12",
+      backgroundColor: activeBoardTheme() === "darkRealism" ? "#050607" : "#050b12",
       ...(gwTestMode ? { fps: { forceSetTimeOut: true } } : {}),
       width: Math.round((container.clientWidth || 720) * pixelRatio),
       height: Math.round((container.clientHeight || 720) * pixelRatio),

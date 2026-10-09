@@ -45,12 +45,12 @@ Runtime IDs are the game's (`src/engine/types.ts`) and are never renamed.
 | booster tray (`rocket`, `rocketVertical`, `tnt`, `propeller`, `lightBall`) | booster icons | the power-up sprites above | **in game** |
 | cell, movable | drawn rounded rectangle | `cell_base` | **built, in game** |
 | cell, tile held for a drag | (none) | `cell_selected` | **built, in game** |
-| cell, design-locked (`debugDesignLocked`) | drawn amber clamps and padlock | `cell_locked` | to build |
-| cell, blocked (`!isMovable`) | drawn dark rectangle | `cell_blocked` | to build |
-| overlay `encryptedVolume` (hp) | drawn cyan film + number | `cell_overlay_encrypted` | to build |
-| underlay `malwarePropagation` (hp) | drawn red film + number | `cell_overlay_malware` | to build |
-| generator `honeypot` | drawn "H" | `cell_generator` | to build |
-| board surround | drawn rounded rectangle | `board_frame` | to build |
+| cell, design-locked (`debugDesignLocked`) | drawn amber clamps and padlock | `cell_lock` (clamps over the tile, on `cell_base`) | **built, in game** |
+| cell, blocked (`!isMovable`, no locked tile) | drawn dark rectangle | `cell_blocked` | **built, in game** (no shipped level starts with one) |
+| overlay `encryptedVolume` (hp) | drawn cyan film + number | `cell_encrypted` (pane over the tile) + live number | **built, in game** |
+| underlay `malwarePropagation` (hp) | drawn red film + number | `cell_malware` (the socket itself) + live number | **built, in game** |
+| generator `honeypot` | drawn "H" | `cell_generator` | **built, in game** |
+| board surround | drawn rounded rectangle | `board_frame` (cut into corners and one-cell lengths) | **built, in game** |
 
 The game has no tap-to-select: a tile is pressed and dragged. `cell_selected` therefore shows on
 the cell whose tile is being held, which is the only selection state that exists.
@@ -61,7 +61,9 @@ the cell whose tile is being held, which is the only selection state that exists
   z = 0 and is centred on the origin. Sprite pivot is the frame centre.
 - **Pieces:** orthographic camera pitched 14° off vertical, 1.10 units across the frame, so the
   near edge shows thickness. **Cells:** orthographic, straight down, exactly 1.0 unit, opaque, so
-  they abut into one grid. Same lights and colour management for both.
+  they abut into one grid. **Overlays** (the lock clamps, the encrypted pane, the board frame):
+  the cell camera, transparent between their parts, so they register on the grid over whatever
+  is under them. Same lights and colour management for all three.
 - **Light:** key from the upper left, cool fill, low rim, a dim soft world for the metal to
   reflect. No contact shadow is baked; the game draws its own.
 - **Colour:** Standard view transform, sRGB. AgX was tried first and turned the emissive cyan
@@ -71,7 +73,9 @@ the cell whose tile is being held, which is the only selection state that exists
   colour. The grit is layered: chipping on convex edges (an inside-AO edge mask times noise, its
   reach kept under the thinnest part's thickness), sparse pitting and directional scuffs, grime in
   recesses (an ordinary AO mask times noise), and mottling. Never one uniform scratch layer.
-- **Alpha:** pieces are straight alpha on a transparent film; cells are opaque.
+- **Alpha:** pieces and overlays are straight alpha on a transparent film; cells are opaque.
+- **Thin parts:** anything thinner than about 0.04 units sits wholly inside the edge-wear mask and
+  renders as bare metal. Thin trim uses `gwm_gunmetal` (little wear) or is made thicker.
 - **Sizes:** 1024 px masters in `art/gridwatch-match/previews/`, 256 px shipping sprites (a piece
   is at most about 140 device pixels wide on today's screens).
 - **Reproducible:** Cycles CPU, fixed seed 923101, no denoiser, metadata stripped.

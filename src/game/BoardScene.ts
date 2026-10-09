@@ -1,9 +1,12 @@
 import Phaser from "phaser";
 import { assetManifest, assetUrl } from "../data/assets";
 import {
+  boardTileSize,
   darkRealismChrome,
   matchV2Assets,
+  matchV2BoardPartAsset,
   matchV2CellAsset,
+  matchV2FrameSlices,
   matchV2PieceSizePx,
   matchV2PowerUpAsset,
   matchV2TextureKey,
@@ -181,6 +184,8 @@ const boardChrome = {
   lockedFrameHighlight: 0xfff0a3,
   lockedBadgeFill: 0x071018
 } as const;
+
+const contactShadowKey = "v2-contact-shadow";
 
 const powerUpImageKeys = {
   rocket_horizontal: "powerup-rocketH",
@@ -406,9 +411,13 @@ export class BoardScene extends Phaser.Scene {
   private playback: ResolutionPlayback | null = null;
   private occupantInstanceId = 0;
   private boardTheme: BoardThemeId = "classic";
-  // Dark realism only: each movable cell's socket image, and which one shows the held treatment.
+  // Dark realism only: each cell's socket image, and which one shows the held treatment.
   private cellSocketNodes = new Map<string, Phaser.GameObjects.Image>();
   private heldCellKey: string | null = null;
+  // Dark realism only: the frame round the board. It outlives a re-render and is rebuilt only
+  // when the board's place or size changes.
+  private frameLayer: Phaser.GameObjects.Container | null = null;
+  private frameSignature = "";
 
   constructor() {
     super("BoardScene");
@@ -455,7 +464,10 @@ export class BoardScene extends Phaser.Scene {
 
   create(): void {
     this.resolvePowerUpTextures();
+    this.ensureContactShadowTexture();
     this.fxUnderlay = this.add.container(0, 0);
+    this.frameLayer = this.add.container(0, 0);
+    this.frameSignature = "";
     this.layer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
     this.fxScreen = this.add.container(0, 0);
@@ -512,7 +524,9 @@ export class BoardScene extends Phaser.Scene {
     const base = matchV2CellAsset("movable");
     const held = matchV2CellAsset("held");
     if (!base || !held || !this.textures.exists(matchV2TextureKey(held.visualId))) return;
-    if (this.heldCellKey) this.cellSocketNodes.get(this.heldCellKey)?.setTexture(matchV2TextureKey(base.visualId));
+    // A socket goes back to whatever it was showing (a plain well, or one with malware in it).
+    const resting = this.heldCellKey ? this.cellSocketNodes.get(this.heldCellKey) : undefined;
+    resting?.setTexture((resting.getData("restingKey") as string | undefined) ?? matchV2TextureKey(base.visualId));
     if (wanted) this.cellSocketNodes.get(wanted)?.setTexture(matchV2TextureKey(held.visualId));
     this.heldCellKey = wanted;
   }
@@ -521,6 +535,22 @@ export class BoardScene extends Phaser.Scene {
     for (const id of Object.keys(powerUpImageKeys) as Array<keyof typeof powerUpImageKeys>) {
       powerUpTextures[id] = this.v2Texture(matchV2PowerUpAsset(id)) ?? powerUpImageKeys[id];
     }
+  }
+
+  /** Dark realism: one soft shadow, drawn once, that every piece on the board shares. */
+  private ensureContactShadowTexture(): void {
+    if (this.boardTheme !== "darkRealism" || this.textures.exists(contactShadowKey)) return;
+    const size = 96;
+    const canvas = this.textures.createCanvas(contactShadowKey, size, size);
+    if (!canvas) return;
+    const context = canvas.getContext();
+    const gradient = context.createRadialGradient(size / 2, size / 2, size * 0.16, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, "rgba(0, 0, 0, 0.62)");
+    gradient.addColorStop(0.62, "rgba(0, 0, 0, 0.4)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+    canvas.refresh();
   }
 
   private v2Texture(asset: { visualId: string } | undefined): string | null {
@@ -546,6 +576,8 @@ export class BoardScene extends Phaser.Scene {
     this.winPresentationActive = false;
     this.vfxCleanup.dispose();
     this.fxUnderlay = null;
+    this.frameLayer = null;
+    this.frameSignature = "";
     this.fxLayer = null;
     this.fxScreen = null;
   }
@@ -753,16 +785,81 @@ export class BoardScene extends Phaser.Scene {
     const boardHeight = this.tileSize * this.snapshot.grid.rows;
     const dark = this.boardTheme === "darkRealism";
     const background = this.add.graphics();
-    background.fillStyle(dark ? darkRealismChrome.boardFill : boardChrome.fill, dark ? darkRealismChrome.boardFillAlpha : boardChrome.fillAlpha);
-    background.fillRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
-    background.lineStyle(2, dark ? darkRealismChrome.boardStroke : boardChrome.stroke, dark ? darkRealismChrome.boardStrokeAlpha : boardChrome.strokeAlpha);
-    background.strokeRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
+    if (this.syncBoardFrame()) {
+      // The frame is its own sprites; only the bed under the cells is drawn here.
+      background.fillStyle(darkRealismChrome.boardFill, 1);
+      background.fillRect(this.boardBounds.x, this.boardBounds.y, boardWidth, boardHeight);
+    } else {
+      background.fillStyle(dark ? darkRealismChrome.boardFill : boardChrome.fill, dark ? darkRealismChrome.boardFillAlpha : boardChrome.fillAlpha);
+      background.fillRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
+      background.lineStyle(2, dark ? darkRealismChrome.boardStroke : boardChrome.stroke, dark ? darkRealismChrome.boardStrokeAlpha : boardChrome.strokeAlpha);
+      background.strokeRoundedRect(this.boardBounds.x - 8, this.boardBounds.y - 8, boardWidth + 16, boardHeight + 16, dark ? 4 : 10);
+    }
     this.layer.add(background);
 
     for (const position of this.snapshot.grid.allPositions) {
       this.renderCell(position, hiddenPositions, reusable);
     }
     for (const node of reusable.values()) node.destroy();
+  }
+
+  /**
+   * Dark realism: lays the frame sprite's corners and one-cell edge lengths round the board.
+   * Returns false when there is no frame to draw (classic, or the sprite did not load), and the
+   * caller then draws the plain surround.
+   */
+  private syncBoardFrame(): boolean {
+    const asset = matchV2BoardPartAsset("board:frame");
+    const key = this.v2Texture(asset);
+    const slices = asset && key ? matchV2FrameSlices(asset) : null;
+    if (!this.frameLayer || !this.snapshot || !asset || !key || !slices) {
+      this.frameLayer?.removeAll(true);
+      this.frameSignature = "";
+      return false;
+    }
+    const { rows, cols } = this.snapshot.grid;
+    const { x, y } = this.boardBounds;
+    const signature = `${x}:${y}:${this.tileSize}:${rows}:${cols}`;
+    if (signature === this.frameSignature) return true;
+    this.frameSignature = signature;
+    this.frameLayer.removeAll(true);
+
+    const texture = this.textures.get(key);
+    const { border, cell } = slices;
+    const far = border + cell;
+    if (!texture.has("tl")) {
+      const cuts: Array<[string, number, number, number, number]> = [
+        ["tl", 0, 0, border, border], ["t", border, 0, cell, border], ["tr", far, 0, border, border],
+        ["l", 0, border, border, cell], ["r", far, border, border, cell],
+        ["bl", 0, far, border, border], ["b", border, far, cell, border], ["br", far, far, border, border]
+      ];
+      for (const [name, cutX, cutY, width, height] of cuts) texture.add(name, 0, cutX, cutY, width, height);
+    }
+    const tile = this.tileSize;
+    const thick = Math.round(tile * (asset.frameBorder ?? 0));
+    const right = x + tile * cols;
+    const bottom = y + tile * rows;
+    const place = (frame: string, left: number, top: number, width: number, height: number) => {
+      this.frameLayer!.add(this.add.image(left, top, key, frame).setOrigin(0, 0).setDisplaySize(width, height));
+    };
+    // A dark bed under the frame, so a seam between two lengths is never see-through.
+    const bed = this.add.graphics();
+    bed.fillStyle(darkRealismChrome.boardFill, 1);
+    bed.fillRect(x - thick + 1, y - thick + 1, tile * cols + thick * 2 - 2, tile * rows + thick * 2 - 2);
+    this.frameLayer.add(bed);
+    for (let col = 0; col < cols; col += 1) {
+      place("t", x + col * tile, y - thick, tile, thick);
+      place("b", x + col * tile, bottom, tile, thick);
+    }
+    for (let row = 0; row < rows; row += 1) {
+      place("l", x - thick, y + row * tile, thick, tile);
+      place("r", right, y + row * tile, thick, tile);
+    }
+    place("tl", x - thick, y - thick, thick, thick);
+    place("tr", right, y - thick, thick, thick);
+    place("bl", x - thick, bottom, thick, thick);
+    place("br", right, bottom, thick, thick);
+    return true;
   }
 
   private renderCell(position: GridPosition, hiddenPositions: Set<string>, reusable: Map<number, Phaser.GameObjects.Container>): void {
@@ -791,13 +888,19 @@ export class BoardScene extends Phaser.Scene {
 
     const graphics = this.add.graphics();
     const dark = this.boardTheme === "darkRealism";
-    const socketKey = cell.generator || !(cell.isMovable || isDesignLocked) ? null : this.v2Texture(matchV2CellAsset("movable"));
+    // Dark realism: which rendered cell this is. Each fills the cell exactly, so cells abut.
+    const socketKey = cell.generator
+      ? this.v2Texture(matchV2BoardPartAsset("generator:honeypot"))
+      : cell.underlay
+        ? this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation")) ?? this.v2Texture(matchV2CellAsset("movable"))
+        : this.v2Texture(matchV2CellAsset(cell.isMovable || isDesignLocked ? "movable" : "blocked"));
+    const underlayInSocket = Boolean(cell.underlay) && socketKey === this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation"));
     if (socketKey) {
-      // The socket is a rendered recessed well that fills the cell exactly, so cells abut.
       const socket = this.add.image(topLeft.x + this.tileSize / 2, topLeft.y + this.tileSize / 2, socketKey);
       socket.setDisplaySize(this.tileSize, this.tileSize);
+      socket.setData("restingKey", socketKey);
       this.layer.add(socket);
-      this.cellSocketNodes.set(positionId, socket);
+      if (!cell.generator) this.cellSocketNodes.set(positionId, socket);
     } else {
       const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked;
       graphics.fillStyle(blocked ? darkRealismChrome.blockedCell : cellFill, blocked ? darkRealismChrome.blockedCellAlpha : cellAlpha);
@@ -805,7 +908,7 @@ export class BoardScene extends Phaser.Scene {
       graphics.lineStyle(1, blocked ? darkRealismChrome.blockedStroke : cellStroke, blocked ? darkRealismChrome.blockedStrokeAlpha : cellStrokeAlpha);
       graphics.strokeRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
     }
-    if (cell.underlay) {
+    if (cell.underlay && !underlayInSocket) {
       graphics.fillStyle(0xb4164a, 0.38);
       graphics.fillRoundedRect(topLeft.x + 5, topLeft.y + 5, this.tileSize - 10, this.tileSize - 10, radius);
     }
@@ -830,21 +933,51 @@ export class BoardScene extends Phaser.Scene {
       if (occupant) this.occupantNodes.set(positionId, occupant);
     }
 
+    const center = this.cellCenter(position);
     if (cell.overlay) {
-      const overlay = this.add.graphics();
-      overlay.fillStyle(0x6ce7ff, 0.24);
-      overlay.fillRoundedRect(topLeft.x + 8, topLeft.y + 8, this.tileSize - 16, this.tileSize - 16, radius);
-      overlay.lineStyle(2, 0x9ff3ff, 0.75);
-      overlay.strokeRoundedRect(topLeft.x + 8, topLeft.y + 8, this.tileSize - 16, this.tileSize - 16, radius);
-      this.layer.add(overlay);
-      this.addLabel(String(cell.overlay.hp), topLeft.x + this.tileSize - 16, topLeft.y + 16, "#dffbff", Math.floor(this.tileSize * 0.22), this.layer);
+      const overlayKey = this.v2Texture(matchV2BoardPartAsset("overlay:encryptedVolume"));
+      if (overlayKey) {
+        this.layer.add(this.add.image(center.x, center.y, overlayKey).setDisplaySize(this.tileSize, this.tileSize));
+        this.addStrengthPlate(cell.overlay.hp, center.x + this.tileSize * 0.3, center.y - this.tileSize * 0.3, 0x7fdcff, "#d9f6ff");
+      } else {
+        const overlay = this.add.graphics();
+        overlay.fillStyle(0x6ce7ff, 0.24);
+        overlay.fillRoundedRect(topLeft.x + 8, topLeft.y + 8, this.tileSize - 16, this.tileSize - 16, radius);
+        overlay.lineStyle(2, 0x9ff3ff, 0.75);
+        overlay.strokeRoundedRect(topLeft.x + 8, topLeft.y + 8, this.tileSize - 16, this.tileSize - 16, radius);
+        this.layer.add(overlay);
+        this.addLabel(String(cell.overlay.hp), topLeft.x + this.tileSize - 16, topLeft.y + 16, "#dffbff", Math.floor(this.tileSize * 0.22), this.layer);
+      }
     }
 
     if (cell.underlay) {
-      this.addLabel(String(cell.underlay.hp), topLeft.x + 16, topLeft.y + this.tileSize - 16, "#ff9ab4", Math.floor(this.tileSize * 0.2), this.layer);
+      if (underlayInSocket) this.addStrengthPlate(cell.underlay.hp, center.x - this.tileSize * 0.3, center.y + this.tileSize * 0.3, 0xff5a6e, "#ffd3d8");
+      else this.addLabel(String(cell.underlay.hp), topLeft.x + 16, topLeft.y + this.tileSize - 16, "#ff9ab4", Math.floor(this.tileSize * 0.2), this.layer);
     }
 
-    if (isDesignLocked) this.renderLockedCellHardware(position, topLeft, radius);
+    if (isDesignLocked) {
+      const lockKey = this.v2Texture(matchV2BoardPartAsset("cell:locked"));
+      if (lockKey) {
+        this.layer.add(this.add.image(center.x, center.y, lockKey).setDisplaySize(this.tileSize, this.tileSize));
+        this.recordLockedCellVisual(position);
+      } else this.renderLockedCellHardware(position, topLeft, radius);
+    }
+  }
+
+  /**
+   * Dark realism: the remaining strength of an overlay or underlay, as a live number on a small
+   * dark plate. Sized from the cell, so it is the same on a device-pixel canvas.
+   */
+  private addStrengthPlate(strength: number, x: number, y: number, edge: number, textColor: string): void {
+    if (!this.layer) return;
+    const size = Math.max(12, Math.round(this.tileSize * 0.27));
+    const plate = this.add.graphics();
+    plate.fillStyle(0x05070a, 0.94);
+    plate.fillRoundedRect(x - size / 2, y - size / 2, size, size, size * 0.18);
+    plate.lineStyle(Math.max(1, this.tileSize * 0.018), edge, 0.9);
+    plate.strokeRoundedRect(x - size / 2, y - size / 2, size, size, size * 0.18);
+    this.layer.add(plate);
+    this.addLabel(String(strength), x, y, textColor, Math.floor(size * 0.74), this.layer);
   }
 
   private renderLockedCellHardware(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
@@ -3150,11 +3283,23 @@ export class BoardScene extends Phaser.Scene {
     container.setData("appearance", this.occupantAppearance(cell));
     const profile = pieceDisplayProfile(this.tileSize);
 
-    const shadow = this.add.graphics();
-    shadow.fillStyle(0x000000, 0.32);
-    shadow.fillEllipse(0, this.tileSize * 0.24, profile.shadowWidthPx, profile.shadowHeightPx);
-    shadow.setName("shadow");
-    container.add(shadow);
+    // Dark realism draws the generator as its cell, so nothing sits on it.
+    if (cell.generator && !cell.baseTile && !cell.powerUp && this.v2Texture(matchV2BoardPartAsset("generator:honeypot"))) return;
+
+    if (this.boardTheme === "darkRealism" && this.textures.exists(contactShadowKey)) {
+      // A soft pool under the whole piece, cast away from the key light (upper left), in place of
+      // the classic's hard ellipse below it: these pieces sit down in a well.
+      const shadow = this.add.image(this.tileSize * 0.03, this.tileSize * 0.07, contactShadowKey);
+      shadow.setDisplaySize(this.tileSize * 0.94, this.tileSize * 0.9);
+      shadow.setName("shadow");
+      container.add(shadow);
+    } else {
+      const shadow = this.add.graphics();
+      shadow.fillStyle(0x000000, 0.32);
+      shadow.fillEllipse(0, this.tileSize * 0.24, profile.shadowWidthPx, profile.shadowHeightPx);
+      shadow.setName("shadow");
+      container.add(shadow);
+    }
 
     if (cell.baseTile) {
       const v2Asset = matchV2TileAsset(cell.baseTile);
@@ -3636,11 +3781,17 @@ export class BoardScene extends Phaser.Scene {
     const rows = this.snapshot.grid.rows;
     const width = this.scale.width;
     const height = this.scale.height;
-    const maxBoard = Math.min(width - 24, height - 24);
-    this.tileSize = Math.max(32, Math.floor(maxBoard / Math.max(rows, cols)));
+    // Dark realism keeps room for the frame, and its margin is in CSS pixels on a canvas that is
+    // drawn in device pixels (zoom is 1 / pixel ratio there).
+    const frame = matchV2BoardPartAsset("board:frame");
+    const frameBorder = this.v2Texture(frame) ? frame?.frameBorder ?? 0 : 0;
+    const margin = frameBorder > 0 ? 4 / this.scale.zoom : 12;
+    this.tileSize = boardTileSize(width, height, rows, cols, margin, frameBorder);
+    // On whole pixels under the frame, so its lengths and the cells meet without a soft seam.
+    const snap = frameBorder > 0 ? Math.round : (value: number) => value;
     this.boardBounds.setTo(
-      (width - this.tileSize * cols) / 2,
-      (height - this.tileSize * rows) / 2,
+      snap((width - this.tileSize * cols) / 2),
+      snap((height - this.tileSize * rows) / 2),
       this.tileSize * cols,
       this.tileSize * rows
     );

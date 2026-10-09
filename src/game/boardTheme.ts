@@ -20,6 +20,8 @@ export interface MatchV2Asset {
   sha256: string;
   /** Opaque extent as fractions of the frame: left, top, right, bottom. */
   opaqueBounds: number[];
+  /** The board frame only: its width in cells. The sprite is that border round one cell. */
+  frameBorder?: number;
 }
 
 export const matchV2Assets: readonly MatchV2Asset[] = manifestJson.assets;
@@ -75,10 +77,49 @@ export function matchV2BoosterAsset(booster: BoosterType): MatchV2Asset | undefi
   return matchV2PowerUpAsset(powerUp);
 }
 
-export type MatchV2CellState = "movable" | "held";
+export type MatchV2CellState = "movable" | "held" | "blocked";
 
 export function matchV2CellAsset(state: MatchV2CellState): MatchV2Asset | undefined {
   return assetFor(`cell:${state}`);
+}
+
+/**
+ * The other things a cell can carry, by the engine's own names: a design-locked tile's clamps,
+ * the `encryptedVolume` overlay, the socket under a `malwarePropagation` underlay, the `honeypot`
+ * generator, and the frame round the whole board.
+ */
+export type MatchV2BoardPart =
+  | "cell:locked"
+  | "overlay:encryptedVolume"
+  | "underlay:malwarePropagation"
+  | "generator:honeypot"
+  | "board:frame";
+
+export function matchV2BoardPartAsset(part: MatchV2BoardPart): MatchV2Asset | undefined {
+  return assetFor(part);
+}
+
+/**
+ * Where to cut the frame sprite, in its own pixels. It is a border of `frameBorder` cells round a
+ * one-cell opening, so it yields four corners and four one-cell edge lengths that are laid round
+ * a board of any size.
+ */
+export function matchV2FrameSlices(asset: MatchV2Asset): { border: number; cell: number } | null {
+  const border = asset.frameBorder;
+  if (!border || border <= 0) return null;
+  const borderPx = Math.round((asset.width * border) / (1 + 2 * border));
+  const cellPx = asset.width - 2 * borderPx;
+  return borderPx > 0 && cellPx > 0 ? { border: borderPx, cell: cellPx } : null;
+}
+
+/**
+ * Cell size for a canvas. `margin` is the clear space kept outside the board on each side, and
+ * `frameBorder` the frame's width in cells (0 without one), so the frame is always inside the
+ * canvas. With a 12 px margin and no frame this is the classic board's own sizing.
+ */
+export function boardTileSize(width: number, height: number, rows: number, cols: number, margin: number, frameBorder: number): number {
+  const room = Math.min(width, height) - 2 * margin;
+  return Math.max(32, Math.floor(room / (Math.max(rows, cols) + 2 * frameBorder)));
 }
 
 /**

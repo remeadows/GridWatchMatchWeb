@@ -285,11 +285,11 @@ def powerup_light_ball(mats, collection):
         g.prism(f"lightball_contact_{index}", g.shift(g.chamfered_rect(0.03, 0.016) if y == 0.0 else g.chamfered_rect(0.016, 0.03), x, y), rise - 0.02, rise + 0.004, mats["gwm_gold_contact"], collection, bevel=0.003)
 
 
-def _cell(mats, collection, selected):
+def _cell(mats, collection, selected, floor="gwm_well_floor"):
     """A recessed charcoal well. Its outer edge is the cell boundary, so cells abut into one grid."""
     opening = g.chamfered_rect(0.405, 0.405, bl=0.07, br=0.07, tr=0.07, tl=0.07)
     outer = g.chamfered_rect(0.5, 0.5, bl=0.02, br=0.02, tr=0.02, tl=0.02)
-    g.prism("cell_floor", g.chamfered_rect(0.5, 0.5), -0.10, -0.075, mats["gwm_well_floor"], collection)
+    g.prism("cell_floor", g.chamfered_rect(0.5, 0.5), -0.10, -0.075, mats[floor], collection)
     g.ring_prism("cell_frame", outer, opening, -0.075, 0.0, mats["gwm_socket_steel"], collection, bevel=0.010)
     for index, (sx, sy) in enumerate(((-1, -1), (1, -1), (1, 1), (-1, 1))):
         _fastener(f"cell_fastener_{index}", (sx * 0.452, sy * 0.452), 0.0, mats, collection, radius=0.013)
@@ -305,6 +305,127 @@ def cell_base(mats, collection):
 
 def cell_selected(mats, collection):
     _cell(mats, collection, selected=True)
+
+
+def _mirror(outline, sx, sy):
+    """An outline flipped into another quadrant, kept counter-clockwise."""
+    flipped = [(x * sx, y * sy) for x, y in outline]
+    return flipped if sx * sy > 0 else list(reversed(flipped))
+
+
+def cell_blocked(mats, collection):
+    """A well with a bolted cover plate: nothing seats here (a cell that is neither movable nor
+    holding a locked tile)."""
+    _cell(mats, collection, selected=False)
+    plate = g.chamfered_rect(0.39, 0.39, bl=0.065, br=0.065, tr=0.065, tl=0.065)
+    g.prism("blocked_plate", plate, -0.075, -0.018, mats["gwm_socket_steel"], collection, bevel=0.010)
+    for index, angle in enumerate((45, -45)):
+        g.prism(f"blocked_rib_{index}", g.rotated_rect((0.0, 0.0), 0.40, 0.026, math.radians(angle)), -0.06, -0.004, mats["gwm_gunmetal"], collection, bevel=0.005)
+    g.disc("blocked_boss", (0.0, 0.0), 0.085, -0.06, 0.0, mats["gwm_blackened_steel"], collection, sides=8, bevel=0.006)
+    g.disc("blocked_boss_bore", (0.0, 0.0), 0.04, 0.0, 0.0006, mats["gwm_void"], collection, sides=6)
+    for index, (x, y) in enumerate(((0.0, 0.29), (0.29, 0.0), (0.0, -0.29), (-0.29, 0.0))):
+        _fastener(f"blocked_fastener_{index}", (x, y), -0.018, mats, collection, radius=0.018)
+
+
+def cell_malware(mats, collection):
+    """The socket under a `malwarePropagation` underlay: lit veins through the floor and a broken
+    crimson strip round the lip. A tile sits over it, so the edge carries the state."""
+    _cell(mats, collection, selected=False, floor="gwm_infected_floor")
+    h, c = 0.388, 0.062
+    segments = (
+        [(-h, -0.10), (-h, h - c), (-h + c, h), (-0.05, h)],
+        [(0.14, h), (h - c, h), (h, h - c), (h, 0.20)],
+        [(h, -0.02), (h, -h + c), (h - c, -h), (0.02, -h)],
+        [(-0.20, -h), (-h + c, -h), (-h, -h + c), (-h, -0.26)],
+    )
+    for index, points in enumerate(segments):
+        g.prism(f"malware_strip_{index}", g.polyline_strip(points, 0.011), -0.075, -0.066, mats["gwm_emit_crimson"], collection)
+
+
+def cell_generator(mats, collection):
+    """The `honeypot` generator: a honeycomb grille over a lit chamber. It feeds the cell below it
+    (src/engine/gravity.ts), so the frame carries a marker on its lower edge."""
+    titanium = mats["gwm_brushed_titanium"]
+    _cell(mats, collection, selected=False, floor="gwm_void")
+    # the cover's bore is an octagon whose corners line up with the well's eight corners
+    bore = [(0.318 * math.cos(math.radians(202.5 + 45 * k)), 0.318 * math.sin(math.radians(202.5 + 45 * k))) for k in range(8)]
+    g.ring_prism("generator_cover", g.chamfered_rect(0.41, 0.41, bl=0.07, br=0.07, tr=0.07, tl=0.07), bore, -0.075, -0.02, mats["gwm_blackened_steel"], collection, bevel=0.008)
+    radius, pitch = 0.098, 0.184
+    centers = [(0.0, 0.0)] + [(pitch * math.cos(math.radians(30 + 60 * k)), pitch * math.sin(math.radians(30 + 60 * k))) for k in range(6)]
+    for index, center in enumerate(centers):
+        g.ring_prism(f"generator_comb_{index}", g.circle(radius + 0.008, center, sides=6), g.circle(radius - 0.02, center, sides=6), -0.075, -0.012 if index else -0.004, mats["gwm_gunmetal"], collection, bevel=0.005)
+        g.prism(f"generator_comb_light_{index}", g.circle(radius - 0.02, center, sides=6), -0.075, -0.066, mats["gwm_emit_rose" if index == 0 else "gwm_emit_rose_dim"], collection)
+    g.prism("generator_marker", [(-0.03, -0.436), (0.03, -0.436), (0.0, -0.476)], 0.0, 0.004, titanium, collection)
+
+
+def cell_lock(mats, collection):
+    """Four clamps over the corners of a design-locked tile (`debugDesignLocked`): a steel block,
+    a muted gold bracket on it, a jaw reaching in over the tile. Seen from straight above and
+    transparent between the clamps, so it registers on the cell and the tile shows through."""
+    steel, titanium = mats["gwm_blackened_steel"], mats["gwm_brushed_titanium"]
+    block = [(0.492, 0.492), (0.235, 0.492), (0.235, 0.40), (0.34, 0.40), (0.40, 0.34), (0.40, 0.235), (0.492, 0.235)]
+    bracket = [(0.476, 0.476), (0.262, 0.476), (0.262, 0.428), (0.36, 0.428), (0.428, 0.36), (0.428, 0.262), (0.476, 0.262)]
+    jaw = [(0.40, 0.34), (0.34, 0.40), (0.288, 0.348), (0.348, 0.288)]
+    for index, (sx, sy) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
+        g.prism(f"lock_block_{index}", _mirror(block, sx, sy), 0.0, 0.19, steel, collection, bevel=0.012)
+        g.prism(f"lock_bracket_{index}", _mirror(bracket, sx, sy), 0.19, 0.222, mats["gwm_gold_contact"], collection, bevel=0.008)
+        g.prism(f"lock_jaw_{index}", _mirror(jaw, sx, sy), 0.0, 0.17, titanium, collection, bevel=0.008)
+        _fastener(f"lock_fastener_{index}", (sx * 0.452, sy * 0.452), 0.222, mats, collection, radius=0.014)
+
+
+def cell_encrypted(mats, collection):
+    """An `encryptedVolume` overlay: a tinted pane in a steel frame, clamped over the tile, with a
+    dim cipher lattice in the glass. The tile reads through it; the remaining strength is drawn
+    live by the game."""
+    steel = mats["gwm_blackened_steel"]
+    outer = g.chamfered_rect(0.47, 0.47, bl=0.085, br=0.085, tr=0.085, tl=0.085)
+    inner = g.chamfered_rect(0.405, 0.405, bl=0.058, br=0.058, tr=0.058, tl=0.058)
+    g.ring_prism("encrypted_frame", outer, inner, 0.17, 0.225, steel, collection, bevel=0.010)
+    g.prism("encrypted_pane", g.inset(inner, -0.006), 0.19, 0.20, mats["gwm_cipher_pane"], collection)
+    lit_inner = g.chamfered_rect(0.396, 0.396, bl=0.054, br=0.054, tr=0.054, tl=0.054)
+    g.ring_prism("encrypted_edge_light", inner, lit_inner, 0.20, 0.204, mats["gwm_emit_cipher"], collection)
+    # a fine security mesh in the glass: each wire runs corner to corner of the pane's diamond
+    for index, offset in enumerate((-0.40, -0.20, 0.0, 0.20, 0.40)):
+        for direction, angle in enumerate((45, -45)):
+            # half the chord of the pane's opening at this distance from its centre, short of the chamfers
+            reach = min(0.405 * math.sqrt(2) - abs(offset), 0.53) - 0.008
+            shift = offset / math.sqrt(2)
+            center = (shift, -shift) if angle == 45 else (shift, shift)
+            g.prism(f"encrypted_lattice_{index}_{direction}", g.rotated_rect(center, reach, 0.0028, math.radians(angle)), 0.20, 0.2025, mats["gwm_emit_cipher_dim"], collection)
+    for index, (sx, sy) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
+        tab = [(0.47, 0.20), (0.47, 0.385), (0.385, 0.47), (0.20, 0.47), (0.20, 0.435), (0.37, 0.435), (0.435, 0.37), (0.435, 0.20)]
+        g.prism(f"encrypted_tab_{index}", _mirror(tab, sx, sy), 0.205, 0.245, mats["gwm_gunmetal"], collection, bevel=0.006)
+        _fastener(f"encrypted_fastener_{index}", (sx * 0.405, sy * 0.405), 0.245, mats, collection, radius=0.013)
+
+
+FRAME_BORDER = 0.1875  # the board frame's width in cells; 48 px of the 352 px sprite
+
+
+def board_frame(mats, collection):
+    """The surround, built round a one-cell opening so the game can cut it into four corners and
+    four one-cell edge lengths and lay those round a board of any size. Each edge length is its own
+    beam with a joint at both ends, so the cut lines fall on real seams and the repeat reads as a
+    segmented rail. Lit once as a whole, so every side carries the same key light as the pieces."""
+    steel = mats["gwm_blackened_steel"]
+    edge, joint = 0.5 + FRAME_BORDER, 0.007
+    g.ring_prism("frame_bed", g.chamfered_rect(edge, edge), g.chamfered_rect(0.5, 0.5), -0.10, -0.03, mats["gwm_socket_steel"], collection)
+    mid = 0.5 + FRAME_BORDER / 2
+    half_width = FRAME_BORDER / 2 - 0.012
+    for index, (cx, cy, angle) in enumerate(((0.0, mid, 0.0), (0.0, -mid, 0.0), (-mid, 0.0, math.pi / 2), (mid, 0.0, math.pi / 2))):
+        along = (math.cos(angle), math.sin(angle))
+        g.prism(f"frame_beam_{index}", g.rotated_rect((cx, cy), 0.5 - joint, half_width, angle), -0.03, 0.05, steel, collection, bevel=0.012)
+        g.prism(f"frame_channel_{index}", g.rotated_rect((cx, cy), 0.13, 0.016, angle), 0.05, 0.0506, mats["gwm_void"], collection)
+        for bolt, offset in enumerate((-0.25, 0.25)):
+            _fastener(f"frame_fastener_{index}_{bolt}", (cx + along[0] * offset, cy + along[1] * offset), 0.05, mats, collection, radius=0.02)
+        for end, offset in enumerate((-0.445, 0.445)):
+            g.prism(f"frame_cleat_{index}_{end}", g.rotated_rect((cx + along[0] * offset, cy + along[1] * offset), 0.03, half_width - 0.018, angle), 0.0, 0.066, mats["gwm_gunmetal"], collection, bevel=0.006)
+    lo, hi = 0.5 + joint, edge - 0.012
+    block = [(lo, lo), (hi, lo), (hi, hi - 0.03), (hi - 0.03, hi), (lo, hi)]
+    bracket = [(hi - 0.02, lo + 0.012), (hi - 0.02, hi - 0.04), (hi - 0.04, hi - 0.02), (lo + 0.012, hi - 0.02), (lo + 0.012, hi - 0.068), (hi - 0.076, hi - 0.068), (hi - 0.068, hi - 0.076), (hi - 0.068, lo + 0.012)]
+    for index, (sx, sy) in enumerate(((1, 1), (-1, 1), (-1, -1), (1, -1))):
+        g.prism(f"frame_corner_{index}", _mirror(block, sx, sy), -0.03, 0.07, steel, collection, bevel=0.012)
+        g.prism(f"frame_corner_bracket_{index}", _mirror(bracket, sx, sy), 0.07, 0.092, mats["gwm_gold_contact"], collection, bevel=0.007)
+        _fastener(f"frame_corner_fastener_{index}", (sx * (lo + 0.052), sy * (lo + 0.052)), 0.07, mats, collection, radius=0.022)
 
 
 ASSETS = {
@@ -355,5 +476,29 @@ ASSETS = {
     "cell_selected": {
         "build": cell_selected, "kind": "cell", "type": "cell", "runtime_id": "cell:held",
         "export": "cells/cell_selected.png", "size": 256,
+    },
+    "cell_blocked": {
+        "build": cell_blocked, "kind": "cell", "type": "cell", "runtime_id": "cell:blocked",
+        "export": "cells/cell_blocked.png", "size": 256,
+    },
+    "cell_malware": {
+        "build": cell_malware, "kind": "cell", "type": "cell", "runtime_id": "underlay:malwarePropagation",
+        "export": "cells/cell_malware.png", "size": 256,
+    },
+    "cell_generator": {
+        "build": cell_generator, "kind": "cell", "type": "cell", "runtime_id": "generator:honeypot",
+        "export": "cells/cell_generator.png", "size": 256,
+    },
+    "cell_lock": {
+        "build": cell_lock, "kind": "overlay", "type": "overlay", "runtime_id": "cell:locked",
+        "export": "cells/cell_lock.png", "size": 256,
+    },
+    "cell_encrypted": {
+        "build": cell_encrypted, "kind": "overlay", "type": "overlay", "runtime_id": "overlay:encryptedVolume",
+        "export": "cells/cell_encrypted.png", "size": 256,
+    },
+    "board_frame": {
+        "build": board_frame, "kind": "overlay", "type": "frame", "runtime_id": "board:frame",
+        "export": "board/board_frame.png", "size": 352, "ortho_scale": 1.0 + 2 * FRAME_BORDER, "frame_border": FRAME_BORDER,
     },
 }

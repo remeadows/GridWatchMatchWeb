@@ -20,6 +20,8 @@ METALS = {
     "gwm_well_floor": ((0.010, 0.0105, 0.012), 0.0, 0.72, (0.07, 0.07, 0.075), 0.25, 0.40, 0.50),
     "gwm_paint_crimson": ((0.30, 0.010, 0.008), 0.0, 0.46, (0.34, 0.34, 0.35), 0.95, 0.80, 0.30),
     "gwm_gold_contact": ((0.34, 0.22, 0.065), 1.0, 0.42, (0.86, 0.66, 0.30), 0.80, 0.90, 0.35),
+    # for parts thinner than the edge-wear reach, which would otherwise read as bare metal all over
+    "gwm_gunmetal": ((0.040, 0.041, 0.046), 1.0, 0.42, (0.34, 0.34, 0.35), 0.22, 0.70, 0.45),
 }
 
 # name: (colour, strength)
@@ -31,6 +33,10 @@ EMITTERS = {
     "gwm_emit_zero_ring": ((0.40, 0.25, 1.0), 0.85),
     "gwm_emit_zero_slash": ((0.30, 0.07, 1.0), 2.0),
     "gwm_emit_trace": ((1.0, 0.55, 0.12), 0.5),
+    "gwm_emit_cipher": ((0.0, 0.62, 1.0), 0.75),
+    "gwm_emit_cipher_dim": ((0.0, 0.62, 1.0), 0.30),
+    "gwm_emit_rose": ((1.0, 0.045, 0.30), 0.46),
+    "gwm_emit_rose_dim": ((1.0, 0.045, 0.30), 0.11),
 }
 
 
@@ -210,6 +216,43 @@ def _plasma(name, colour):
     return material
 
 
+def _tinted_pane(name, tint, alpha):
+    """A see-through tinted pane for overlays that sit over a tile. Part of the film stays
+    transparent through it (the sprite's alpha), so the game's own tile shows underneath; nothing
+    is refracted. `alpha` is per surface: the camera looks through a slab's top and bottom, so
+    the sprite's coverage is 1 - (1 - alpha)^2 (0.17 gives about 0.31)."""
+    material, tree, output = _new(name)
+    bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (600, 0)
+    tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    # Matt and barely specular: a glossy pane mirrors the area lights as white blocks.
+    bsdf.inputs["Base Color"].default_value = (*tint, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.7
+    bsdf.inputs["Specular IOR Level"].default_value = 0.08
+    bsdf.inputs["Emission Color"].default_value = (*tint, 1.0)
+    bsdf.inputs["Emission Strength"].default_value = 0.4
+    bsdf.inputs["Alpha"].default_value = alpha
+    return material
+
+
+def _infected(name, colour):
+    """The well floor with lit veins running through it: the same thin-contour light as the
+    plasma, on a rough dark floor instead of under a coat."""
+    material, tree, output = _new(name)
+    graph = _Graph(tree)
+    bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.location = (600, 0)
+    tree.links.new(bsdf.outputs["BSDF"], output.inputs["Surface"])
+    bsdf.inputs["Base Color"].default_value = (0.014, 0.006, 0.007, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.7
+    distance = graph.math("ABSOLUTE", graph.math("SUBTRACT", graph.noise(4.4, 3.0, 0.5), 0.5))
+    veins = graph.remap(distance, 0.0, 0.013, 1.0, 0.0)
+    halo = graph.remap(distance, 0.0, 0.07, 0.05, 0.0)
+    tree.links.new(graph.math("MULTIPLY_ADD", veins, 1.5, graph.math("ADD", halo, 0.004)), bsdf.inputs["Emission Strength"])
+    bsdf.inputs["Emission Color"].default_value = (*colour, 1.0)
+    return material
+
+
 def _flat(name, colour, roughness):
     material, tree, output = _new(name)
     bsdf = tree.nodes.new("ShaderNodeBsdfPrincipled")
@@ -229,6 +272,8 @@ def build():
         library[name] = _emitter(name, colour, strength)
     library["gwm_smoked_glass"] = _smoked_glass("gwm_smoked_glass")
     library["gwm_plasma_violet"] = _plasma("gwm_plasma_violet", (0.26, 0.06, 1.0))
+    library["gwm_cipher_pane"] = _tinted_pane("gwm_cipher_pane", (0.0, 0.022, 0.04), 0.17)
+    library["gwm_infected_floor"] = _infected("gwm_infected_floor", (1.0, 0.006, 0.012))
     library["gwm_flat_crimson"] = _flat("gwm_flat_crimson", (0.36, 0.012, 0.010), 0.6)
     library["gwm_void"] = _flat("gwm_void", (0.004, 0.004, 0.005), 0.9)
     return library

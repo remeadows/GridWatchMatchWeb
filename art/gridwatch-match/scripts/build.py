@@ -135,7 +135,9 @@ def build_one(asset_id, quality):
     bpy.ops.wm.save_as_mainfile(filepath=str(blend), compress=True, relative_remap=True)
 
     piece = spec["kind"] == "piece"
+    extra = {"frameBorder": spec["frame_border"]} if "frame_border" in spec else {}
     return {
+        **extra,
         "visualId": asset_id,
         "runtimeId": spec["runtime_id"],
         "type": spec["type"],
@@ -145,10 +147,10 @@ def build_one(asset_id, quality):
         "sha256": hashlib.sha256(shipping.read_bytes()).hexdigest(),
         "opaqueBounds": alpha_bounds(shipping),
         "pivot": [0.5, 0.5],
-        "unitsPerFrame": spec.get("ortho_scale", studio.PIECE_ORTHO_SCALE) if piece else studio.CELL_ORTHO_SCALE,
+        "unitsPerFrame": spec.get("ortho_scale", studio.PIECE_ORTHO_SCALE if piece else studio.CELL_ORTHO_SCALE),
         "cameraPitchDeg": studio.PIECE_PITCH_DEG if piece else 0.0,
         "lighting": "baked key upper-left, no contact shadow",
-        "alpha": "straight" if piece else "opaque",
+        "alpha": "opaque" if spec["kind"] == "cell" else "straight",
         "sourceBlend": str(blend.relative_to(ROOT)),
         "master": str(master.relative_to(ROOT)),
         "samples": settings["samples"],

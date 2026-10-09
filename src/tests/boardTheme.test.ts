@@ -3,9 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  boardTileSize,
   matchV2Assets,
+  matchV2BoardPartAsset,
   matchV2BoosterAsset,
   matchV2CellAsset,
+  matchV2FrameSlices,
   matchV2PieceSizePx,
   matchV2PowerUpAsset,
   matchV2TileAsset,
@@ -59,6 +62,40 @@ describe("match v2 asset manifest", () => {
     expect(matchV2BoosterAsset("lightBall")?.visualId).toBe("powerup_light_ball");
     expect(matchV2CellAsset("movable")?.visualId).toBe("cell_base");
     expect(matchV2CellAsset("held")?.visualId).toBe("cell_selected");
+    expect(matchV2CellAsset("blocked")?.visualId).toBe("cell_blocked");
+    expect(matchV2BoardPartAsset("cell:locked")?.visualId).toBe("cell_lock");
+    expect(matchV2BoardPartAsset("overlay:encryptedVolume")?.visualId).toBe("cell_encrypted");
+    expect(matchV2BoardPartAsset("underlay:malwarePropagation")?.visualId).toBe("cell_malware");
+    expect(matchV2BoardPartAsset("generator:honeypot")?.visualId).toBe("cell_generator");
+    expect(matchV2BoardPartAsset("board:frame")?.visualId).toBe("board_frame");
+  });
+
+  it("keeps the sprites that register on the grid exactly one cell wide", () => {
+    for (const asset of matchV2Assets.filter((candidate) => candidate.type === "cell")) {
+      expect(asset.opaqueBounds, asset.visualId).toEqual([0, 0, 1, 1]);
+    }
+  });
+
+  it("cuts the board frame into corners and one-cell edge lengths", () => {
+    const frame = matchV2BoardPartAsset("board:frame")!;
+    const slices = matchV2FrameSlices(frame)!;
+    expect(slices.border * 2 + slices.cell).toBe(frame.width);
+    expect(slices.border / slices.cell).toBeCloseTo(frame.frameBorder!, 5);
+    expect(matchV2FrameSlices(matchV2CellAsset("movable")!)).toBeNull();
+  });
+});
+
+describe("board sizing", () => {
+  it("is the classic sizing with a 12 px margin and no frame", () => {
+    expect(boardTileSize(720, 720, 7, 7, 12, 0)).toBe(Math.floor(696 / 7));
+    expect(boardTileSize(390, 600, 9, 7, 12, 0)).toBe(Math.floor(366 / 9));
+    expect(boardTileSize(100, 100, 9, 9, 12, 0)).toBe(32);
+  });
+
+  it("leaves room for the frame inside the canvas", () => {
+    const tile = boardTileSize(1170, 1170, 7, 7, 12, 0.1875);
+    expect(tile * (7 + 2 * 0.1875) + 24).toBeLessThanOrEqual(1170);
+    expect(boardTileSize(1170, 1170, 7, 7, 12, 0.1875)).toBeLessThan(boardTileSize(1170, 1170, 7, 7, 12, 0));
   });
 
   it("sizes a piece so its opaque body spans the asked fraction of the cell", () => {

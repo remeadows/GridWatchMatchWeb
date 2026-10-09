@@ -336,3 +336,591 @@
     margin: 0 0 clamp(20px, 4vw, 46px) clamp(16px, 3.4vw, 42px);
   }
 }
+
+/* ---- Game screen ------------------------------------------------------------------------ */
+/* Same markup as the classic screen (App.tsx GameScreen); only its treatment changes here. */
+
+:root[data-board-theme="darkRealism"] .game-hud {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.7fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas: "back level moves score rules";
+  gap: 0;
+  padding: 0;
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(17, 20, 24, 0.95), rgba(6, 8, 10, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-board-theme="darkRealism"] .game-hud:has(.timer) {
+  grid-template-columns: auto minmax(0, 1.7fr) repeat(3, minmax(0, 1fr)) auto;
+  grid-template-areas: "back level moves timer score rules";
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > button:first-child { grid-area: back; }
+:root[data-board-theme="darkRealism"] .game-hud > div:nth-child(2) { grid-area: level; }
+:root[data-board-theme="darkRealism"] .game-hud > div:nth-child(3) { grid-area: moves; }
+:root[data-board-theme="darkRealism"] .game-hud > .timer { grid-area: timer; }
+:root[data-board-theme="darkRealism"] .game-hud > div:nth-last-child(2) { grid-area: score; }
+:root[data-board-theme="darkRealism"] .game-hud > button:last-child { grid-area: rules; }
+
+:root[data-board-theme="darkRealism"] .game-hud > div {
+  min-width: 0;
+  padding: 9px 14px 10px;
+  border-left: 1px solid var(--line);
+}
+
+:root[data-board-theme="darkRealism"] .game-hud span {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+}
+
+:root[data-board-theme="darkRealism"] .game-hud strong {
+  overflow: hidden;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > div:nth-child(2) strong {
+  font-size: 0.86rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > div:nth-child(3) strong {
+  color: var(--cyan);
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > button {
+  align-self: stretch;
+  min-height: 48px;
+  border: 0;
+  border-radius: 0;
+  padding: 0 16px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > button:last-child {
+  border-left: 1px solid var(--line);
+}
+
+:root[data-board-theme="darkRealism"] .game-hud > button:hover:not(:disabled) {
+  color: var(--white);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+:root[data-board-theme="darkRealism"] .objective-chip,
+:root[data-board-theme="darkRealism"] .delta-line,
+:root[data-board-theme="darkRealism"] .toast {
+  border-color: var(--line);
+  border-radius: 3px;
+  background: rgba(9, 11, 14, 0.92);
+}
+
+:root[data-board-theme="darkRealism"] .objective-chip {
+  border-left: 2px solid var(--cyan);
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .delta-line {
+  color: var(--muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* The frame is drawn on the board itself, so the panel carries no border of its own. The 1px
+   border stays in the box (transparent): the canvas size the classic rule guarantees is kept. */
+:root[data-board-theme="darkRealism"] .game-board-panel {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The equipment dock: five equal bays, the piece above its name, the count in the corner. */
+:root[data-board-theme="darkRealism"] .booster-tray {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  justify-self: center;
+  width: min(100%, 640px);
+  padding: 8px 8px 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(17, 20, 24, 0.95), rgba(6, 8, 10, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray button[data-testid^="booster-"] {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 2px 7px;
+  border-color: var(--line);
+  border-radius: 2px;
+  background: linear-gradient(180deg, #0c0e11, #060709);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 10px 18px rgba(255, 255, 255, 0.02);
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray button[data-testid^="booster-"] img {
+  width: min(66px, 86%);
+  height: auto;
+  aspect-ratio: 1;
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray .booster-label {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray button[data-testid^="booster-"] strong {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 1.3rem;
+  padding: 1px 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 2px;
+  background: #040506;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray button.selected {
+  border-color: var(--cyan);
+  box-shadow: inset 0 0 0 1px var(--cyan), 0 0 18px color-mix(in srgb, var(--cyan), transparent 70%);
+}
+
+:root[data-board-theme="darkRealism"] .booster-tray .queue-meter {
+  grid-column: 1 / -1;
+  justify-self: center;
+  border: 0;
+  padding: 2px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+/* Test mode's QA buttons share the tray; they keep to the grid without taking a bay's look. */
+:root[data-board-theme="darkRealism"] .booster-tray button[data-testid^="qa-"] {
+  min-width: 0;
+  padding: 0 4px;
+  border-radius: 2px;
+  font-size: 0.6rem;
+}
+
+:root[data-board-theme="darkRealism"] .booster-drag-ghost {
+  border-color: var(--cyan);
+  border-radius: 3px;
+  background: #0a0c0f;
+  color: var(--text);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  :root[data-board-theme="darkRealism"] .game-hud {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "back level level rules"
+      "moves moves score score";
+  }
+
+  :root[data-board-theme="darkRealism"] .game-hud:has(.timer) {
+    grid-template-columns: auto repeat(3, minmax(0, 1fr)) auto;
+    grid-template-areas:
+      "back level level level rules"
+      "moves moves timer score score";
+  }
+
+  :root[data-board-theme="darkRealism"] .game-hud > div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  :root[data-board-theme="darkRealism"] .game-hud > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  :root[data-board-theme="darkRealism"] .game-hud > div:nth-child(n + 3) {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding-block: 7px;
+  }
+
+  /* Five bays across a phone: the names are set small enough to fit whole. */
+  :root[data-board-theme="darkRealism"] .booster-tray {
+    gap: 4px;
+    padding-inline: 5px;
+  }
+
+  :root[data-board-theme="darkRealism"] .booster-tray .booster-label {
+    font-size: 0.5rem;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* ---- Shared chrome: top bar, buttons, panels, the other screens --------------------------- */
+
+:root[data-board-theme="darkRealism"] {
+  --gold: #d2a94a;
+  --gold-glow: rgba(210, 169, 74, 0.18);
+  --dr-panel: linear-gradient(180deg, rgba(15, 18, 21, 0.95), rgba(6, 8, 10, 0.98));
+}
+
+/* :where() keeps this as weak as the base `button` rule it restates, so every classed button
+   (the menu's actions, the danger button, the tiles) still wins over it. */
+:where(:root[data-board-theme="darkRealism"]) button {
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #171b20, #0b0d10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  letter-spacing: 0.04em;
+}
+
+:root[data-board-theme="darkRealism"] .primary-action {
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--dr-steel));
+  background: linear-gradient(180deg, #15566b 0%, var(--dr-teal) 58%, #0a2a36 100%);
+  color: var(--white);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* No backdrop blur here: a blurred bar becomes the containing block for anything fixed inside
+   it, and on a phone the navigation is fixed to the foot of the screen (below). */
+:root[data-board-theme="darkRealism"] .top-bar {
+  border-bottom-color: var(--line-strong);
+  background: #050607;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  backdrop-filter: none;
+}
+
+:root[data-board-theme="darkRealism"] .brand,
+:root[data-board-theme="darkRealism"] .main-nav button {
+  box-shadow: none;
+}
+
+:root[data-board-theme="darkRealism"] .brand img {
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+:root[data-board-theme="darkRealism"] .brand-copy strong {
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .brand-copy small {
+  letter-spacing: 0.22em;
+}
+
+:root[data-board-theme="darkRealism"] .main-nav button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .main-nav button:hover:not(:disabled),
+:root[data-board-theme="darkRealism"] .main-nav button.active {
+  border-bottom-color: var(--cyan);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+:root[data-board-theme="darkRealism"] .currency {
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: #0a0c0f;
+}
+
+:root[data-board-theme="darkRealism"] .currency span {
+  letter-spacing: 0.18em;
+}
+
+:root[data-board-theme="darkRealism"] .page-header h1,
+:root[data-board-theme="darkRealism"] .modal h2,
+:root[data-board-theme="darkRealism"] .area-card h2,
+:root[data-board-theme="darkRealism"] .intel-card h2,
+:root[data-board-theme="darkRealism"] .store-card h2,
+:root[data-board-theme="darkRealism"] .info-section h2 {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .card-kicker,
+:root[data-board-theme="darkRealism"] .stat span,
+:root[data-board-theme="darkRealism"] .identity-row span,
+:root[data-board-theme="darkRealism"] .identity-status dt {
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+}
+
+:root[data-board-theme="darkRealism"] .area-card,
+:root[data-board-theme="darkRealism"] .hero-card,
+:root[data-board-theme="darkRealism"] .intel-card,
+:root[data-board-theme="darkRealism"] .store-card,
+:root[data-board-theme="darkRealism"] .info-section,
+:root[data-board-theme="darkRealism"] .modal,
+:root[data-board-theme="darkRealism"] .setting-row,
+:root[data-board-theme="darkRealism"] .segmented {
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: var(--dr-panel);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* A sector keeps its own colour as a thin bar; the card itself stays steel. */
+:root[data-board-theme="darkRealism"] .area-card {
+  border-left: 2px solid var(--accent);
+}
+
+/* Upper-case, spaced titles are wider than the classic ones: let the text column shrink and
+   set them a size down so a sector's name stays inside its card. */
+:root[data-board-theme="darkRealism"] .area-card > div {
+  min-width: 0;
+}
+
+:root[data-board-theme="darkRealism"] .area-card h2 {
+  font-size: 0.9rem;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+:root[data-board-theme="darkRealism"] .area-card img,
+:root[data-board-theme="darkRealism"] .hero-card img {
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  filter: saturate(0.78) contrast(1.04);
+}
+
+:root[data-board-theme="darkRealism"] .progress-line {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+}
+
+:root[data-board-theme="darkRealism"] .level-tile {
+  border-color: var(--line-strong);
+  border-radius: 3px;
+  background: var(--dr-panel);
+  color: var(--text);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .level-tile strong {
+  color: var(--gold);
+  font-size: 0.9rem;
+  letter-spacing: 0.1em;
+}
+
+:root[data-board-theme="darkRealism"] .level-tile small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-board-theme="darkRealism"] .level-tile:disabled strong {
+  color: var(--muted);
+}
+
+/* Settings: each checkbox is drawn as a switch. It is still the same checkbox underneath. */
+:root[data-board-theme="darkRealism"] .setting-row input[type="checkbox"] {
+  appearance: none;
+  flex: none;
+  width: 46px;
+  height: 24px;
+  margin: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: radial-gradient(circle at 12px 50%, var(--dr-steel-light) 0 7px, transparent 8px), #0a0c0f;
+  cursor: pointer;
+}
+
+:root[data-board-theme="darkRealism"] .setting-row input[type="checkbox"]:checked {
+  border-color: color-mix(in srgb, var(--cyan) 62%, var(--dr-steel));
+  background: radial-gradient(circle at calc(100% - 12px) 50%, var(--white) 0 7px, transparent 8px), var(--dr-teal);
+}
+
+:root[data-board-theme="darkRealism"] .setting-row input[type="checkbox"]:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}
+
+:root[data-board-theme="darkRealism"] .setting-row span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .overlay {
+  background: rgba(1, 2, 3, 0.8);
+}
+
+:root[data-board-theme="darkRealism"] .modal {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 24px 80px rgba(0, 0, 0, 0.7);
+}
+
+:root[data-board-theme="darkRealism"] .modal-actions button {
+  flex: 1 1 140px;
+  min-height: 48px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+:root[data-board-theme="darkRealism"] .carry-banner {
+  background: #07090b;
+}
+
+/* ---- Phone: the navigation is a tab bar at the foot of the screen ------------------------- */
+/* The same five buttons, in the same element; only where they sit changes. The icons are
+   masks, so each takes its button's colour. Not on the game screen: there the board and the
+   equipment dock need the height, so the navigation stays a compact row under the brand. */
+@media (max-width: 760px) {
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) {
+    padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0;
+    width: auto;
+    overflow: visible;
+    padding: 0 0 env(safe-area-inset-bottom, 0px);
+    border-top: 1px solid var(--line-strong);
+    background: #050607;
+    box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.6);
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button {
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: 4px;
+    min-height: 56px;
+    padding: 0 2px;
+    border-top: 2px solid transparent;
+    border-bottom: 0;
+    font-size: 0.54rem;
+    letter-spacing: 0.1em;
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button::before {
+    content: "";
+    width: 20px;
+    height: 20px;
+    background: currentColor;
+    -webkit-mask: center / contain no-repeat;
+    mask: center / contain no-repeat;
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:hover:not(:disabled),
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button.active {
+    border-top-color: var(--cyan);
+    color: var(--cyan);
+  }
+
+  /* Operations */
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:nth-child(1)::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7'/%3E%3Crect x='13.5' y='3.5' width='7' height='7'/%3E%3Crect x='3.5' y='13.5' width='7' height='7'/%3E%3Crect x='13.5' y='13.5' width='7' height='7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Crect x='3.5' y='3.5' width='7' height='7'/%3E%3Crect x='13.5' y='3.5' width='7' height='7'/%3E%3Crect x='3.5' y='13.5' width='7' height='7'/%3E%3Crect x='13.5' y='13.5' width='7' height='7'/%3E%3C/svg%3E");
+  }
+
+  /* Intel */
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:nth-child(2)::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M6 3h8l5 5v13H6z'/%3E%3Cpath d='M9 13h7M9 17h7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M6 3h8l5 5v13H6z'/%3E%3Cpath d='M9 13h7M9 17h7'/%3E%3C/svg%3E");
+  }
+
+  /* Account */
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:nth-child(3)::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1-5 4-7 8-7s7 2 8 7'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Ccircle cx='12' cy='8' r='4'/%3E%3Cpath d='M4 21c1-5 4-7 8-7s7 2 8 7'/%3E%3C/svg%3E");
+  }
+
+  /* Store */
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:nth-child(4)::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M4 8h16l-1.5 12h-13z'/%3E%3Cpath d='M8 8V6a4 4 0 0 1 8 0v2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M4 8h16l-1.5 12h-13z'/%3E%3Cpath d='M8 8V6a4 4 0 0 1 8 0v2'/%3E%3C/svg%3E");
+  }
+
+  /* Settings */
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .main-nav button:nth-child(5)::before {
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M4 7h10M18 7h2M4 17h2M10 17h10'/%3E%3Ccircle cx='16' cy='7' r='2'/%3E%3Ccircle cx='8' cy='17' r='2'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linejoin='round' stroke-linecap='round'%3E%3Cpath d='M4 7h10M18 7h2M4 17h2M10 17h10'/%3E%3Ccircle cx='16' cy='7' r='2'/%3E%3Ccircle cx='8' cy='17' r='2'/%3E%3C/svg%3E");
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) .dev-build-badge {
+    bottom: calc(62px + env(safe-area-inset-bottom, 0px));
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:has(.game-layout) .main-nav button {
+    min-height: 34px;
+    padding: 0 8px;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+  }
+
+  :root[data-board-theme="darkRealism"] .modal-actions button {
+    padding: 0 8px;
+    font-size: 0.76rem;
+    letter-spacing: 0.08em;
+  }
+
+  /* The menu fills what is left between the one-row top bar and the tab bar. */
+  :root[data-board-theme="darkRealism"] .dr-home {
+    grid-template-rows: minmax(216px, 1fr) auto;
+    min-height: calc(100dvh - var(--gw-account-bar-height, 0px) - 58px - 58px - env(safe-area-inset-bottom, 0px));
+  }
+
+  :root[data-board-theme="darkRealism"] .dr-home-panel {
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  :root[data-board-theme="darkRealism"] .dr-action {
+    min-height: 50px;
+  }
+}
