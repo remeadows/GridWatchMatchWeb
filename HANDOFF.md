@@ -2,7 +2,32 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PUSHED, PR #77 open, not merged, not in production (branch `dev/dark-realism`)
+## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. LOCAL ONLY (branch `dev/mechanics`), in design
+
+**Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
+work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
+`1881b04`, no upstream), builds through the dev site, no push or PR until he says, and the full
+gates (unit, levels, e2e in both themes, the QA probes) before a push is even proposed.
+
+- **Scope (his answer when asked what "mechanics" covers):** feel only — tile animations,
+  power-up animations, sound effects, and replacing the music ("i hate the music"). Not rules,
+  not new mechanics, not balance. Worked as four pieces, one at a time, each with a short design
+  he approves and a dev build he plays: music, then tile motion, power-up motion, sound effects.
+- **Music, decided by Russ:** dark ambient (slow low drones, distant city and rain, no melody or
+  beat, under the effects, seamless 2 to 3 minute loops); generated on his ElevenLabs account
+  (Creator plan). **Licence, his call:** ElevenLabs' music terms exclude "Studio Games" (a
+  monetised game on more than one platform) on self-serve plans; told this, he chose
+  "ElevenLabs anyway". Revisit if Match is monetised on both web and iOS.
+- **Music as found:** `bgm_menu.mp3`, `bgm_gameplay.mp3`, `bgm_boss.mp3` are three different
+  30-second files played with `HTMLAudioElement.loop` at volume 0.45 (`src/services/audio.ts`,
+  called from `src/App.tsx`), which leaves a gap at each loop point.
+- **State:** one gameplay candidate generated (150 s) and sent to Russ to hear; nothing wired,
+  no code changed. Waiting on his verdict and his yes to the playback design. Generated files
+  are in the session scratch folder until he picks; nothing is committed under `public/` yet.
+  The plan's credit counter did not move after that generation, so the price of music on this
+  plan is unmeasured (their terms list 62 generation minutes a month for Creator).
+
+## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
 **Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
 and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look
