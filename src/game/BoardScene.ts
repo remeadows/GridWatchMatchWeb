@@ -544,6 +544,75 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation(kind, `x=${direction.x * px};y=${direction.y * px}`);
   }
 
+  // Corner brackets round the cells a power-up is about to hit, drawn before it hits them so the
+  // player can see what it is going to do. One Graphics however many cells; it fades in, holds for
+  // `holdMs` and fades out, or is removed early by destroying what this returns.
+  private markTargets(
+    positions: ReadonlyArray<GridPosition>,
+    tint: number,
+    holdMs: number,
+    options: { asOneArea?: boolean; closeIn?: boolean; fill?: number } = {}
+  ): Phaser.GameObjects.Graphics | null {
+    if (!this.fxLayer || this.reducedMotion || positions.length === 0) return null;
+    const half = this.tileSize / 2;
+    const centers = positions.map((position) => this.cellCenter(position));
+    const rects = options.asOneArea
+      ? [{
+          left: Math.min(...centers.map((c) => c.x)) - half,
+          top: Math.min(...centers.map((c) => c.y)) - half,
+          right: Math.max(...centers.map((c) => c.x)) + half,
+          bottom: Math.max(...centers.map((c) => c.y)) + half
+        }]
+      : centers.map((c) => ({ left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half }));
+    // Drawn about its own middle, so that a single mark can close in on its cell by scaling.
+    const middle = {
+      x: (Math.min(...rects.map((r) => r.left)) + Math.max(...rects.map((r) => r.right))) / 2,
+      y: (Math.min(...rects.map((r) => r.top)) + Math.max(...rects.map((r) => r.bottom))) / 2
+    };
+    const mark = this.add.graphics({ x: middle.x - this.fxLayer.x, y: middle.y - this.fxLayer.y });
+    const inset = this.tileSize * 0.07;
+    const arm = this.tileSize * 0.26;
+    const line = Math.max(2, Math.round(this.tileSize * 0.045));
+    for (const rect of rects) {
+      const left = rect.left - middle.x + inset;
+      const top = rect.top - middle.y + inset;
+      const right = rect.right - middle.x - inset;
+      const bottom = rect.bottom - middle.y - inset;
+      if (options.fill) {
+        mark.fillStyle(tint, options.fill);
+        mark.fillRect(left, top, right - left, bottom - top);
+      }
+      mark.lineStyle(line, tint, 0.95);
+      for (const [x, y, dx, dy] of [[left, top, 1, 1], [right, top, -1, 1], [left, bottom, 1, -1], [right, bottom, -1, -1]] as const) {
+        mark.beginPath();
+        mark.moveTo(x + dx * arm, y);
+        mark.lineTo(x, y);
+        mark.lineTo(x, y + dy * arm);
+        mark.strokePath();
+      }
+    }
+    mark.setBlendMode(Phaser.BlendModes.ADD);
+    mark.setAlpha(0);
+    if (options.closeIn) mark.setScale(1.7);
+    this.fxLayer.add(mark);
+    this.vfxCleanup.trackObject(mark);
+    this.vfxCleanup.trackTween(this.tweens.add({ targets: mark, alpha: 1, scaleX: 1, scaleY: 1, duration: options.closeIn ? 120 : 60, ease: "Quad.easeOut" }));
+    this.vfxCleanup.schedule(this, Math.max(60, holdMs), () => {
+      if (!mark.active) return;
+      this.vfxCleanup.trackTween(this.tweens.add({
+        targets: mark,
+        alpha: 0,
+        duration: 100,
+        ease: "Sine.easeOut",
+        onComplete: () => {
+          this.vfxCleanup.release(mark);
+          mark.destroy();
+        }
+      }));
+    });
+    return mark;
+  }
+
   // What a power-up's hit does to the board: a knock of a few hundredths of a cell.
   private knockBoard(direction: { x: number; y: number }): void {
     this.joltBoard(Math.max(1, Math.round(this.tileSize * POWERUP_JOLT_TILE_FRACTION)), direction, "powerup-knock");
@@ -2742,6 +2811,9 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("tnt-arm");
     this.recordPresentation("powerup-charge", "tnt");
     this.cueBoardAudio("tntArm");
+    if (this.markTargets([event.origin, ...event.affectedPositions], 0xff9a43, plan.detonationAtMs, { asOneArea: true })) {
+      this.recordPresentation("target-mark", "tnt");
+    }
     const fxLayer = this.fxLayer;
     const fuse = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpTextures.tnt);
@@ -2865,6 +2937,10 @@ export class BoardScene extends Phaser.Scene {
     this.cueBoardAudio("rocketLaunch");
     this.recordRocketLaunch(plan.heads.length);
     if (this.reducedMotion) return;
+    const laneMs = plan.ignitionMs + Math.max(0, ...plan.heads.map((head) => head.flightMs));
+    if (this.markTargets([event.origin, ...plan.heads.map((head) => head.destination)], 0x58e6ff, laneMs, { asOneArea: true, fill: 0.12 })) {
+      this.recordPresentation("target-mark", "rocket");
+    }
 
     const ignition = this.add.image(origin.x, origin.y, vfxTextureKeys.hotCore);
     ignition.setTint(0xd8fbff);
@@ -3053,6 +3129,8 @@ export class BoardScene extends Phaser.Scene {
         layer.add(reticle);
         this.vfxCleanup.trackObject(reticle);
         this.vfxCleanup.schedule(this, PROPELLER_RETICLE_DELAY_MS, () => this.recordPresentation("propeller-reticle", positionKey(plan.target)));
+        const lock = this.markTargets([plan.target], 0x70f2ea, PROPELLER_FLIGHT_MS, { closeIn: true });
+        if (lock) this.recordPresentation("target-mark", "propeller");
         this.vfxCleanup.trackTween(this.tweens.add({ targets: reticle, alpha: 0, scaleX: reticle.scaleX * 1.4, scaleY: reticle.scaleY * 1.4, duration: PROPELLER_FLIGHT_MS, onComplete: () => reticle.destroy() }));
         const path = quadraticFlightPath(
           { x: drone.x, y: drone.y },
@@ -3117,6 +3195,9 @@ export class BoardScene extends Phaser.Scene {
 
     const plan = lightBallWavePlan(event.origin, targets, this.snapshot.rngSeed);
     this.recordPresentation("lightBall-dim");
+    if (this.markTargets(targets, 0xf15bd7, LIGHTBALL_DIM_MS + plan.releaseAtMs)) {
+      this.recordPresentation("target-mark", "lightBall");
+    }
     const seed = this.snapshot.rngSeed;
     const screenLayer = this.fxScreen;
     const dimmer = screenLayer ? this.add.graphics() : undefined;
