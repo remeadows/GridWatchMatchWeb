@@ -89,7 +89,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, mergeTargets, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { blastCuePlayback, cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, clearCuePlayback, landingCuePlayback, mergeTargets, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -2234,7 +2234,7 @@ export class BoardScene extends Phaser.Scene {
         });
         if (!playedClusterBody) {
           playedClusterBody = true;
-          this.cueBoardAudio("tileClusterBody", { gain: 0.62 });
+          this.cueBoardAudio("tileClusterBody", clearCuePlayback(popObjects.length));
         }
         const variation = tilePopVariation(entry.position, seed);
         this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
@@ -2580,6 +2580,18 @@ export class BoardScene extends Phaser.Scene {
     // The knock comes with the heaviest landing: the long drop if there is one, else the first.
     const joltFromCells = longestFallCells >= CASCADE_JOLT_MIN_CELLS ? longestFallCells : 0;
     let jolted = false;
+    // Pieces that fall for the same time land together and make one sound between them; at most
+    // three such sounds a cascade, the heaviest groups last.
+    const fallMs = (entry: (typeof allTweens)[number]) =>
+      Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
+    const landingGroups = new Map<number, { count: number; cells: number; cued: boolean }>();
+    for (const entry of allTweens) {
+      const group = landingGroups.get(fallMs(entry)) ?? { count: 0, cells: 0, cued: false };
+      group.count += 1;
+      group.cells = Math.max(group.cells, entry.distanceCells);
+      landingGroups.set(fallMs(entry), group);
+    }
+    const voicedLandings = new Set([...landingGroups.keys()].sort((a, b) => a - b).filter((_, index, all) => index === 0 || index >= all.length - 2));
 
     for (const entry of allTweens) {
       const fallDuration = Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
@@ -2601,7 +2613,11 @@ export class BoardScene extends Phaser.Scene {
           if (!firstLandingRecorded) {
             firstLandingRecorded = true;
             this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
-            this.cueBoardAudio("cascadeLand", { gain: 0.34 });
+          }
+          const landed = landingGroups.get(fallDuration);
+          if (landed && !landed.cued && voicedLandings.has(fallDuration)) {
+            landed.cued = true;
+            this.cueBoardAudio("cascadeLand", landingCuePlayback(landing.strength, landed.count));
           }
           if (joltPx > 0 && !jolted && entry.distanceCells >= joltFromCells) {
             jolted = true;
@@ -2853,7 +2869,7 @@ export class BoardScene extends Phaser.Scene {
       this.recordPresentation("tnt-detonation");
       onContact?.(event.origin);
       this.recordPresentation("powerup-impact", "tnt");
-      this.cueBoardAudio("tntBlast");
+      this.cueBoardAudio("tntBlast", blastCuePlayback("tnt", event.affectedPositions.length));
       audioService.vibrate([18, 35, 28]);
       if (onImpact) {
         this.vfxCleanup.schedule(this, TNT_CASCADE_AFTER_DETONATION_MS, () => {
@@ -3052,7 +3068,7 @@ export class BoardScene extends Phaser.Scene {
             while (nextPassIndex < head.passTimes.length) playPass();
             this.recordPresentation("rocket-edge-impact", positionKey(head.destination));
             this.recordPresentation("powerup-impact", "rocket");
-            this.cueBoardAudio("rocketImpact", { gain: 0.38 });
+            this.cueBoardAudio("rocketImpact", blastCuePlayback("rocket", head.passTimes.length));
             if (hasTrailBudget) trail.stop();
             impactBurst(this, layer, end.x, end.y, {
               intensity: 0.8,
@@ -3235,7 +3251,7 @@ export class BoardScene extends Phaser.Scene {
       if (!this.sys.isActive() || !this.fxLayer || !this.fxLayer.active) return;
       this.recordPresentation("powerup-impact", "lightBall");
       this.recordPresentation("lightBall-release");
-      this.cueBoardAudio("lightBallRelease");
+      this.cueBoardAudio("lightBallRelease", blastCuePlayback("lightBall", targets.length));
       audioService.vibrate(18);
       if (this.fxScreen) {
         this.recordPresentation("screen-flash", "alpha=0.22;durationMs=80");

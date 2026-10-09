@@ -4,7 +4,10 @@ import {
   canonicalComboKey,
   cascadeFallDurationMs,
   cascadeJoltPx,
+  blastCuePlayback,
   cascadeLandingPlan,
+  clearCuePlayback,
+  landingCuePlayback,
   mergeTargets,
   chainPlaybackRate,
   comboChoreographyPlan,
@@ -513,6 +516,39 @@ describe("cascadeLandingPlan", () => {
     expect(short.strength).toBe(0.35);
     expect(short.squashMs + short.hopMs + short.settleMs).toBe(190);
     expect(cascadeLandingPlan(Number.NaN, 100, 120)).toEqual(cascadeLandingPlan(0, 100, 120));
+  });
+});
+
+describe("sounds that follow the action", () => {
+  it("makes a landing louder and lower the harder and the heavier it is", () => {
+    const tick = landingCuePlayback(0.35, 1);
+    const thud = landingCuePlayback(1, 12);
+    expect(tick.gain).toBeLessThan(landingCuePlayback(0.7, 1).gain);
+    expect(landingCuePlayback(0.35, 6).gain).toBeGreaterThan(tick.gain);
+    expect(thud.gain).toBeCloseTo(0.62, 5);
+    expect(thud.playbackRate).toBeCloseTo(0.8, 5);
+    expect(tick.playbackRate).toBeGreaterThan(1);
+    expect(landingCuePlayback(9, 99)).toEqual(thud);
+    expect(landingCuePlayback(Number.NaN, 1).gain).toBeCloseTo(0.22, 5);
+  });
+
+  it("makes a bigger clear bigger and deeper, up to seven pieces", () => {
+    expect(clearCuePlayback(3)).toEqual({ gain: 0.5, playbackRate: 1.06 });
+    expect(clearCuePlayback(5).gain).toBeGreaterThan(clearCuePlayback(3).gain);
+    expect(clearCuePlayback(5).playbackRate).toBeLessThan(clearCuePlayback(3).playbackRate);
+    expect(clearCuePlayback(7)).toEqual(clearCuePlayback(20));
+  });
+
+  it("scales a power-up's hit by what it destroyed, within fixed limits", () => {
+    for (const kind of ["tnt", "rocket", "lightBall"] as const) {
+      const small = blastCuePlayback(kind, 1);
+      const large = blastCuePlayback(kind, 40);
+      expect(large.gain).toBeGreaterThan(small.gain);
+      expect(large.playbackRate).toBeLessThan(small.playbackRate);
+      expect(large.gain).toBeLessThanOrEqual(0.9);
+      expect(small.gain).toBeGreaterThanOrEqual(0.3);
+      expect(blastCuePlayback(kind, 400)).toEqual(large);
+    }
   });
 });
 

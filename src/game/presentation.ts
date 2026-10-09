@@ -225,6 +225,39 @@ export function mergeTargets(pacing: Pick<MatchPacingPlan, "groups">, forged: re
   return result;
 }
 
+/** How one play of a board sound is voiced: how loud, and how far its pitch is moved. */
+export interface CuePlayback {
+  gain: number;
+  playbackRate: number;
+}
+
+function scaledCue(amount: number, quiet: number, loud: number, high: number, low: number): CuePlayback {
+  const weight = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
+  return { gain: quiet + (loud - quiet) * weight, playbackRate: high + (low - high) * weight };
+}
+
+/**
+ * A landing sounds like what landed: louder and lower the harder the pieces hit (`strength`, from
+ * cascadeLandingPlan) and the more of them hit together. A single one-cell drop is a light tick.
+ */
+export function landingCuePlayback(strength: number, pieceCount: number): CuePlayback {
+  const hit = Math.min(1, Math.max(0, Number.isFinite(strength) ? strength : 0));
+  const mass = Math.min(1, Math.max(0, (pieceCount - 1) / 11));
+  return scaledCue(0.6 * hit + 0.4 * mass, 0.22, 0.62, 1.1, 0.8);
+}
+
+/** A match of three is a small break; seven or more pieces is the biggest and deepest. */
+export function clearCuePlayback(pieceCount: number): CuePlayback {
+  return scaledCue((pieceCount - 3) / 4, 0.5, 0.8, 1.06, 0.86);
+}
+
+/** A power-up's hit, by how many cells it destroyed. `full` cells is the loudest it gets. */
+export function blastCuePlayback(kind: "tnt" | "rocket" | "lightBall", destroyedCount: number): CuePlayback {
+  if (kind === "tnt") return scaledCue((destroyedCount - 1) / 8, 0.6, 0.9, 1.05, 0.9);
+  if (kind === "rocket") return scaledCue((destroyedCount - 1) / 6, 0.3, 0.56, 1.06, 0.92);
+  return scaledCue((destroyedCount - 3) / 12, 0.5, 0.74, 1.04, 0.92);
+}
+
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;
