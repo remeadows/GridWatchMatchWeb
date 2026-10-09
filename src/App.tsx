@@ -343,7 +343,7 @@ export default function App() {
     if (!save) return;
     audioService.configure(save.settings);
     if (screen.name === "game") return;
-    audioService.playMusic("bgm_menu.mp3");
+    audioService.playMusic("menu");
   }, [save, screen.name]);
 
   const commitSave = useCallback((next: SaveState) => {
@@ -731,7 +731,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       setStatus("running");
       setShowTutorial((!saveRef.current.completedTutorial || saveRef.current.tutorialReplayRequested) && !new URLSearchParams(window.location.search).has("gwTestMode"));
       tutorialInitialMoveRef.current = engine.snapshot.moveCount;
-      audioService.playMusic(loaded.bossLevel ? "bgm_boss.mp3" : "bgm_gameplay.mp3");
+      audioService.playMusic(loaded.bossLevel ? "boss" : "gameplay");
       analytics.track({ name: "level_start", params: { levelId: loaded.id, boss: loaded.bossLevel } });
     }).catch((error) => {
       if (active) {

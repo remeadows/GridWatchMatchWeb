@@ -2,8 +2,16 @@ import { audioUrl, presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest, type PresentationAudioKey } from "../data/presentationAssets";
 import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import type { SettingsState } from "../state/save";
+import { createElementVoice, MusicPlayer, type MusicVoice } from "./music";
 
-type MusicTrack = "bgm_menu.mp3" | "bgm_gameplay.mp3" | "bgm_boss.mp3";
+export type MusicTrack = "menu" | "gameplay" | "boss";
+
+/** Each track's file and how loud it sits under the effects (1 is the file's own level). */
+const MUSIC_TRACKS: Record<MusicTrack, { file: string; level: number }> = {
+  menu: { file: "bgm_menu.mp3", level: 0.45 },
+  gameplay: { file: "bgm_gameplay.mp3", level: 0.45 },
+  boss: { file: "bgm_boss.mp3", level: 0.45 }
+};
 type SoundName =
   | "sfx_breach_alert.mp3"
   | "sfx_chain_cascade.mp3"
@@ -39,6 +47,7 @@ export interface BoardAudioBackend {
 interface AudioServiceOptions {
   createBoardBackend?: () => BoardAudioBackend | null;
   createAudio?: (url: string) => HTMLAudioElement | null;
+  createMusicVoice?: (url: string) => MusicVoice | null;
   now?: () => number;
   playFallback?: (url: string, volume: number) => void;
 }
@@ -50,7 +59,8 @@ interface ActiveBoardSource {
 }
 
 export class AudioService {
-  private music: HTMLAudioElement | null = null;
+  private readonly music: MusicPlayer;
+  private gestureUnlockInstalled = false;
   private settings: SettingsState | null = null;
   private boardBackend: BoardAudioBackend | null = null;
   private boardBackendResolved = false;
@@ -67,33 +77,37 @@ export class AudioService {
     this.createBoardBackend = options.createBoardBackend ?? createDefaultBoardBackend;
     this.createAudio = options.createAudio ?? createHtmlAudio;
     this.now = options.now ?? (() => performance.now());
+    this.music = new MusicPlayer({
+      createVoice: options.createMusicVoice ?? ((url) => createElementVoice(url, sharedAudioContext())),
+      now: this.now
+    });
     this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
   }
 
   configure(settings: SettingsState): void {
     this.settings = settings;
-    if (this.music) this.music.muted = !settings.musicEnabled;
+    if (!settings.musicEnabled) this.music.stop();
   }
 
   playMusic(track: MusicTrack): void {
     if (!this.settings?.musicEnabled) return;
-    if (this.music?.dataset.track === track && !this.music.paused) return;
-    this.stopMusic();
-    const audio = this.createAudio(audioUrl(track));
-    if (!audio) return;
-    audio.dataset.track = track;
-    audio.loop = true;
-    audio.volume = 0.45;
-    audio.muted = !this.settings.musicEnabled;
-    this.music = audio;
-    void audio.play().catch(() => undefined);
+    this.installGestureUnlock();
+    const { file, level } = MUSIC_TRACKS[track];
+    this.music.play(audioUrl(file), level);
   }
 
   stopMusic(): void {
-    if (!this.music) return;
-    this.music.pause();
-    this.music.currentTime = 0;
-    this.music = null;
+    this.music.stop();
+  }
+
+  /**
+   * Browsers hold audio back until the player has touched the page. Call from a user gesture:
+   * it wakes the audio context the music's level runs through and starts a track that was refused.
+   */
+  unlockMusic(): void {
+    const context = sharedAudioContext();
+    if (context && context.state !== "running") void context.resume().catch(() => undefined);
+    if (this.settings?.musicEnabled) this.music.retry();
   }
 
   playSfx(sound: SoundName): void {
@@ -168,6 +182,14 @@ export class AudioService {
     if (typeof nav?.vibrate === "function") nav.vibrate(pattern);
   }
 
+  private installGestureUnlock(): void {
+    if (this.gestureUnlockInstalled || typeof document === "undefined") return;
+    this.gestureUnlockInstalled = true;
+    const unlock = () => this.unlockMusic();
+    document.addEventListener("pointerdown", unlock, { capture: true, passive: true });
+    document.addEventListener("keydown", unlock, { capture: true, passive: true });
+  }
+
   private resolveBoardBackend(): BoardAudioBackend | null {
     if (!this.boardBackendResolved) {
       this.boardBackend = this.createBoardBackend();
@@ -237,11 +259,20 @@ class WebAudioBoardBackend implements BoardAudioBackend {
   }
 }
 
-function createDefaultBoardBackend(): BoardAudioBackend | null {
+let audioContext: AudioContext | null | undefined;
+
+/** One audio context for the board sounds and the music's level, created on first use. */
+function sharedAudioContext(): AudioContext | null {
+  if (audioContext !== undefined) return audioContext;
   const audioGlobal = globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext };
   const AudioContextConstructor = audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
-  if (!AudioContextConstructor) return null;
-  return new WebAudioBoardBackend(new AudioContextConstructor());
+  audioContext = AudioContextConstructor ? new AudioContextConstructor() : null;
+  return audioContext;
+}
+
+function createDefaultBoardBackend(): BoardAudioBackend | null {
+  const context = sharedAudioContext();
+  return context ? new WebAudioBoardBackend(context) : null;
 }
 
 function createHtmlAudio(url: string): HTMLAudioElement | null {

@@ -166,3 +166,54 @@ describe("board audio service", () => {
     expect(AudioService).toBeTypeOf("function");
   });
 });
+
+describe("music through the audio service", () => {
+  function musicService(settings: SettingsState = enabledSettings) {
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const service = new AudioService({
+      createBoardBackend: () => null,
+      now: () => 0,
+      createMusicVoice: (url) => ({
+        start: () => {
+          started.push(url);
+          return Promise.resolve();
+        },
+        stop: () => {
+          stopped.push(url);
+        },
+        setGain: () => undefined,
+        positionMs: 0,
+        durationMs: null,
+        onEnded: () => undefined
+      })
+    });
+    service.configure(settings);
+    return { service, started, stopped };
+  }
+
+  it("starts each track's own file once, however often it is asked for", () => {
+    const { service, started } = musicService();
+    service.playMusic("menu");
+    service.playMusic("menu");
+    service.playMusic("gameplay");
+    service.playMusic("boss");
+    expect(started).toHaveLength(3);
+    expect(new Set(started).size).toBe(3);
+    for (const url of started) expect(url).toMatch(/assets\/audio\/.+\.mp3$/);
+  });
+
+  it("plays nothing while music is off, and stops what is playing when it is turned off", () => {
+    const off = musicService({ ...enabledSettings, musicEnabled: false });
+    off.service.playMusic("menu");
+    expect(off.started).toHaveLength(0);
+
+    const { service, started, stopped } = musicService();
+    service.playMusic("menu");
+    service.configure({ ...enabledSettings, musicEnabled: false });
+    expect(stopped).toEqual(started);
+    service.configure(enabledSettings);
+    service.playMusic("menu");
+    expect(started).toHaveLength(2);
+  });
+});
