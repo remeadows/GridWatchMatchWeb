@@ -1,9 +1,10 @@
 # GridWatch Match — dark-realism art upgrade
 
 Working record for the brief `README-Claude-Code-GridWatch-Match-Blender-v1.md` (Google Drive,
-`GridWatchArt / 4 - GridWatch Match`). Local branch `dev/dark-realism`; local commits only, played
-on the dev instance (`npm run cf:dev-instance`). Nothing here changes rules, saves, accounts or the
-production build's default look.
+`GridWatchArt / 4 - GridWatch Match`). Branch `dev/dark-realism`, built as local commits and played
+on the dev instance (`npm run cf:dev-instance`); Russ approved the look on 2026-10-09 and asked for
+the push to be prepared (`HANDOFF.md` has the readiness check). Nothing here changes rules, saves,
+accounts or the production build's default look.
 
 Status, 2026-10-09: **everything in the brief's inventory is in the game** in the dark theme: five
 tiles, five power-ups (board and equipment dock), every cell state the engine has, the board

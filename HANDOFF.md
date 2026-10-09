@@ -2,11 +2,33 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: Dark-realism art upgrade — LOCAL ONLY, built, awaiting Russ's review (branch `dev/dark-realism`)
+## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PREPARED TO PUSH, not pushed (branch `dev/dark-realism`)
 
-**Russ's rules for this work (2026-10-08):** local commits only — no push, no PR, no GitHub branch —
-and a dev site for his play tests. Production deploys stay his. Nothing below is on `origin` or in
-production; `main` and the live game are exactly as the 2026-09-25 entry leaves them.
+**Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
+and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look
+nice - next dev project is mechanics". That is leave to get the branch ready, not yet the push
+itself: **nothing below is on `origin` or in production until he says push**, and production
+deploys stay his. `main` and the live game are exactly as the 2026-09-25 entry leaves them.
+
+- **Push readiness (checked 2026-10-09 at `9a8ffd6`):** the branch is 12 commits ahead of
+  `origin/main` and 0 behind; 125 files, about 40 MB, largest file 1.7 MB; gitleaks finds nothing
+  in the 12 commits; no `.env`, `dist/` or concept reference PNG is tracked. On a fresh clone,
+  CI's own steps give: levels 100/100, unit 533/533, build clean, and **`npm audit
+  --audit-level=high` FAILS** with 4 high advisories in dev tooling (`wrangler` ≤ 4.148.0 through
+  `miniflare` and `sharp`; `source-map-js` 1.2.1 through `vite`/`postcss` and `jsdom`). This
+  branch does not touch `package-lock.json`, so `origin/main` fails the same step: it needs its
+  own dependency change on `main`, not a fix inside this art work.
+- **What a push does:** the repo is **public**. `main` is protected (pull request required), so
+  the push is `git push -u origin dev/dark-realism` and then a PR; CI and CodeQL run on the PR,
+  not on the branch push. `core.hooksPath` is `.githooks`, which does not exist, so no pre-push
+  hook runs. The old Cloudflare Pages project `gridwatchmatch` is still connected to the repo and
+  builds a public preview of every pushed branch at `*.gridwatchmatch.pages.dev` (and a build of
+  `main`); it is not the live game, which is deployed by hand. `wrangler.dev.jsonc` carries the
+  Cloudflare account ID, which `origin/main` does not: an identifier, not a credential, but it
+  becomes public with the push.
+- **After a merge and a production deploy** the default look is still classic, and `?theme=dark`
+  shows the dark board to anyone who adds it, by design of the switch.
+- **Next dev project (Russ, 2026-10-09): "mechanics".** His word; the scope is his to state.
 
 - **Brief:** Google Drive `GridWatchArt / 4 - GridWatch Match /
   README-Claude-Code-GridWatch-Match-Blender-v1.md`. **Working record, ID mapping, conventions,
