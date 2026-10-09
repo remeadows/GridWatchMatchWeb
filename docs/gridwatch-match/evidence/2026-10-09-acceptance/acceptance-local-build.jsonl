@@ -1,0 +1,7 @@
+{"check":"missing-assets","refused":18,"classicPicturesLoaded":12,"movesBefore":"25/25","movesAfter":"24/25","pageErrors":[]}
+{"check":"one-missing","refused":3,"classicPicturesLoaded":3,"movesBefore":"25/25","movesAfter":"24/25","pageErrors":[]}
+{"check":"re-entry","samples":[{"entry":1,"heapMB":15.8,"canvases":1},{"entry":10,"heapMB":18.3,"canvases":1}],"canvasesOnMenuAfter":0,"pageErrors":[]}
+{"check":"background","movesBefore":"25/25","movesAfterResumeAndSwap":"24/25","pageErrors":[]}
+{"check":"full-loop","start":"0 / 100","level":"Level 1","afterPlay":"24/25","result":"3 star(s). Score 130.","next":"Level 2","retried":"25/25","levelTiles":["★★★","Ready","Locked"],"afterWin":"1 / 100","afterReload":"1 / 100","resumedOn":"Operations","pageErrors":[]}
+{"check":"grayscale","file":"acc-grayscale.png"}
+{"check":"recording","file":"acc-video/page@b502de13c9350e25516550368a01d392.webm"}

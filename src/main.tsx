@@ -4,7 +4,12 @@ import "@gridwatch/account-kit/header.css";
 import { mountAccountHeader } from "@gridwatch/account-kit";
 import { accountKit } from "./services/accountKit";
 import App from "./App";
+import { activeBoardTheme } from "./game/boardTheme";
 import "./styles.css";
+import "./darkRealism.css";
+
+// The dark-realism UI rules are all scoped to this attribute (darkRealism.css).
+document.documentElement.dataset.boardTheme = activeBoardTheme();
 
 mountAccountHeader(accountKit);
 

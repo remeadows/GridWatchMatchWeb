@@ -13,9 +13,12 @@ import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHu
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
+import { DarkHomeScreen } from "./components/DarkHomeScreen";
+import { activeBoardTheme, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
+import { buildLabel, isDevInstance } from "./services/buildInfo";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
 import { clearsOnBackgroundStore, createCloudSync, foldOutcomes, isCurrentProjection, settledSlots, type CloudSync, type SlotOutcome } from "./services/cloudSync";
 import { useAuth } from "./hooks/useAuth";
@@ -414,8 +417,11 @@ export default function App() {
           for the top bar and the account bar only, so the strip would push the board off-screen. */}
       {onCarrySender && save && accountKit.carry && screen.name !== "game" && <CarryBanner save={save} carry={accountKit.carry} nexusUrl={`${accountKit.config.nexusOrigin}/play/match/`} />}
       {carryNotice && <div className="toast" role="status">{carryNotice}</div>}
+      {isDevInstance && <div className="dev-build-badge" aria-hidden="true">DEV · {buildLabel}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
-      {screen.name === "home" && <HomeScreen save={save} navigate={navigate} />}
+      {screen.name === "home" && (activeBoardTheme() === "darkRealism"
+        ? <DarkHomeScreen save={save} onResume={() => navigate({ name: "areas" })} onQuickDeploy={(levelId) => navigate({ name: "game", levelId })} />
+        : <HomeScreen save={save} navigate={navigate} />)}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
       {screen.name === "game" && <GameScreen levelId={screen.levelId} save={save} commitSave={commitSave} navigate={navigate} auth={auth} />}
@@ -618,7 +624,7 @@ type SubmitState =
   | { kind: "sending" }
   | { kind: "done"; result: SubmitResult }
   | { kind: "error"; message: string }
-  | { kind: "skipped"; reason: "test" | "signedOut" };
+  | { kind: "skipped"; reason: "test" | "signedOut" | "devInstance" };
 
 function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   levelId: number;
@@ -795,7 +801,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     saveRef.current = next;
 
     const isTestMode = new URLSearchParams(window.location.search).has("gwTestMode");
-    if (!isTestMode && auth.session) {
+    // The dev instance is a static host with no /api/score, and a play test must never post a score.
+    if (!isTestMode && !isDevInstance && auth.session) {
       const token = auth.session.access_token;
       setSubmitState({ kind: "sending" });
       submitScore(token, currentLevel.id, {
@@ -807,7 +814,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         .then((r) => setSubmitState({ kind: "done", result: r }))
         .catch((err) => setSubmitState({ kind: "error", message: err instanceof Error ? err.message : "Transmit failed." }));
     } else {
-      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : "signedOut" });
+      setSubmitState({ kind: "skipped", reason: isTestMode ? "test" : isDevInstance ? "devInstance" : "signedOut" });
     }
 
     setSnapshot(currentSnapshot);
@@ -1144,11 +1151,16 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       </div>
 
       <div className="objective-row">
-        {objectives.map((objective) => (
-          <div className="objective-chip" key={objective.id}>
-            {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
-          </div>
-        ))}
+        {objectives.map((objective) => {
+          // Dark realism: a "collect" objective shows the piece it names, so the word has a face.
+          const picture = activeBoardTheme() === "darkRealism" && objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          return (
+            <div className="objective-chip" key={objective.id}>
+              {picture && <img className="objective-picture" src={assetUrl(picture.path)} alt="" />}
+              {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
+            </div>
+          );
+        })}
       </div>
 
       <div className="game-board-panel">
@@ -1170,11 +1182,12 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {boosterTypes.map((booster) => {
           const available = save.boosters[booster] ?? 0;
           const selected = selectedBooster === booster;
-          const boosterImage = booster === "rocket"
+          const classicBoosterImage = booster === "rocket"
             ? assetManifest.images.boosters.rocketH
             : booster === "rocketVertical"
               ? assetManifest.images.boosters.rocketV
               : assetManifest.images.boosters[booster];
+          const boosterImage = (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
           return (
             <button
               key={booster}

@@ -34,3 +34,10 @@ public/assets/images/.sync-manifest.json
 
 # agent scratch (briefs/reports/review diffs)
 /.superpowers/
+
+# Dark-realism art (art/gridwatch-match): the concept references are private Drive files and stay
+# out of git (references/v2/SOURCES.md says where they come from); draft renders are scratch.
+/art/gridwatch-match/references/**/*.png
+/art/gridwatch-match/previews/draft/
+*.blend1
+__pycache__/

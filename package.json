@@ -12,7 +12,8 @@
     "generate:level-limits": "node scripts/generate-level-limits.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "cf:dev-instance": "node scripts/dev-instance.mjs"
   },
   "dependencies": {
     "@gridwatch/account-kit": "git+https://github.com/remeadows/gridwatch-account-kit.git#v0.3.0",

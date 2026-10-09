@@ -1,6 +1,87 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-25
+Last updated: 2026-10-09
+
+## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PUSHED, PR #77 open, not merged, not in production (branch `dev/dark-realism`)
+
+**Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
+and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look
+nice - next dev project is mechanics", then "push". The branch was pushed at `b3ef506` and
+**PR #77** opened against `main` (https://github.com/remeadows/GridWatchMatchWeb/pull/77).
+**Merging is his call and production deploys stay his**; `main` and the live game are exactly as
+the 2026-09-25 entry leaves them.
+
+- **Push readiness (checked 2026-10-09 at `9a8ffd6`):** the branch is 12 commits ahead of
+  `origin/main` and 0 behind; 125 files, about 40 MB, largest file 1.7 MB; gitleaks finds nothing
+  in the 12 commits; no `.env`, `dist/` or concept reference PNG is tracked. On a fresh clone,
+  CI's own steps give: levels 100/100, unit 533/533, build clean, and **`npm audit
+  --audit-level=high` FAILS** with 4 high advisories in dev tooling (`wrangler` ≤ 4.148.0 through
+  `miniflare` and `sharp`; `source-map-js` 1.2.1 through `vite`/`postcss` and `jsdom`). This
+  branch does not touch `package-lock.json`, so `origin/main` fails the same step: it needs its
+  own dependency change on `main`, not a fix inside this art work. **That change is PR #78**
+  (`deps/audit-sharp-source-map-js`, opened 2026-10-09 at Russ's word: `overrides.miniflare.sharp`
+  0.35.4 -> 0.35.5 and `source-map-js` 1.2.1 -> 1.2.2 in the lockfile; audit then reports 0).
+  Russ merged #78 the same day (`2d71a2f`); `main` was then merged into this branch (`aaf6564`),
+  after which the audit step passes here too: 0 vulnerabilities, levels 100/100, unit 533/533,
+  build clean.
+- **What a push does:** the repo is **public**. `main` is protected (pull request required), so
+  the push is `git push -u origin dev/dark-realism` and then a PR; CI and CodeQL run on the PR,
+  not on the branch push. `core.hooksPath` is `.githooks`, which does not exist, so no pre-push
+  hook runs. The old Cloudflare Pages project `gridwatchmatch` is still connected to the repo and
+  builds a public preview of every pushed branch at `*.gridwatchmatch.pages.dev` (and a build of
+  `main`); it is not the live game, which is deployed by hand. `wrangler.dev.jsonc` carries the
+  Cloudflare account ID, which `origin/main` does not: an identifier, not a credential, but it
+  becomes public with the push.
+- **After a merge and a production deploy** the default look is still classic, and `?theme=dark`
+  shows the dark board to anyone who adds it, by design of the switch.
+- **Next dev project (Russ, 2026-10-09): "mechanics".** His word; the scope is his to state.
+
+- **Brief:** Google Drive `GridWatchArt / 4 - GridWatch Match /
+  README-Claude-Code-GridWatch-Match-Blender-v1.md`. **Working record, ID mapping, conventions,
+  build command, plan and evidence: `docs/gridwatch-match/README.md`** — read that first.
+- **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` (Worker
+  `gridwatch-match-dev`, static files only, `wrangler.dev.jsonc`). Refresh: commit, then
+  `npm run cf:dev-instance`. **Never a bare `wrangler deploy`: that is production.** The dev build
+  is served from `/`, shows `DEV · <sha>-dev`, never posts a score, and defaults to the dark theme.
+- **Done and on the dev site (`047b701-dev`, verified live 2026-10-09):** the Blender pipeline (`art/gridwatch-match/`); all five tiles,
+  darker and grittier per Russ; all five power-ups, on the board and in the equipment dock; every
+  cell state the engine has (plain, held, design-locked, blocked, `encryptedVolume`,
+  `malwarePropagation`, the `honeypot` generator) and the board frame; a soft piece shadow; the
+  board canvas in device pixels; the Tish main menu (`src/components/DarkHomeScreen.tsx`); the
+  game HUD, objective, dock and result dialog, and the shared treatment on the other screens, with
+  a phone tab bar (`src/darkRealism.css`, CSS on the classic markup).
+- **How it is switched:** `src/game/boardTheme.ts`. Classic is the default; only the dev-instance
+  build sets `VITE_BOARD_THEME=darkRealism`; `?theme=classic|dark` overrides. A production build
+  is unchanged.
+- **Not done** (the list is `docs/gridwatch-match/README.md` §7): nothing was checked on a
+  physical phone; Tish is two plates, not a rigged model; the result dialog still says
+  "3 star(s)" rather than showing stars; the effects are the classic effects; `cell_blocked` has
+  not been seen in play; Intel, Account, Store and Rules have the shared treatment only.
+- **Verification:** unit tests 533/533; levels 100/100; e2e 218/218 in classic and 218/218 in
+  dark (bundled Chromium, WebKit for the phone project) for commits `6745e82` and `047b701`; the acceptance and
+  performance probes in README §10. On this Mac both themes hold 60 Hz at every size; **a real
+  phone's frame rate is unmeasured.**
+- **Next, when Russ has looked:** his notes on the look; a phone check; then the decision that
+  is his: whether and how this goes to `main` and production (a production build needs
+  `VITE_BOARD_THEME=darkRealism` or the default flipped in `src/services/buildInfo.ts`).
+- **⏭ TASK QUEUED BY RUSS (2026-10-09) — do after this development's changes are committed:**
+  tune the **tile animations**, the **power-up animations**, the **sound effects** and the
+  **music**. His words: "tweak the tile animations, the powerup animations, the sound and music
+  (i hate the music) - after we commit changes during this development". Not started; do not
+  begin it inside this art work. Where those live: motion and timing in `src/game/motion.ts`,
+  `src/game/presentation.ts`, `src/game/vfx.ts`, `src/game/vfxTiming.ts` and the playback code in
+  `src/game/BoardScene.ts`; audio in `src/services/audio.ts`, files in `public/assets/audio/`
+  (`bgm_menu.mp3`, `bgm_gameplay.mp3`, `bgm_boss.mp3`, the `sfx_*` and `vo_*` clips). The effects
+  were left exactly as classic by this work (`docs/gridwatch-match/README.md` §7), so that task
+  starts from the shipped behaviour. Ask Russ what he wants the music to be before replacing it.
+- **Russ's first notes on the dev build (2026-10-09):** "It's looking good". Two fixes made from
+  them, dark theme only: a "collect" objective now shows the piece it names beside the words
+  ("No one knows what a 'Packet' is unless you show them"), and the two menu actions say what
+  they do under their names (Resume Operations opens the sector list; Quick Deploy starts the
+  next level).
+- **Left as found:** an untracked `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
+  and `git stash@{0}` (a stale lockfile bump from the old branch) are not mine to remove.
+- **QA probes:** `art/gridwatch-match/qa/`.
 
 ## 🟢 2026-09-25: Leaderboards phase 3 — Match DEPLOYED and accepted
 

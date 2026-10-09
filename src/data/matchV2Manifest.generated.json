@@ -1,0 +1,494 @@
+{
+  "generatedBy": "art/gridwatch-match/scripts/build.py",
+  "blender": "5.1.0",
+  "seed": 923101,
+  "assets": [
+    {
+      "frameBorder": 0.1875,
+      "visualId": "board_frame",
+      "runtimeId": "board:frame",
+      "type": "frame",
+      "path": "assets/images/match-v2/board/board_frame.png",
+      "width": 352,
+      "height": 352,
+      "sha256": "5769e70f311e0325ee6f850161f3d780b2ceb65d64c0d8738fd5011cd5972e79",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.375,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/board_frame.blend",
+      "master": "art/gridwatch-match/previews/board_frame-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_base",
+      "runtimeId": "cell:movable",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_base.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "eb21c1dd92fbe1278b7b0eac5f97a6517f3f1e8703835301914d07aee9f2d6a2",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_base.blend",
+      "master": "art/gridwatch-match/previews/cell_base-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_blocked",
+      "runtimeId": "cell:blocked",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_blocked.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "b988629974fc12e6e578fba5a156d089998f7af3e63ed9ba549a506dc8243571",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_blocked.blend",
+      "master": "art/gridwatch-match/previews/cell_blocked-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_encrypted",
+      "runtimeId": "overlay:encryptedVolume",
+      "type": "overlay",
+      "path": "assets/images/match-v2/cells/cell_encrypted.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "867f0e7a15a91120515a8d25a098174198e9d9b750ac1e2e1720198ac78a2345",
+      "opaqueBounds": [
+        0.0273,
+        0.0273,
+        0.9727,
+        0.9727
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/cell_encrypted.blend",
+      "master": "art/gridwatch-match/previews/cell_encrypted-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_generator",
+      "runtimeId": "generator:honeypot",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_generator.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "d3676445cc909cbd5abdd22a86573ccb19e5977223073eaacfd3d22d4e270027",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_generator.blend",
+      "master": "art/gridwatch-match/previews/cell_generator-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_lock",
+      "runtimeId": "cell:locked",
+      "type": "overlay",
+      "path": "assets/images/match-v2/cells/cell_lock.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "6c85fd2f7a8ce0ae5d43b025cfd113f35ff9267a9d0b87be406dbebfd713077d",
+      "opaqueBounds": [
+        0.0039,
+        0.0039,
+        0.9961,
+        0.9961
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/cell_lock.blend",
+      "master": "art/gridwatch-match/previews/cell_lock-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_malware",
+      "runtimeId": "underlay:malwarePropagation",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_malware.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "e2f4ac6325e89a0920a2a3404d72c9e26da0dbff3929e97287a59e2bf2996978",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_malware.blend",
+      "master": "art/gridwatch-match/previews/cell_malware-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "cell_selected",
+      "runtimeId": "cell:held",
+      "type": "cell",
+      "path": "assets/images/match-v2/cells/cell_selected.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "59c7b8e05a66428d243632c2f91d989fdfdc0f09373bee30c1758e1bb0436318",
+      "opaqueBounds": [
+        0.0,
+        0.0,
+        1.0,
+        1.0
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.0,
+      "cameraPitchDeg": 0.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "opaque",
+      "sourceBlend": "art/gridwatch-match/blender/cell_selected.blend",
+      "master": "art/gridwatch-match/previews/cell_selected-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "powerup_light_ball",
+      "runtimeId": "powerup:lightBall",
+      "type": "powerup",
+      "path": "assets/images/match-v2/powerups/powerup_light_ball.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "f922f116137ba4499aea62b9eaf4cf1b3565109727c3b1930c8ea7f91d82fe72",
+      "opaqueBounds": [
+        0.0742,
+        0.0703,
+        0.9258,
+        0.9297
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 0.8,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/powerup_light_ball.blend",
+      "master": "art/gridwatch-match/previews/powerup_light_ball-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "powerup_propeller",
+      "runtimeId": "powerup:propeller",
+      "type": "powerup",
+      "path": "assets/images/match-v2/powerups/powerup_propeller.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "7bbc99a5b93558c11eb11f835c4c850a8978a431ed5d5422fabe7e26748efd37",
+      "opaqueBounds": [
+        0.0547,
+        0.0586,
+        0.9453,
+        0.9414
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.02,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/powerup_propeller.blend",
+      "master": "art/gridwatch-match/previews/powerup_propeller-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "powerup_rocket_h",
+      "runtimeId": "powerup:rocket_horizontal",
+      "type": "powerup",
+      "path": "assets/images/match-v2/powerups/powerup_rocket_h.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "f34bf16af6b88fba208c78a067841d55f71706e1f7894664ffe427ca27192acb",
+      "opaqueBounds": [
+        0.0547,
+        0.2891,
+        0.9453,
+        0.7109
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.04,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/powerup_rocket_h.blend",
+      "master": "art/gridwatch-match/previews/powerup_rocket_h-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "powerup_rocket_v",
+      "runtimeId": "powerup:rocket_vertical",
+      "type": "powerup",
+      "path": "assets/images/match-v2/powerups/powerup_rocket_v.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "747c9acb0846445f88ecf834909c137569efb080f58a6c065bf9b9d2dc88d17d",
+      "opaqueBounds": [
+        0.2852,
+        0.0664,
+        0.7148,
+        0.9453
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.04,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/powerup_rocket_v.blend",
+      "master": "art/gridwatch-match/previews/powerup_rocket_v-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "powerup_tnt",
+      "runtimeId": "powerup:tnt",
+      "type": "powerup",
+      "path": "assets/images/match-v2/powerups/powerup_tnt.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "bc9f1f1d42470d0354303b33b63e8f50ac76ba8bc70865222929c30853f416b4",
+      "opaqueBounds": [
+        0.0898,
+        0.0547,
+        0.9102,
+        0.9375
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 0.96,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/powerup_tnt.blend",
+      "master": "art/gridwatch-match/previews/powerup_tnt-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_data",
+      "runtimeId": "key",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_data.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "b73d6af5808f8bccd1d37a9db9001bed15aa3738b810c561f16139562565f3ef",
+      "opaqueBounds": [
+        0.0781,
+        0.0781,
+        0.9219,
+        0.9258
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_data.blend",
+      "master": "art/gridwatch-match/previews/tile_data-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_defense",
+      "runtimeId": "firewall",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_defense.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "c5e14fd0ecb22582a9b0f158312d6bfd485db509748134af5d83c462ce6544cf",
+      "opaqueBounds": [
+        0.1172,
+        0.0898,
+        0.8828,
+        0.9219
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_defense.blend",
+      "master": "art/gridwatch-match/previews/tile_defense-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_route",
+      "runtimeId": "packet",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_route.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "e8c8ddfb3b30cdd3831b34a1f2227b1eeb2ed8dd94f6ac1af998a64a8e6c5717",
+      "opaqueBounds": [
+        0.0781,
+        0.0898,
+        0.9219,
+        0.9258
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_route.blend",
+      "master": "art/gridwatch-match/previews/tile_route-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_threat",
+      "runtimeId": "threat",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_threat.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "96c89151ff3da10ad59fb93c75b0f248883d117d1a8bd2a50a4e8ce3a7692f21",
+      "opaqueBounds": [
+        0.125,
+        0.1992,
+        0.875,
+        0.8711
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_threat.blend",
+      "master": "art/gridwatch-match/previews/tile_threat-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    },
+    {
+      "visualId": "tile_zeroday",
+      "runtimeId": "zeroDay",
+      "type": "tile",
+      "path": "assets/images/match-v2/tiles/tile_zeroday.png",
+      "width": 256,
+      "height": 256,
+      "sha256": "2b23ef0b76397d9a02bffde4049f33a8ceafd422a1188118db6a58dcbe6e457c",
+      "opaqueBounds": [
+        0.1055,
+        0.1133,
+        0.8945,
+        0.9023
+      ],
+      "pivot": [
+        0.5,
+        0.5
+      ],
+      "unitsPerFrame": 1.1,
+      "cameraPitchDeg": 14.0,
+      "lighting": "baked key upper-left, no contact shadow",
+      "alpha": "straight",
+      "sourceBlend": "art/gridwatch-match/blender/tile_zeroday.blend",
+      "master": "art/gridwatch-match/previews/tile_zeroday-master.png",
+      "samples": 256,
+      "referenceRevision": "dark-realism-concept-v2"
+    }
+  ]
+}
