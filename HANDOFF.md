@@ -1,6 +1,41 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-09-25
+Last updated: 2026-10-09
+
+## 🟡 2026-10-09: Dark-realism art upgrade — LOCAL ONLY, in progress (branch `dev/dark-realism`)
+
+**Russ's rules for this work (2026-10-08):** local commits only — no push, no PR, no GitHub branch —
+and a dev site for his play tests. Production deploys stay his. Nothing below is on `origin` or in
+production; `main` and the live game are exactly as the 2026-09-25 entry leaves them.
+
+- **Brief:** Google Drive `GridWatchArt / 4 - GridWatch Match /
+  README-Claude-Code-GridWatch-Match-Blender-v1.md`. **Working record, ID mapping, conventions,
+  build command, plan and evidence: `docs/gridwatch-match/README.md`** — read that first.
+- **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` (Worker
+  `gridwatch-match-dev`, static files only, `wrangler.dev.jsonc`). Refresh: commit, then
+  `npm run cf:dev-instance`. **Never a bare `wrangler deploy`: that is production.** The dev build
+  is served from `/`, shows `DEV · <sha>-dev`, never posts a score, and defaults to the dark theme.
+- **Done and on the dev site (`6d678e5-dev`):** the Blender pipeline (`art/gridwatch-match/`);
+  all five tiles (`tile_route`, `tile_threat`, `tile_defense`, `tile_data`, `tile_zeroday`), darker
+  and grittier per Russ; all five power-ups, on the board and in the booster tray; the socket and
+  the held-cell state; the board canvas in device pixels; the Tish main menu
+  (`src/components/DarkHomeScreen.tsx`, `src/darkRealism.css`).
+- **How it is switched:** `src/game/boardTheme.ts`. Classic is the default; only the dev-instance
+  build sets `VITE_BOARD_THEME=darkRealism`; `?theme=classic|dark` overrides. A production build
+  is unchanged.
+- **Next, in order:** (1) cell states still drawn the old way on the dark board — design-locked,
+  blocked, the `encryptedVolume` and `malwarePropagation` overlays, the `honeypot` generator — and
+  the board frame, and the runtime shadow under the new pieces; (2) HUD, objective panel, booster
+  dock; (3) campaign and level screens, results, settings, the phone's bottom tab bar; (4) the
+  full loop, measured performance against classic, then the brief's acceptance list.
+- **Verification so far:** unit tests 529/529; e2e 218/218 in both themes with WebKit for the
+  five-tile commit `b5d56b0`; home and navigation specs 60/60 in both themes for the menu. A full
+  e2e run in both themes for the menu and power-up commits (`1def334`, `6d678e5`) was started
+  2026-10-09 09:50 EDT; **its result is not recorded here yet.** Not measured: frame time, memory,
+  load against classic; nothing checked on a physical phone.
+- **Left as found:** an untracked `docs/superpowers/plans/2026-07-16-gridwatch-presentation-overhaul.md`
+  and `git stash@{0}` (a stale lockfile bump from the old branch) are not mine to remove.
+- **QA probes:** `art/gridwatch-match/qa/`.
 
 ## 🟢 2026-09-25: Leaderboards phase 3 — Match DEPLOYED and accepted
 
