@@ -8,7 +8,8 @@ import { activeBoardTheme } from "./game/boardTheme";
 import "./styles.css";
 import "./darkRealism.css";
 
-// The dark-realism UI rules are all scoped to this attribute (darkRealism.css).
+// The dark-realism UI rules are all scoped to this attribute (darkRealism.css). index.html already
+// carries it so the first paint is dark; this line is what turns it off for the archived classic look.
 document.documentElement.dataset.boardTheme = activeBoardTheme();
 
 mountAccountHeader(accountKit);

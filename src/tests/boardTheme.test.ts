@@ -15,8 +15,17 @@ import {
   resolveBoardPixelRatio,
   resolveBoardTheme
 } from "../game/boardTheme";
+import { boardThemeForBuild } from "../services/buildInfo";
 
 describe("board theme selection", () => {
+  it("builds with the dark-realism board unless the build asks for the archived classic one", () => {
+    expect(boardThemeForBuild(undefined)).toBe("darkRealism");
+    expect(boardThemeForBuild("")).toBe("darkRealism");
+    expect(boardThemeForBuild("darkRealism")).toBe("darkRealism");
+    expect(boardThemeForBuild("nonsense")).toBe("darkRealism");
+    expect(boardThemeForBuild("classic")).toBe("classic");
+  });
+
   it("keeps the build default unless the query asks for a theme", () => {
     expect(resolveBoardTheme("", "classic")).toBe("classic");
     expect(resolveBoardTheme("?level=3", "darkRealism")).toBe("darkRealism");

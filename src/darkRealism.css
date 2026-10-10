@@ -1,6 +1,7 @@
 /* The dark-realism theme's UI treatment (docs/gridwatch-match). Everything here is scoped to
    :root[data-board-theme="darkRealism"] or to dr-* classes that only the dark theme renders, so
-   the classic look is untouched and rolling back is the theme switch (src/game/boardTheme.ts). */
+   the archived classic look is untouched and rolling back is the theme switch
+   (src/game/boardTheme.ts). */
 
 :root[data-board-theme="darkRealism"] {
   --bg: #050607;
@@ -156,6 +157,94 @@
   border-radius: 4px;
   background: linear-gradient(180deg, rgba(10, 12, 15, 0.9), rgba(4, 5, 6, 0.97));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 -18px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* The title screen (src/state/titleGate.ts): until the first tap the panel's contents are held
+   back and "tap to enter" sits where they will be, so nothing moves when they arrive. */
+.dr-home-panel {
+  position: relative;
+}
+
+.dr-home-on-title .dr-home-panel > :not(.dr-enter) {
+  visibility: hidden;
+}
+
+.dr-enter {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--cyan);
+  font-size: 1.02rem;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--cyan) 60%, transparent);
+  cursor: pointer;
+  animation: dr-enter-pulse 1.9s ease-in-out infinite;
+}
+
+.dr-enter small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-shadow: none;
+}
+
+.dr-enter:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -6px;
+}
+
+/* A mouse and keyboard are told about the key; a touch screen about the tap. */
+.dr-enter-key {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .dr-enter-touch {
+    display: none;
+  }
+
+  .dr-enter-key {
+    display: inline;
+  }
+}
+
+@keyframes dr-enter-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.dr-home-arriving .dr-home-panel > * {
+  animation: dr-panel-in 0.5s ease-out both;
+}
+
+.dr-home-arriving .dr-home-panel > :nth-child(2) { animation-delay: 0.06s; }
+.dr-home-arriving .dr-home-panel > :nth-child(3) { animation-delay: 0.12s; }
+.dr-home-arriving .dr-home-panel > :nth-child(4) { animation-delay: 0.18s; }
+
+@keyframes dr-panel-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.dr-home-still .dr-enter,
+.dr-home-still.dr-home-arriving .dr-home-panel > * {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-enter,
+  .dr-home-arriving .dr-home-panel > * {
+    animation: none;
+  }
 }
 
 .dr-home-campaign {

@@ -182,13 +182,16 @@ export class AudioService {
   /**
    * Browsers hold audio back until the player has touched the page. Call from a user gesture:
    * it wakes the audio context the music's level runs through and starts a track that was refused.
+   * `startMusic: false` is for an event the browser does not yet count as a touch (a finger going
+   * down): the track would be refused again, and that attempt would be in the way of the one made
+   * when the finger lifts.
    */
-  unlockMusic(): void {
+  unlockMusic(options: { startMusic?: boolean } = {}): void {
     const context = sharedAudioContext();
     if (context && context.state !== "running") void context.resume().catch(() => undefined);
     // Now that a touch has made the context, the voice can be decoded into it.
     void this.preloadVoice();
-    if (this.settings?.musicEnabled) this.music.retry();
+    if (options.startMusic !== false && this.settings?.musicEnabled) this.music.retry();
   }
 
   playSfx(sound: SoundName): void {
@@ -326,9 +329,18 @@ export class AudioService {
   private installGestureUnlock(): void {
     if (this.gestureUnlockInstalled || typeof document === "undefined") return;
     this.gestureUnlockInstalled = true;
-    const unlock = () => this.unlockMusic();
-    document.addEventListener("pointerdown", unlock, { capture: true, passive: true });
-    document.addEventListener("keydown", unlock, { capture: true, passive: true });
+    // The menu music is asked for at page load and plays from then wherever the browser allows it
+    // (arriving from the Nexus menu in Chrome or Edge). Elsewhere it is refused until the page is
+    // touched, so it is started on the first event the browser counts as one: a mouse press, a
+    // finger or pen lifting, a key. `click` is the net under those.
+    const listen = (type: string, startMusic: (event: Event) => boolean) =>
+      document.addEventListener(type, (event) => this.unlockMusic({ startMusic: startMusic(event) }), { capture: true, passive: true });
+    const byMouse = (event: Event) => (event as PointerEvent).pointerType === "mouse";
+    listen("pointerdown", byMouse);
+    listen("pointerup", (event) => !byMouse(event));
+    listen("touchend", () => true);
+    listen("click", () => true);
+    listen("keydown", () => true);
   }
 
   private resolveBoardBackend(): BoardAudioBackend | null {

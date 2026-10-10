@@ -1,5 +1,6 @@
 // Runs the repo's own e2e suite with the installed Chrome (the bundled browsers for this Playwright
-// version are not downloaded on this Mac). GW_THEME=darkRealism builds with the dark board as default.
+// version are not downloaded on this Mac). The build's own default is the dark board; GW_THEME=classic
+// builds with the archived classic board as default, to keep that fallback tested.
 import { createRequire } from "node:module";
 const repo = process.env.GW_REPO;
 const out = process.env.GW_OUT;

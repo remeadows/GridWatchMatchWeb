@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest } from "../data/presentationAssets";
@@ -266,6 +266,87 @@ describe("music through the audio service", () => {
     service.configure(enabledSettings);
     service.playMusic("menu");
     expect(started).toHaveLength(2);
+  });
+});
+
+describe("music held back until the page is touched", () => {
+  // Restored here, not at the end of each test, so a failed assertion cannot leak the stub.
+  afterEach(() => vi.unstubAllGlobals());
+
+  // The browser refuses every start until `allowed` is set, as it does before a first touch.
+  function refusedService() {
+    const listeners = new Map<string, Array<(event: unknown) => void>>();
+    vi.stubGlobal("document", {
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+      }
+    });
+    const gate = { allowed: false };
+    const started: string[] = [];
+    const service = new AudioService({
+      createBoardBackend: () => null,
+      now: () => 0,
+      firstMusicFile: () => 0,
+      createMusicVoice: (url) => ({
+        start: () => {
+          if (!gate.allowed) return Promise.reject(new Error("NotAllowedError"));
+          started.push(url);
+          return Promise.resolve();
+        },
+        stop: () => undefined,
+        setGain: () => undefined,
+        positionMs: 0,
+        durationMs: null,
+        onEnded: () => undefined
+      })
+    });
+    service.configure(enabledSettings);
+    const fire = async (type: string, event: unknown = {}) => {
+      // A real browser allows the start only inside an event it counts as a touch of the page.
+      for (const listener of listeners.get(type) ?? []) listener(event);
+      await Promise.resolve();
+      await Promise.resolve();
+    };
+    return { service, started, gate, fire, listeners };
+  }
+
+  it("asks for the menu music at page load, before any touch", async () => {
+    const { service, started, gate } = refusedService();
+    gate.allowed = true;
+    service.playMusic("menu");
+    expect(started).toHaveLength(1);
+  });
+
+  it.each([
+    ["a mouse press", "pointerdown", { pointerType: "mouse" }],
+    ["a finger lifting", "pointerup", { pointerType: "touch" }],
+    ["a pen lifting", "pointerup", { pointerType: "pen" }],
+    ["the end of a touch", "touchend", {}],
+    ["a click", "click", {}],
+    ["a key", "keydown", {}]
+  ])("starts the refused music on %s", async (_name, type, event) => {
+    const { service, started, gate, fire } = refusedService();
+    service.playMusic("menu");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(started).toHaveLength(0);
+    gate.allowed = true;
+    await fire(type, event);
+    expect(started).toHaveLength(1);
+  });
+
+  it("does not spend its retry on a finger going down, which the browser does not count as a touch", async () => {
+    const { service, started, gate, fire } = refusedService();
+    service.playMusic("menu");
+    await Promise.resolve();
+    await Promise.resolve();
+    // Still refused while the finger is only down; allowed from the moment it lifts.
+    await fire("pointerdown", { pointerType: "touch" });
+    gate.allowed = true;
+    await fire("pointerup", { pointerType: "touch" });
+    expect(started).toHaveLength(1);
+    await fire("click");
+    expect(started).toHaveLength(1);
   });
 });
 

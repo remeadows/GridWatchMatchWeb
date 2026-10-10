@@ -6,6 +6,21 @@ on the dev instance (`npm run cf:dev-instance`); Russ approved the look on 2026-
 the push to be prepared (`HANDOFF.md` has the readiness check). Nothing here changes rules, saves,
 accounts or the production build's default look.
 
+**2026-10-10: the dark theme is the game's look.** Russ: "Dark theme becomes production. Old theme
+is to be archived. When select Match from the Nexus menu, dark theme should come up immediately."
+Every build now opens in the dark theme. Classic is archived as a hidden fallback (his choice of
+the three ways to archive it): its art and code stay in place, players are never shown it, and
+`?theme=classic` still brings it up. Where this file says classic is the default, read it as the
+history of the switch; §5 has the current rule.
+
+**The same day: the menu opens on a title screen.** Russ: "The music needs to start at page load",
+then, told a browser will not play a note before the page is touched: "Music guaranteed on the
+first screen using 'one tap' is fine. Sort of like we did for Drift." So the dark menu opens with
+"tap to enter" ("press any key" for a mouse and keyboard) standing in the panel where its actions
+will be; the first click anywhere or the first key opens the menu and starts the music
+(`src/state/titleGate.ts`, `DarkHomeScreen`). It shows once per page load, not when the music is
+off, and not in test mode. The archived classic menu has none.
+
 Status, 2026-10-09: **everything in the brief's inventory is in the game** in the dark theme: five
 tiles, five power-ups (board and equipment dock), every cell state the engine has, the board
 frame, the game HUD and dock, the main menu, and the shared treatment on the other screens. What
@@ -99,9 +114,11 @@ game loads and what `src/tests/boardTheme.test.ts` checks against the files on d
 
 ## 5. Integration
 
-- `src/game/boardTheme.ts` is the one selection point: `classic` (default) or `darkRealism`.
-  `VITE_BOARD_THEME=darkRealism` makes it a build's default (only the dev instance sets it);
-  `?theme=classic` or `?theme=dark` overrides on any build. **Rollback is that parameter.**
+- `src/game/boardTheme.ts` is the one selection point: `darkRealism` (every build's default since
+  2026-10-10) or the archived `classic`. `?theme=classic` or `?theme=dark` overrides on any
+  build, and a build made with `VITE_BOARD_THEME=classic` starts on classic. **Rollback is that
+  parameter or that build setting.** `index.html` carries the theme attribute, so the page is dark
+  from its first paint; `src/main.tsx` is what turns it off for classic.
 - `BoardScene` loads the manifest's sprites only in the dark theme, and then does not download
   the classic picture each one replaces. If a dark sprite fails to load, the classic picture is
   loaded in its place, and every use checks which texture exists.

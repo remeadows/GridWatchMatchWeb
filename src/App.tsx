@@ -40,6 +40,7 @@ import {
   starsForLevel
 } from "./state/progress";
 import { loadSaveState, persistSaveState, resetSaveState, type SaveState } from "./state/save";
+import { keyEntersMenu, opensOnTitle } from "./state/titleGate";
 
 type Screen =
   | { name: "home" }
@@ -78,6 +79,8 @@ function warnPersistFailed(error: unknown): void {
 export default function App() {
   const [save, setSave] = useState<SaveState | null>(null);
   const [screen, setScreen] = useState<Screen>({ name: "home" });
+  // The title screen (src/state/titleGate.ts): once per page load, and only the dark menu has one.
+  const [enteredMenu, setEnteredMenu] = useState(false);
   const appliedInitialRoute = useRef(false);
   const auth = useAuth();
   const userId = auth.session?.user.id ?? null;
@@ -346,6 +349,37 @@ export default function App() {
     audioService.playMusic("menu");
   }, [save, screen.name]);
 
+  const onTitle = !enteredMenu
+    && screen.name === "home"
+    && save !== null
+    && activeBoardTheme() === "darkRealism"
+    && opensOnTitle(window.location.search, save.settings.musicEnabled);
+  const enterMenu = useCallback(() => {
+    setEnteredMenu(true);
+    audioService.unlockMusic();
+  }, []);
+  // Decided once, when the save first loads: a page that did not open on the title never shows it
+  // later, whether the music is switched on in Settings or a cloud save arrives with it on.
+  const saveLoaded = save !== null;
+  useEffect(() => {
+    if (saveLoaded && !onTitle) setEnteredMenu(true);
+  }, [saveLoaded, onTitle]);
+  // The first click anywhere, or the first key, opens the menu and starts the music. It is the
+  // click (the end of a tap), never the press: the actions appear under the finger, and a press
+  // that opened them would land its release on whichever one was there.
+  useEffect(() => {
+    if (!onTitle) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (keyEntersMenu(event.key)) enterMenu();
+    };
+    window.addEventListener("click", enterMenu, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("click", enterMenu, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [onTitle, enterMenu]);
+
   // Fetch Tish's lines on the menu, so the first level's opening is at hand. Only fetched here:
   // they are decoded from the player's first touch, which is also what may create the audio context.
   const voiceEnabled = save?.settings.voiceEnabled ?? false;
@@ -430,7 +464,7 @@ export default function App() {
       {isDevInstance && <div className="dev-build-badge" aria-hidden="true">DEV · {buildLabel}</div>}
       <TopBar save={save} screen={screen} navigate={navigate} />
       {screen.name === "home" && (activeBoardTheme() === "darkRealism"
-        ? <DarkHomeScreen save={save} onResume={() => navigate({ name: "areas" })} onQuickDeploy={(levelId) => navigate({ name: "game", levelId })} />
+        ? <DarkHomeScreen save={save} onTitle={onTitle} onEnter={enterMenu} onResume={() => navigate({ name: "areas" })} onQuickDeploy={(levelId) => navigate({ name: "game", levelId })} />
         : <HomeScreen save={save} navigate={navigate} />)}
       {screen.name === "areas" && <AreasScreen save={save} commitSave={commitSave} navigate={navigate} />}
       {screen.name === "levels" && <LevelsScreen area={areas.find((area) => area.id === screen.areaId) ?? areas[0]} save={save} navigate={navigate} />}
