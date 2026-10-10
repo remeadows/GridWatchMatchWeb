@@ -10,7 +10,14 @@ const dist = path.resolve(distArg);
 const csp = "default-src 'self'; base-uri 'self'; connect-src 'self' https://mggxfzzxrpjgpzhwiwqi.supabase.co; font-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self'; style-src 'self'; worker-src 'self' blob:";
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".webp": "image/webp", ".mp3": "audio/mpeg", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".wav": "audio/wav", ".jpg": "image/jpeg" };
 createServer(async (request, response) => {
-  const pathname = decodeURIComponent(new URL(request.url, "http://x").pathname).replace(/^\/play\/match/, "") || "/";
+  let pathname;
+  try {
+    pathname = decodeURIComponent(new URL(request.url, "http://x").pathname).replace(/^\/play\/match/, "") || "/";
+  } catch {
+    // A path that cannot be decoded (`%E0%A4%A`) is a bad request, not a reason to stop serving.
+    response.writeHead(400).end();
+    return;
+  }
   let file = path.join(dist, pathname);
   // Nothing outside dist/ is served, however the path is encoded (`..%2f` survives URL parsing).
   if (file !== dist && !file.startsWith(dist + path.sep)) {
