@@ -127,6 +127,14 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **Sound verified so far:** unit 565/565, `tsc` clean; on the live dev site a level loads the new
   cues and the five voice files with no failed request and no console error. **Not yet: e2e on
   the sound work.** I cannot hear any of it; levels are a first guess.
+- **An e2e run on the audition state was started 2026-10-09 (both themes, about 32 minutes).** It
+  ran against the uncommitted tree (`a29b9b5` plus the new cue files and the `?sfx=old` switch),
+  so whatever it shows, the final committed state still needs its own run. If this session ended
+  before it reported, treat it as not run. Scratch logs do not survive the session.
+- **Waiting on Russ (asked 2026-10-09):** which board sounds miss and how; whether Tish talks too
+  often ("Initiating countermeasures" at every level start is the likely one); anything in the
+  motion or power-ups that feels off played together. He has not yet said anything about the
+  tile motion or the power-ups as played, only approved their designs.
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
