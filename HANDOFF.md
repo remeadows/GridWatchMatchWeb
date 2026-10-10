@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. PUSHED, PR #79 open, not merged, not in production (branch `dev/mechanics`)
+## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. MERGED to `main` (`41b003d`, PR #79), NOT in production
 
 **Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
 work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
@@ -21,6 +21,36 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **Pushed 2026-10-09 on his word ("push - open PR and turn on auto-fix CI"):** branch at
   `7a1b44b`, **PR #79** (https://github.com/remeadows/GridWatchMatchWeb/pull/79), Auto-fix on
   for it in the desktop app. Merging and any production deploy are his.
+- **Merged by Russ 2026-10-09 (01:52 UTC) as `41b003d`**, a squash of the branch at `dc3f970`;
+  CI and CodeQL passed on `main`. Two notes-only commits pushed to the branch after the merge
+  (review findings, final e2e result) were not in it and are carried by the branch
+  `docs/handoff-mechanics-merged`. **Production was not deployed:** checked the same evening,
+  the live game does not serve the new music or voice files. The deploy is his.
+- **Review on PR #79, 2026-10-09: eleven findings, all real, all fixed and resolved** (commits
+  `15f4d02`, `b280170`, `dc3f970`).
+  - **The merge effect never ran** (Codex). I had read the engine's step order backwards: a
+    power-up's creation is recorded BEFORE the clear of the rest of its match, and its cell is
+    left out of that clear. Now `mergeSources` finds the feeding pieces in the clear that
+    follows and the flights run in the creation step; trace kind `powerup-merge`, asserted in
+    e2e. I had told Russ step 2 was built when this part was not working. The matched pieces
+    still break a moment after the power-up lands: that order is the engine's.
+  - **First opening line could be silent on a phone** (Codex), then **no audio context before
+    the first touch** (CodeRabbit): the menu only fetches the nine voice files
+    (`prefetchVoice`, cancelled on cleanup); the first touch creates the context and decodes
+    them; a line not decoded yet is loaded and then said through the backend (dropped after
+    1.5 s); music uses the context only once a touch has made it. Checked in Chrome and
+    WebKit on a local build. Still not checked on a real iPhone.
+  - Swap lift snapped a dragged piece down 6% at settle (yoyo returned to 1.06): each stage
+    now names its end scale. Rocket pass times were planned for even speed while the head
+    eases in: `rocketLanePlan` times each cell at sqrt(fraction) and the scene triggers on
+    `laneFraction`. `prepare-*.sh` no longer use macOS-only `stat -f`; `measure.sh` passes
+    `-nostdin`.
+  - **The new timings are now marked as an intentional web-only divergence from iOS** (top of
+    `src/data/presentationTiming.ts`): they were tuned to Russ's direction, not ported, and a
+    parity pass must not revert them unasked. **Russ has not been asked whether iOS should
+    follow.**
+  - e2e gained assertions for target marks, knocks, the merge, the creation, and that reduced
+    motion draws none of them. Final e2e on `dc3f970` (2026-10-09): classic board 218/218 and dark board 218/218, no retries (`art/gridwatch-match/qa/README.md` has the dark command).
 - **Tish's voice is also in Drive** (he asked): `GridWatchArt / 0 - Gridwatch-Assets / 4 - Tish /
   Voice`, nine lines as the game plays them (`Comms/`), the same takes untreated (`Clean/`) and
   a README with the voice id and how to record a matching line. Checked present in Drive.
@@ -182,10 +212,9 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
-- **All four pieces are built, committed and pushed (PR #79).** Done before the push: fresh-clone
+- **All four pieces are built and merged (PR #79, `41b003d`).** Done before the push: fresh-clone
   CI steps, gitleaks, the acceptance and performance probes, and e2e 218/218 in both themes at
-  `f1c3e75`. Still open: the e2e run on the review fixes, Russ's verdict on how it plays, and
-  the merge and any production deploy, which are his.
+  `f1c3e75`. Still open: Russ's verdict on how it plays, and the production deploy, which is his.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
