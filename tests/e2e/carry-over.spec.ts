@@ -52,6 +52,14 @@ const coinTotal = (page: Page): Locator => page.locator("header.top-bar .currenc
 const banner = (page: Page): Locator => page.getByRole("complementary", { name: "GridWatch Match has moved" });
 const moveButton = (page: Page): Locator => page.getByRole("button", { name: "Move my progress" });
 
+// The dark menu opens on its title (src/state/titleGate.ts): its actions are behind one tap. The
+// archived classic menu, which a GW_THEME=classic build of this suite runs on, has no title.
+async function enterMenu(page: Page): Promise<void> {
+  await page.getByTestId("home-command-deck").waitFor({ state: "visible" });
+  const title = page.getByTestId("title-enter");
+  if (await title.count()) await title.click();
+}
+
 async function clickMove(page: Page): Promise<Page> {
   const [popup] = await Promise.all([page.waitForEvent("popup"), moveButton(page).click()]);
   return popup;
@@ -231,6 +239,7 @@ test("the banner stays off the game screen, where the board's height budget has 
   await seedProgress(page, OLD, 40);
   await page.goto(OLD_URL);
   await expect(banner(page)).toBeVisible();
+  await enterMenu(page);
   await page.getByRole("button", { name: "Quick Deploy" }).click();
   await expect(page.locator(".game-layout .game-hud")).toContainText("Level 1");
   await expect(banner(page)).toHaveCount(0);
@@ -242,6 +251,9 @@ test("the \"moved\" notice on Nexus clears on the first navigation", async ({ pa
   const popup = await clickMove(page);
   const notice = popup.getByRole("status").filter({ hasText: "Progress moved from the old site." });
   await expect(notice).toBeVisible({ timeout: 15_000 });
+  // Entering the menu is not a navigation: the notice is still there to read.
+  await enterMenu(popup);
+  await expect(notice).toBeVisible();
   await popup.getByRole("button", { name: "Resume Operations" }).click();
   await expect(popup.getByRole("button", { name: "Open Levels" }).first()).toBeVisible();
   await expect(notice).toHaveCount(0);
