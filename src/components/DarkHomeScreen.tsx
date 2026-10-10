@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { assetManifest, assetUrl } from "../data/assets";
 import { heroes } from "../data/heroes";
 import { areaProgressLabel, completedLevelsInArea, currentArea } from "../state/progress";
@@ -11,11 +12,17 @@ const TISH_PLATE = "assets/images/match-v2/menu/tish.webp";
 
 interface DarkHomeScreenProps {
   save: SaveState;
+  /** The title screen: "tap to enter" stands where the panel's contents will be (src/state/titleGate.ts). */
+  onTitle: boolean;
+  onEnter: () => void;
   onResume: () => void;
   onQuickDeploy: (levelId: number) => void;
 }
 
-export function DarkHomeScreen({ save, onResume, onQuickDeploy }: DarkHomeScreenProps) {
+export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy }: DarkHomeScreenProps) {
+  // The panel's contents rise in only when this visit began on the title, not on every return home.
+  const beganOnTitle = useRef(onTitle);
+  const stateClass = onTitle ? " dr-home-on-title" : beganOnTitle.current ? " dr-home-arriving" : "";
   const area = currentArea(save);
   const hero = heroes.find((candidate) => candidate.id === save.selectedHeroId) ?? heroes[0];
   const tish = heroes.find((candidate) => candidate.id === "tish");
@@ -25,7 +32,7 @@ export function DarkHomeScreen({ save, onResume, onQuickDeploy }: DarkHomeScreen
   const areaTotal = area.lastLevel - area.firstLevel + 1;
 
   return (
-    <section className="dr-home" data-testid="home-command-deck">
+    <section className={`dr-home${stateClass}${save.settings.reducedMotion ? " dr-home-still" : ""}`} data-testid="home-command-deck">
       <img className="dr-home-city" src={assetUrl(CITY_PLATE)} alt="" />
       <div className="dr-home-art">
         <img className="dr-home-tish" src={assetUrl(TISH_PLATE)} alt="" />
@@ -40,6 +47,14 @@ export function DarkHomeScreen({ save, onResume, onQuickDeploy }: DarkHomeScreen
       </div>
 
       <div className="dr-home-panel">
+        {/* Kept in the panel's own box and its contents only hidden, so nothing moves when they arrive. */}
+        {onTitle && (
+          <button type="button" className="dr-enter" data-testid="title-enter" aria-label="Enter the main menu" onClick={onEnter}>
+            <span className="dr-enter-touch">Tap to Enter</span>
+            <span className="dr-enter-key">Press any key</span>
+            <small>Sound on</small>
+          </button>
+        )}
         <div className="dr-home-campaign">
           <span>Campaign <strong>{completedLevels} / 100</strong></span>
           <div
