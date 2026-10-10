@@ -732,7 +732,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       setShowTutorial((!saveRef.current.completedTutorial || saveRef.current.tutorialReplayRequested) && !new URLSearchParams(window.location.search).has("gwTestMode"));
       tutorialInitialMoveRef.current = engine.snapshot.moveCount;
       audioService.playMusic(loaded.bossLevel ? "boss" : "gameplay", { fresh: true });
-      audioService.playVoice(loaded.bossLevel ? "breachAlert" : "initiatingCountermeasures");
+      if (loaded.bossLevel) audioService.playVoice("breachAlert");
+      else audioService.playOpening();
       analytics.track({ name: "level_start", params: { levelId: loaded.id, boss: loaded.bossLevel } });
     }).catch((error) => {
       if (active) {

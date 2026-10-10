@@ -9,6 +9,7 @@ import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import {
   AudioService,
   musicFiles,
+  openingLines,
   voiceFile,
   type BoardAudioBackend,
   type BoardAudioPlayback,
@@ -269,7 +270,10 @@ describe("music through the audio service", () => {
 });
 
 describe("Tish's voice lines", () => {
-  const lines = ["connectionSecure", "gridCompromised", "initiatingCountermeasures", "areaCleared", "breachAlert"] as const;
+  const lines = [
+    "connectionSecure", "gridCompromised", "areaCleared", "breachAlert",
+    "initiatingCountermeasures", "defencesOnline", "securingTheGrid", "tracingTheIntrusion", "systemsReady"
+  ] as const;
 
   it("has a prepared recording for every line", () => {
     for (const line of lines) {
@@ -298,6 +302,32 @@ describe("Tish's voice lines", () => {
     service.configure({ ...enabledSettings, voiceEnabled: false });
     service.playVoice("gridCompromised");
     expect(backend.plays).toHaveLength(1);
+  });
+
+  it("opens each level with the next of five lines, and none twice running", () => {
+    expect(openingLines()).toHaveLength(5);
+    expect(new Set(openingLines()).size).toBe(5);
+    expect(openingLines()).toContain("initiatingCountermeasures");
+    const backend = new FakeBoardAudioBackend();
+    const service = new AudioService({ createBoardBackend: () => backend, now: () => 0, firstOpening: () => 0 });
+    service.configure(enabledSettings);
+    for (let level = 0; level < 7; level += 1) service.playOpening();
+    const said = backend.plays.map((entry) => entry.url.replace(/^.*assets\/audio\//, ""));
+    expect(said.slice(0, 5)).toEqual(openingLines().map((line) => voiceFile(line)));
+    expect(said.slice(5)).toEqual(said.slice(0, 2));
+    expect(said.every((file, index) => index === 0 || file !== said[index - 1])).toBe(true);
+  });
+
+  it("can open on any of them, and does not use up a turn while the voice is off", () => {
+    const backend = new FakeBoardAudioBackend();
+    const service = new AudioService({ createBoardBackend: () => backend, now: () => 0, firstOpening: () => 0.99 });
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.playOpening();
+    service.playOpening();
+    expect(backend.plays).toHaveLength(0);
+    service.configure(enabledSettings);
+    service.playOpening();
+    expect(backend.plays[0].url).toContain(voiceFile(openingLines()[4]));
   });
 
   it("loads every line ahead of time", async () => {

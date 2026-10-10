@@ -34,15 +34,41 @@ type SoundName =
  * What Tish says over the comms channel. The recordings are prepared by scripts/prepare-voice.sh,
  * which also sets their level: they play at their own loudness.
  */
-export type VoiceLine = "connectionSecure" | "gridCompromised" | "initiatingCountermeasures" | "areaCleared" | "breachAlert";
+export type VoiceLine =
+  | "connectionSecure"
+  | "gridCompromised"
+  | "areaCleared"
+  | "breachAlert"
+  | "initiatingCountermeasures"
+  | "defencesOnline"
+  | "securingTheGrid"
+  | "tracingTheIntrusion"
+  | "systemsReady";
 
 const VOICE_LINES: Record<VoiceLine, string> = {
   connectionSecure: "voice/tish_connection_secure.mp3",
   gridCompromised: "voice/tish_grid_compromised.mp3",
-  initiatingCountermeasures: "voice/tish_initiating_countermeasures.mp3",
   areaCleared: "voice/tish_area_cleared.mp3",
-  breachAlert: "voice/tish_breach_alert.mp3"
+  breachAlert: "voice/tish_breach_alert.mp3",
+  initiatingCountermeasures: "voice/tish_initiating_countermeasures.mp3",
+  defencesOnline: "voice/tish_defences_online.mp3",
+  securingTheGrid: "voice/tish_securing_the_grid.mp3",
+  tracingTheIntrusion: "voice/tish_tracing_the_intrusion.mp3",
+  systemsReady: "voice/tish_systems_ready.mp3"
 };
+
+/** What she can say as a level begins. She takes them in turn, so no two levels running open alike. */
+const OPENING_LINES: readonly VoiceLine[] = [
+  "initiatingCountermeasures",
+  "defencesOnline",
+  "securingTheGrid",
+  "tracingTheIntrusion",
+  "systemsReady"
+];
+
+export function openingLines(): readonly VoiceLine[] {
+  return OPENING_LINES;
+}
 
 export function voiceFile(line: VoiceLine): string {
   return VOICE_LINES[line];
@@ -72,6 +98,8 @@ interface AudioServiceOptions {
   createMusicVoice?: (url: string) => MusicVoice | null;
   /** Which of a track's files plays first, as a fraction in [0, 1). Random unless given. */
   firstMusicFile?: () => number;
+  /** Which opening line is said first, as a fraction in [0, 1). Random unless given. */
+  firstOpening?: () => number;
   now?: () => number;
   playFallback?: (url: string, volume: number) => void;
 }
@@ -86,6 +114,7 @@ export class AudioService {
   private readonly music: MusicPlayer;
   private musicTrack: MusicTrack | null = null;
   private readonly musicTurn: Record<MusicTrack, number>;
+  private openingTurn: number;
   private gestureUnlockInstalled = false;
   private settings: SettingsState | null = null;
   private boardBackend: BoardAudioBackend | null = null;
@@ -110,6 +139,7 @@ export class AudioService {
     const first = options.firstMusicFile ?? Math.random;
     const firstTurn = (track: MusicTrack) => Math.floor(first() * MUSIC_TRACKS[track].files.length);
     this.musicTurn = { menu: firstTurn("menu"), gameplay: firstTurn("gameplay"), boss: firstTurn("boss") };
+    this.openingTurn = Math.floor((options.firstOpening ?? Math.random)() * OPENING_LINES.length);
     this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
   }
 
@@ -163,6 +193,13 @@ export class AudioService {
     const url = audioUrl(VOICE_LINES[line]);
     const source = this.resolveBoardBackend()?.play(url, { gain: 1, playbackRate: 1 }, () => undefined);
     if (!source) this.playHtmlAudio(url, 1);
+  }
+
+  /** Her line as a level begins: the next of the openings. A turn is only used when she speaks. */
+  playOpening(): void {
+    if (!this.settings?.voiceEnabled) return;
+    this.playVoice(OPENING_LINES[this.openingTurn % OPENING_LINES.length]);
+    this.openingTurn += 1;
   }
 
   async preloadVoice(): Promise<void> {
