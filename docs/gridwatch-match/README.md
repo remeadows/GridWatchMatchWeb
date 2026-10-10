@@ -13,6 +13,14 @@ the three ways to archive it): its art and code stay in place, players are never
 `?theme=classic` still brings it up. Where this file says classic is the default, read it as the
 history of the switch; §5 has the current rule.
 
+**The same day: the menu opens on a title screen.** Russ: "The music needs to start at page load",
+then, told a browser will not play a note before the page is touched: "Music guaranteed on the
+first screen using 'one tap' is fine. Sort of like we did for Drift." So the dark menu opens with
+"tap to enter" ("press any key" for a mouse and keyboard) standing in the panel where its actions
+will be; the first click anywhere or the first key opens the menu and starts the music
+(`src/state/titleGate.ts`, `DarkHomeScreen`). It shows once per page load, not when the music is
+off, and not in test mode. The archived classic menu has none.
+
 Status, 2026-10-09: **everything in the brief's inventory is in the game** in the dark theme: five
 tiles, five power-ups (board and equipment dock), every cell state the engine has, the board
 frame, the game HUD and dock, the main menu, and the shared treatment on the other screens. What
