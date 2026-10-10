@@ -6,9 +6,11 @@
 // player would, so GW_STEPS names what comes after it.
 //   GW_STEPS='["Quick Deploy","Skip"]' node release-check.mjs <repo> <base url> <out dir>
 // The live Nexus page always logs Cloudflare's injected scripts being blocked by its security
-// policy; csp-server.mjs serves a local build under that policy without them. A screenshot makes
-// WebKit log "Refused to apply a stylesheet": that is Playwright's own caret-hiding style meeting
-// the policy, not the game, so it is not counted (found 2026-10-10; it had been read as the game's).
+// policy; csp-server.mjs serves a local build under that policy without them. Each screenshot
+// makes WebKit log one "Refused to apply a stylesheet": that is Playwright's own screenshot style
+// meeting the policy, not the game (found 2026-10-10; it had been read as the game's). Exactly one
+// such line per WebKit screenshot is set aside; a second in the same moment, or any in Chromium,
+// is counted as the page's own.
 import { createRequire } from "node:module";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
@@ -31,17 +33,21 @@ for (const target of targets) {
   const errors = [];
   const badRequests = [];
   const audio = new Set();
-  let shooting = false;
+  // How many of the screenshot's own refused-style lines are still expected: one per WebKit shot.
+  let ownStyleLines = 0;
   page.on("console", (message) => {
     if (message.type() !== "error") return;
-    if (shooting && /Refused to apply a stylesheet/.test(message.text())) return;
+    if (ownStyleLines > 0 && /^Refused to apply a stylesheet/.test(message.text())) {
+      ownStyleLines -= 1;
+      return;
+    }
     errors.push(message.text());
   });
   const shot = async (name) => {
-    shooting = true;
+    ownStyleLines = target.browser === webkit ? 1 : 0;
     await page.screenshot({ path: path.join(outDir, `${target.name}-${name}.png`) });
     await page.waitForTimeout(150);
-    shooting = false;
+    ownStyleLines = 0;
   };
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("response", (response) => {
