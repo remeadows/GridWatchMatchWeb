@@ -55,6 +55,18 @@ below, which is not on `main` yet.
   iPhone-15 WebKit with no new console messages, and `?theme=classic` opens classic. The autoplay
   probe after the title screen: playing after the first click (desktop) and the first tap (phone
   size), and playing at load when arriving by a same-site link.
+- **Review on PR #81, 2026-10-10 (Codex 2 findings, CodeRabbit 11 comments of which 6 said no
+  change was needed): fixed in `b512555` and `e182d0d`.** The title could appear late: a page that
+  opened without it (music off) showed it after the music was switched on in Settings; the
+  decision is now made once, when the save first loads (new e2e test, seen failing first).
+  `release-check.mjs` could not reach "Quick Deploy" behind the title and still exited clean; it
+  now enters the title first and exits 1 on a missing button. `csp-server.mjs` refuses paths
+  outside `dist/`; `autoplay-probe.mjs` closes Chrome in a `finally`; the audio tests restore the
+  `document` stub in `afterEach`; the title button's accessible name includes "Sound on".
+  **Final e2e on `e182d0d`: dark default 230/230; classic-default build 218 passed, 12 skipped
+  (the title-screen tests).** Unit 586/586. During the fixes one more one-off timeout appeared
+  (`app.spec.ts` "handles fail, Play On decline…", then 20 of 20 on repeat); another session's
+  job was holding a core the whole morning and the load average sat near 9.
 - **Correction to the entry below:** the two WebKit "Refused to apply a stylesheet" console lines
   appear at page load, not when a level starts. They still predate all of this (`fda9ed0`).
 - **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` serves `9f7e3b3-dev`.
