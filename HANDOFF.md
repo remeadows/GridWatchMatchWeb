@@ -146,7 +146,10 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   pitch) and cutting out a take that lands low. Both lines replaced with such takes (163 and
   147 Hz); **he has the files but has not yet said they are right.** By the same measure
   "Connection secure" (250), "Area cleared" (242), "Breach alert" (217) and "Grid compromised"
-  (216) are also high: flagged to him, not changed, awaiting his word.
+  (216) were also high. Told this, Russ said "yes, re-record the other four lines": done the
+  same way. All nine installed files now measure 145 to 186 Hz median ("Breach alert" is the
+  186; it took three passages to get one that low). **He has not yet heard the six replaced
+  lines in their final form and said they are right.**
 - **Probes on a local build of `cdc1dd2`** (`docs/gridwatch-match/evidence/2026-10-09-mechanics/`):
   `acceptance-probe.mjs` passes every check (18 refused sprites fall back and a swap still takes
   a move; ten level entries leave one canvas; hide and show mid-level; the full loop keeps
@@ -156,8 +159,8 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   to board ready was 232 to 388 ms (688 to 942 ms slowed), against 166 to 345 ms when measured
   for the art work: within run-to-run spread for classic, slower for dark, cause not looked
   into (nine voice files are now fetched as a level opens). **A real phone is still unmeasured.**
-- **Waiting on Russ:** whether the two re-recorded openings sound like Lily, and whether to
-  re-record the four other lines that measure high; which board sounds miss and how; whether Tish talks too often; anything
+- **Waiting on Russ:** whether the six re-recorded lines sound like Lily; which board sounds
+  miss and how; whether Tish talks too often; anything
   in the motion or power-ups that feels off played together. He approved each design and chose
   the music and the voice; he has not yet commented on the tile motion, the power-ups or the
   board sounds as played.
