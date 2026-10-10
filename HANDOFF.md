@@ -212,10 +212,9 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
-- **All four pieces are built, committed and pushed (PR #79).** Done before the push: fresh-clone
+- **All four pieces are built and merged (PR #79, `41b003d`).** Done before the push: fresh-clone
   CI steps, gitleaks, the acceptance and performance probes, and e2e 218/218 in both themes at
-  `f1c3e75`. Still open: Russ's verdict on how it plays, and the merge and any production deploy, which
-  are his.
+  `f1c3e75`. Still open: Russ's verdict on how it plays, and the production deploy, which is his.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
