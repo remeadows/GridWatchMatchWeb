@@ -1,7 +1,9 @@
 // Release check: load a production build as a player would (no test mode), on a desktop Chromium
 // and an iPhone-15 WebKit, optionally press buttons, and report the theme the page opened in,
 // console errors, failed requests and the music and voice files fetched. Exits 1 on a console
-// error or a DEV badge. Run it on a local build before a deploy and on the live URL after one.
+// error, a DEV badge, or a requested button that is not there. Run it on a local build before a
+// deploy and on the live URL after one. The title screen ("tap to enter") is entered first, as a
+// player would, so GW_STEPS names what comes after it.
 //   GW_STEPS='["Quick Deploy","Skip"]' node release-check.mjs <repo> <base url> <out dir>
 // The live Nexus page always logs Cloudflare's injected scripts being blocked by its security
 // policy; csp-server.mjs serves a local build under that policy without them.
@@ -48,14 +50,23 @@ for (const target of targets) {
   const buttons = await page.getByRole("button").allInnerTexts();
   console.log(`[${target.name}] buttons on open: ${JSON.stringify(buttons.map((text) => text.replace(/\s+/g, " ").trim()).slice(0, 14))}`);
 
+  const title = page.getByTestId("title-enter");
+  if (await title.count()) {
+    await title.click();
+    await page.waitForTimeout(800);
+    await page.screenshot({ path: path.join(outDir, `${target.name}-1b-menu.png`) });
+    console.log(`[${target.name}] entered through the title screen`);
+  }
   for (const step of process.env.GW_STEPS ? JSON.parse(process.env.GW_STEPS) : []) {
     const button = page.getByRole("button", { name: new RegExp(step, "i") }).first();
-    if (await button.count()) {
+    if (await button.isVisible()) {
       await button.click();
       await page.waitForTimeout(1500);
       console.log(`[${target.name}] clicked "${step}"`);
     } else {
-      console.log(`[${target.name}] no button "${step}"`);
+      // A step that cannot be taken means the check did not see what it was asked to see.
+      console.log(`[${target.name}] MISSING button "${step}"`);
+      failed = true;
     }
   }
   await page.waitForTimeout(2500);

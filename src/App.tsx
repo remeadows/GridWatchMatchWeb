@@ -358,6 +358,12 @@ export default function App() {
     setEnteredMenu(true);
     audioService.unlockMusic();
   }, []);
+  // Decided once, when the save first loads: a page that did not open on the title never shows it
+  // later, whether the music is switched on in Settings or a cloud save arrives with it on.
+  const saveLoaded = save !== null;
+  useEffect(() => {
+    if (saveLoaded && !onTitle) setEnteredMenu(true);
+  }, [saveLoaded, onTitle]);
   // The first click anywhere, or the first key, opens the menu and starts the music. It is the
   // click (the end of a tap), never the press: the actions appear under the finger, and a press
   // that opened them would land its release on whichever one was there.

@@ -60,6 +60,22 @@ test("goes straight to the menu when the music is switched off", async ({ page }
   await expect(enter(page)).toHaveCount(0);
 });
 
+test("a page that opened without the title never shows it later, even once the music is switched on", async ({ page }) => {
+  await openOnTitle(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const music = page.locator("label.setting-row", { hasText: "Music" }).locator("input");
+  await music.uncheck();
+  await page.reload();
+  await page.getByTestId("home-command-deck").waitFor({ state: "visible" });
+  await expect(enter(page)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await music.check();
+  await page.getByRole("button", { name: "Home" }).click();
+  await expect(resume(page)).toBeVisible();
+  await expect(enter(page)).toHaveCount(0);
+});
+
 test("test mode goes straight to the menu", async ({ page }) => {
   await openOnTitle(page, "./?gwTestMode=1");
   await expect(resume(page)).toBeVisible();
