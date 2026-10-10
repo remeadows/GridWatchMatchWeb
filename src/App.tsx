@@ -732,6 +732,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       setShowTutorial((!saveRef.current.completedTutorial || saveRef.current.tutorialReplayRequested) && !new URLSearchParams(window.location.search).has("gwTestMode"));
       tutorialInitialMoveRef.current = engine.snapshot.moveCount;
       audioService.playMusic(loaded.bossLevel ? "boss" : "gameplay", { fresh: true });
+      audioService.playVoice(loaded.bossLevel ? "breachAlert" : "initiatingCountermeasures");
       analytics.track({ name: "level_start", params: { levelId: loaded.id, boss: loaded.bossLevel } });
     }).catch((error) => {
       if (active) {
@@ -753,7 +754,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setStatus("failed");
     setMessage("Boss timer expired.");
     audioService.playSfx("sfx_breach_alert.mp3");
-    audioService.playSfx("vo_grid_compromised.mp3");
+    audioService.playVoice("gridCompromised");
   }, []);
 
   const requestBossExpiry = useCallback(() => {
@@ -825,7 +826,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       statusRef.current = "won";
       setStatus("won");
       audioService.playSfx("sfx_level_complete.mp3");
-      audioService.playSfx("vo_connection_secure.mp3");
+      audioService.playVoice(areaForLevel(currentLevel.id).lastLevel === currentLevel.id ? "areaCleared" : "connectionSecure");
       analytics.track({ name: "level_win", params: { levelId: currentLevel.id, stars, score: nextScore } });
     };
 
@@ -1072,6 +1073,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     const engine = engineRef.current;
     if (!engine || saveRef.current.coins < playOnCost) {
       setMessage("Not enough coins.");
+      audioService.playVoice("gridCompromised");
       setStatus("failed");
       return;
     }
@@ -1264,7 +1266,10 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           primary="Play On"
           secondary="End Mission"
           onPrimary={acceptPlayOn}
-          onSecondary={() => setStatus("failed")}
+          onSecondary={() => {
+            audioService.playVoice("gridCompromised");
+            setStatus("failed");
+          }}
         />
       )}
       {status === "won" && snapshot && (

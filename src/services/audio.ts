@@ -28,12 +28,25 @@ type SoundName =
   | "sfx_level_fail.mp3"
   | "sfx_power_up.mp3"
   | "sfx_tile_clear.mp3"
-  | "sfx_ui_tap.mp3"
-  | "vo_area_cleared.mp3"
-  | "vo_breach_alert.mp3"
-  | "vo_connection_secure.mp3"
-  | "vo_grid_compromised.mp3"
-  | "vo_initiating_countermeasures.mp3";
+  | "sfx_ui_tap.mp3";
+
+/**
+ * What Tish says over the comms channel. The recordings are prepared by scripts/prepare-voice.sh,
+ * which also sets their level: they play at their own loudness.
+ */
+export type VoiceLine = "connectionSecure" | "gridCompromised" | "initiatingCountermeasures" | "areaCleared" | "breachAlert";
+
+const VOICE_LINES: Record<VoiceLine, string> = {
+  connectionSecure: "voice/tish_connection_secure.mp3",
+  gridCompromised: "voice/tish_grid_compromised.mp3",
+  initiatingCountermeasures: "voice/tish_initiating_countermeasures.mp3",
+  areaCleared: "voice/tish_area_cleared.mp3",
+  breachAlert: "voice/tish_breach_alert.mp3"
+};
+
+export function voiceFile(line: VoiceLine): string {
+  return VOICE_LINES[line];
+}
 
 const MAX_ACTIVE_BOARD_SOURCES = 16;
 const CASCADE_LANDING_COALESCE_MS = 45;
@@ -136,9 +149,26 @@ export class AudioService {
   }
 
   playSfx(sound: SoundName): void {
-    if (!this.settings?.sfxEnabled && !sound.startsWith("vo_")) return;
-    if (sound.startsWith("vo_") && !this.settings?.voiceEnabled) return;
-    this.playHtmlAudio(audioUrl(sound), sound.startsWith("vo_") ? 0.8 : 0.65);
+    if (!this.settings?.sfxEnabled) return;
+    this.playHtmlAudio(audioUrl(sound), 0.65);
+  }
+
+  /**
+   * A spoken line. It goes through the decoded-audio backend when the line is loaded there, since
+   * that is already unlocked by the player's first touch; an <audio> element started outside a
+   * touch can be refused on a phone.
+   */
+  playVoice(line: VoiceLine): void {
+    if (!this.settings?.voiceEnabled) return;
+    const url = audioUrl(VOICE_LINES[line]);
+    const source = this.resolveBoardBackend()?.play(url, { gain: 1, playbackRate: 1 }, () => undefined);
+    if (!source) this.playHtmlAudio(url, 1);
+  }
+
+  async preloadVoice(): Promise<void> {
+    const backend = this.resolveBoardBackend();
+    if (!backend) return;
+    await Promise.all(Object.values(VOICE_LINES).map((file) => backend.preload(audioUrl(file)).catch(() => undefined)));
   }
 
   async preloadBoardSounds(): Promise<void> {

@@ -9,6 +9,7 @@ import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import {
   AudioService,
   musicFiles,
+  voiceFile,
   type BoardAudioBackend,
   type BoardAudioPlayback,
   type BoardAudioSource
@@ -264,5 +265,45 @@ describe("music through the audio service", () => {
     service.configure(enabledSettings);
     service.playMusic("menu");
     expect(started).toHaveLength(2);
+  });
+});
+
+describe("Tish's voice lines", () => {
+  const lines = ["connectionSecure", "gridCompromised", "initiatingCountermeasures", "areaCleared", "breachAlert"] as const;
+
+  it("has a prepared recording for every line", () => {
+    for (const line of lines) {
+      expect(voiceFile(line)).toMatch(/^voice\/tish_[a-z_]+\.mp3$/);
+      expect(existsSync(join(process.cwd(), "public/assets/audio", voiceFile(line))), line).toBe(true);
+    }
+    expect(new Set(lines.map((line) => voiceFile(line))).size).toBe(lines.length);
+  });
+
+  it("plays through the decoded-audio backend at its own level", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service, playFallback } = createService(backend);
+    service.playVoice("connectionSecure");
+    expect(backend.plays).toHaveLength(1);
+    expect(backend.plays[0].url).toContain(voiceFile("connectionSecure"));
+    expect(backend.plays[0].playback).toEqual({ gain: 1, playbackRate: 1 });
+    expect(playFallback).not.toHaveBeenCalled();
+  });
+
+  it("is silenced by the voice setting alone", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.configure({ ...enabledSettings, sfxEnabled: false });
+    service.playVoice("gridCompromised");
+    expect(backend.plays).toHaveLength(1);
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.playVoice("gridCompromised");
+    expect(backend.plays).toHaveLength(1);
+  });
+
+  it("loads every line ahead of time", async () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    await service.preloadVoice();
+    expect(backend.preloaded).toHaveLength(lines.length);
   });
 });
