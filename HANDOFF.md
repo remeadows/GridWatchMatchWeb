@@ -99,11 +99,39 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **e2e for the power-up work (commit `7e0b3db`, with music and tile motion):** 218/218 on the
   classic board and 218/218 on the dark board (bundled Chromium, WebKit for the phone project),
   2026-10-09.
+- **Sound, the last piece.** Asked what he wanted, Russ picked "Heavier, to match the look",
+  "Sounds that follow the action" and "Rework the voice lines" (not "Fill the silent moments":
+  buttons, menus and the swap stay silent), then "Tish says them", "Tish voice English female",
+  "Lily, and yes to the sound design, go ahead".
+  - *Follows the action* (`2f1c575`): `landingCuePlayback`, `clearCuePlayback`,
+    `blastCuePlayback` in `src/game/presentation.ts`. One landing sound per group of pieces that
+    land together (at most three a cascade), voiced by how hard and how many; clears grow from
+    three pieces to seven; TNT, rocket and light-ball hits scale with what they destroyed.
+  - *Tish* (`5c64975`): ElevenLabs stock voice "Lily" (id `pFZP5JQG7iQjIQuC4Bku`), five lines in
+    `public/assets/audio/voice/tish_*.mp3`, made with `scripts/prepare-voice.sh` (silence cut,
+    radio band, compressed, a noise click in and out, -19 LUFS target). `audioService.playVoice`:
+    "Initiating countermeasures" at level start, "Breach alert" at a boss level's start,
+    "Connection secure" on a win, "Area cleared" on a sector's last level, "Grid compromised"
+    when a mission ends in a loss (End Mission, not enough coins to play on, boss timer). Checked
+    by length that no line was cut short; not heard by me.
+  - *Heavier board sounds:* all 20 cues regenerated on his ElevenLabs account and prepared with
+    `scripts/prepare-sfx.sh` (leading silence cut, capped length, mono, peak set per cue). Same
+    file names in `public/assets/audio/web-overrides/`. Raw generations are only in the session
+    scratch folder.
+- **⚠ Audition state for the board sounds, deliberately NOT committed:** the working tree holds
+  the 20 new cue files (modified, tracked), a copy of the old ones in
+  `public/assets/audio/sfx-old/` (untracked) and a temporary `?sfx=old` switch in
+  `src/data/assets.ts`. The dev site serves that as `5c64975-dirty-dev`. When Russ has judged:
+  regenerate the ones he rejects, delete `sfx-old/`, remove the switch, commit the cue files and
+  `scripts/prepare-sfx.sh`, re-upload, and run both e2e themes on the committed state.
+- **Sound verified so far:** unit 565/565, `tsc` clean; on the live dev site a level loads the new
+  cues and the five voice files with no failed request and no console error. **Not yet: e2e on
+  the sound work.** I cannot hear any of it; levels are a first guess.
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
-- **Next piece, needing its own short design and Russ's yes:** sound effects (the last of the
-  four).
+- **All four pieces are built.** What is left: Russ's verdict on the sounds, the clean-up above,
+  the final e2e in both themes, and then his word on a push.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
