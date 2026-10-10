@@ -366,6 +366,17 @@ describe("rocketLanePlan", () => {
     ]);
     expect(plan.heads.every((head) => head.impactAtMs === head.passTimes.at(-1)?.atMs)).toBe(true);
     expect(plan.heads.every((head) => head.flightMs >= 320 && head.flightMs <= 430)).toBe(true);
+    // The head accelerates from rest: it reaches a fraction f of its lane after sqrt(f) of the
+    // flight, so the first cells take longest and the last cell is reached exactly at the end.
+    for (const head of plan.heads) {
+      const passes = head.passTimes;
+      expect(passes.map((pass) => pass.laneFraction)).toEqual([0, 1 / 3, 2 / 3, 1]);
+      expect(passes.map((pass) => pass.atMs)).toEqual(
+        passes.map((pass) => plan.ignitionMs + Math.round(head.flightMs * Math.sqrt(pass.laneFraction)))
+      );
+      expect(passes[1].atMs - passes[0].atMs).toBeGreaterThan(passes[3].atMs - passes[2].atMs);
+      expect(passes.at(-1)!.atMs).toBe(plan.ignitionMs + head.flightMs);
+    }
     expect(plan.heads.every((head) => head.passTimes.every((pass, index, passes) => (
       index === 0 || pass.atMs >= passes[index - 1].atMs
     )))).toBe(true);

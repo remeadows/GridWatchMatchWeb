@@ -37,4 +37,4 @@ ffmpeg -hide_banner -loglevel error -y -i "$work/line.wav" -af "volume=${gain}dB
 final=$(ffmpeg -hide_banner -nostats -i "$output" -af ebur128=peak=true -f null - 2>&1 |
   awk '/^ +I:/ { loud = $2 } /^ +Peak:/ { peak = $2 } END { print loud " LUFS, peak " peak " dBFS" }')
 printf '%s: %s s, %s, %s bytes\n' "$(basename "$output")" \
-  "$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$output")" "$final" "$(stat -f %z "$output")"
+  "$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$output")" "$final" "$(wc -c < "$output" | tr -d ' ')"

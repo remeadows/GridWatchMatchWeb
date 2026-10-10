@@ -215,6 +215,8 @@ test.describe("normal presentation timeline", () => {
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(1_080);
     expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_300);
     expect(cascadeStart.detail).toBe("occupants-unique");
+    // Three pieces dropping one cell is an ordinary landing: nothing knocks the board.
+    expect(trace.some((entry) => entry.kind === "cascade-jolt" || entry.kind === "powerup-knock")).toBe(false);
   });
 
   test("returns a live invalid swap to the unchanged board before completing", async ({ page }) => {
@@ -338,6 +340,23 @@ test.describe("power-up creation", () => {
 
     expect(charge.atMs).toBeLessThan(impact.atMs);
     expect(impact.atMs).toBeLessThan(stable.atMs);
+    // Charge 70 ms, then drop, hop and settle in 240 ms: 310 ms of animation. These are real
+    // times through five timer hops on a machine that is also running other tests (470 ms has
+    // been seen), so the bound only says the sequence does not stall.
+    expect(stable.atMs - charge.atMs).toBeGreaterThanOrEqual(300);
+    expect(stable.atMs - charge.atMs).toBeLessThanOrEqual(1_000);
+    // The rest of the match that made it flies into its cell, all of it into that one cell, as
+    // the creation begins: before the power-up comes down and before those pieces are cleared.
+    // (A later cascade in this move makes a second power-up; these are the first one's.)
+    const merges = trace.filter((entry) => entry.kind === "powerup-merge" && entry.atMs <= impact.atMs);
+    expect(merges.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(merges.map((entry) => entry.detail)).size).toBe(1);
+    expect(merges.every((entry) => entry.atMs >= charge.atMs)).toBe(true);
+    expect(merges.every((entry) => entry.atMs < traceEntry(trace, "match-impact").atMs)).toBe(true);
+    const knock = trace.find((entry) => entry.kind === "powerup-knock");
+    expect(knock).toBeDefined();
+    expect(knock!.atMs).toBeGreaterThan(impact.atMs);
+    expect(knock!.atMs).toBeLessThanOrEqual(stable.atMs);
     expect(trace.filter((entry) => entry.kind === "action-received")).toHaveLength(1);
     await expect(page.getByText("24/25")).toBeVisible();
   });
@@ -378,6 +397,12 @@ test.describe("single power-up tile contact", () => {
       await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
         .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
       const trace = await presentationTrace(page);
+      // What it is about to hit is marked first, once, before its own impact.
+      const marks = trace.filter(entry => entry.kind === "target-mark");
+      expect(marks.map(entry => entry.detail), `${booster} target mark`).toEqual([booster]);
+      const firstImpact = trace.find(entry => entry.kind === "powerup-impact" && entry.detail === booster);
+      expect(firstImpact, `${booster} impact`).toBeDefined();
+      expect(marks[0].atMs, `${booster} mark before impact`).toBeLessThan(firstImpact!.atMs);
       const contacts = trace.filter(entry => entry.kind === contact);
       expect(contacts.length).toBeGreaterThan(0);
       for (const arrival of contacts) {
@@ -430,6 +455,10 @@ test.describe("single TNT", () => {
     const laterGroups = trace.filter(entry => entry.kind === "match-group-start" && entry.atMs >= cascadeStart.atMs);
     expect(laterGroups.map(entry => Number(entry.detail))).toEqual([6, 6, 6]);
     expect(shakes).toHaveLength(1 + laterGroups.length);
+    // Nine cells emptied at once: what falls into them lands hard enough to knock the board.
+    const jolts = trace.filter(entry => entry.kind === "cascade-jolt");
+    expect(jolts.length).toBeGreaterThan(0);
+    expect(jolts.every(entry => entry.atMs > cascadeStart.atMs)).toBe(true);
     for (const group of laterGroups) {
       const groupShakes = shakes.filter(entry => entry.atMs === group.atMs);
       expect(groupShakes).toHaveLength(1);
@@ -466,6 +495,15 @@ test.describe("single rocket", () => {
       expect(impact.atMs).toBeGreaterThanOrEqual(pass!.atMs);
       expect(impact.atMs - pass!.atMs).toBeLessThanOrEqual(17);
     }
+    // The heads accelerate, so each one's passes come closer together as it goes.
+    const edges = trace.filter((entry) => entry.kind === "rocket-edge-impact");
+    const knocks = trace.filter((entry) => entry.kind === "powerup-knock");
+    expect(edges).toHaveLength(2);
+    expect(knocks).toHaveLength(2);
+    expect(knocks.map((entry) => entry.atMs)).toEqual(edges.map((entry) => entry.atMs));
+    const pushes = knocks.map((entry) => Number(entry.detail!.match(/^x=(-?\d+);y=0$/)?.[1]));
+    expect(pushes.every((push) => Number.isFinite(push) && push !== 0)).toBe(true);
+    expect(Math.sign(pushes[0])).toBe(-Math.sign(pushes[1]));
   });
 });
 
@@ -793,7 +831,11 @@ test.describe("reduced motion presentation budget", () => {
         "rocket-head-launch",
         "screen-flash",
         "shake-request",
-        "vfx-particles"
+        "vfx-particles",
+        "target-mark",
+        "powerup-knock",
+        "powerup-merge",
+        "cascade-jolt"
       ]);
 
       expect(complete.plannedAtMs - start.plannedAtMs, effect).toBeLessThanOrEqual(180);

@@ -33,4 +33,4 @@ ffmpeg -hide_banner -loglevel error -y -ss "$start" -t "$length" -i "$source_fil
 final=$(ffmpeg -hide_banner -nostats -i "$output" -af ebur128=peak=true -f null - 2>&1 |
   awk '/^ +I:/ { loud = $2 } /^ +Peak:/ { peak = $2 } END { print loud " LUFS, peak " peak " dBFS" }')
 printf '%s: %.1f s, %s (was %s LUFS, gain %+.1f dB), %s bytes\n' \
-  "$(basename "$output")" "$length" "$final" "$measured" "$gain" "$(stat -f %z "$output")"
+  "$(basename "$output")" "$length" "$final" "$measured" "$gain" "$(wc -c < "$output" | tr -d ' ')"

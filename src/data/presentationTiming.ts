@@ -1,6 +1,16 @@
-// Power-up timings below were shortened on 2026-10-09 at Russ's request ("Faster, less waiting"):
-// rocket flight 420 -> 320, propeller flight 450 -> 340, the light ball's beats 120 -> 80 to 100,
-// the hold before the board falls 200 -> 140, and each combo by about a fifth.
+// INTENTIONAL WEB-ONLY DIVERGENCE FROM iOS (Russ, 2026-10-09, the "mechanics" project).
+// Until then these values followed the iOS game (BoardNode.swift / GameScene.swift). Russ then
+// asked for the web game to feel different, and the values below marked "web-only" have no iOS
+// counterpart: they were tuned to his direction, not ported. A parity pass must not pull them
+// back to the iOS numbers without asking him.
+//   Faster ("Faster, less waiting"): ROCKET_LANE_FLIGHT_MS 420 -> 320, PROPELLER_FLIGHT_MS
+//     450 -> 340, LIGHTBALL_DIM/CHARGE/WAVE_STAGGER/RELEASE_DELAY 120 -> 80/100/90/90,
+//     POWERUP_CASCADE_HOLD_MS 200 -> 140, TNT_CASCADE_AFTER_DETONATION_MS 170 -> 140, and
+//     COMBO_CHOREOGRAPHY_TIMING charge x0.85, impact and cascade x0.8.
+//   Heavier ("More weight and impact"): the CASCADE_FALL_*, CASCADE_LANDING_*, CASCADE_JOLT_*,
+//     POWERUP_JOLT_*, TNT_SHOVE_* and SWAP_LIFT/SET_DOWN values further down, and in BoardScene
+//     the falls, rocket heads and propeller flights easing in (constant acceleration) where iOS
+//     and the earlier web build moved at an even speed.
 export const DRAG_LIFT_MS = 65;
 export const SWAP_TRAVEL_MS = 175;
 export const SWAP_SETTLE_MS = 60;
@@ -66,6 +76,7 @@ export const POWERUP_CASCADE_HOLD_MS = 140;
 export const MATCH_WAVE_PER_GRID_MS = 25;
 export const MATCH_WAVE_MAX_MS = 80;
 export const CASCADE_START_AFTER_IMPACT_MS = 230;
+// Web-only (see the note at the top of this file).
 // A piece falls under constant acceleration, so its fall time grows with the square root of the
 // distance: CASCADE_FALL_ONE_CELL_MS for one cell, capped at CASCADE_FALL_MAX_MS.
 export const CASCADE_FALL_ONE_CELL_MS = 250;

@@ -212,6 +212,9 @@ const powerUpImageKeys = {
 // sprite loaded (resolvePowerUpTextures), so every effect that draws a power-up follows the theme.
 const powerUpTextures: Record<keyof typeof powerUpImageKeys, string> = { ...powerUpImageKeys };
 
+// Web-only by Russ's direction (see the note at the top of data/presentationTiming.ts): this
+// stretch, the POWERUP_CREATION_DROP_* and POWERUP_MERGE_MS values, the stronger TNT_SHAKE_*
+// and the Quad.easeIn on falls, rocket heads and propeller flights have no iOS counterpart.
 // A falling piece is drawn very slightly long and narrow; it is the landing that squashes it.
 const CASCADE_FALL_STRETCH_X = 0.97;
 const CASCADE_FALL_STRETCH_Y = 1.04;
@@ -1687,27 +1690,17 @@ export class BoardScene extends Phaser.Scene {
     // The piece is picked up off the board, carried across, and set down: it grows as it lifts,
     // and gives slightly as it meets the floor of its new cell.
     this.tweens.add({ targets: sprite, x: destination.x, y: destination.y, duration: SWAP_TRAVEL_MS, ease: "Cubic.easeInOut" });
-    this.tweens.add({
-      targets: sprite,
-      scaleX: SWAP_LIFT_SCALE,
-      scaleY: SWAP_LIFT_SCALE,
-      duration: SWAP_TRAVEL_MS / 2,
-      ease: "Sine.easeOut",
-      yoyo: true,
-      onComplete: () => {
-        this.tweens.add({
-          targets: sprite,
-          scaleX: 1 + SWAP_SET_DOWN_SQUASH,
-          scaleY: 1 - SWAP_SET_DOWN_SQUASH,
-          duration: SWAP_SETTLE_MS / 2,
-          ease: "Quad.easeOut",
-          yoyo: true,
-          onComplete: () => {
-            sprite.setScale(1);
-            onComplete();
-          }
+    // Every stage names the scale it ends on. A dragged piece arrives here already lifted to
+    // 1.06, and a tween that returned to its starting value would leave it there to snap down.
+    const stage = (scaleX: number, scaleY: number, duration: number, ease: string, then: () => void) => {
+      this.tweens.add({ targets: sprite, scaleX, scaleY, duration, ease, onComplete: then });
+    };
+    stage(SWAP_LIFT_SCALE, SWAP_LIFT_SCALE, SWAP_TRAVEL_MS / 2, "Sine.easeOut", () => {
+      stage(1, 1, SWAP_TRAVEL_MS / 2, "Sine.easeIn", () => {
+        stage(1 + SWAP_SET_DOWN_SQUASH, 1 - SWAP_SET_DOWN_SQUASH, SWAP_SETTLE_MS / 2, "Quad.easeOut", () => {
+          stage(1, 1, SWAP_SETTLE_MS / 2, "Sine.easeOut", onComplete);
         });
-      }
+      });
     });
   }
 
@@ -2301,6 +2294,7 @@ export class BoardScene extends Phaser.Scene {
     tint: number
   ): void {
     if (!this.fxLayer || this.reducedMotion) return;
+    this.recordPresentation("powerup-merge", positionKey(into));
     const destination = this.cellCenter(into);
     const isImage = piece instanceof Phaser.GameObjects.Image;
     const mote = isImage
@@ -3068,7 +3062,7 @@ export class BoardScene extends Phaser.Scene {
             const progress = axisDistance === 0 ? 1 : travelled / axisDistance;
             while (
               nextPassIndex < head.passTimes.length &&
-              progress >= (head.passTimes[nextPassIndex].atMs - plan.ignitionMs) / head.flightMs
+              progress >= head.passTimes[nextPassIndex].laneFraction
             ) {
               playPass();
             }

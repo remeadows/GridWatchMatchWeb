@@ -30,4 +30,4 @@ ffmpeg -hide_banner -loglevel error -y -i "$work/cut.wav" \
   -af "afade=t=in:d=0.002,afade=t=out:st=${fade_at}:d=0.04,volume=${gain}dB" \
   -ar 44100 -ac 1 -c:a libmp3lame -b:a 96k -map_metadata -1 "$output"
 mean=$(ffmpeg -hide_banner -nostats -i "$output" -af volumedetect -f null - 2>&1 | awk '/mean_volume/ { print $5 }')
-printf '%-24s %.2f s  peak %s dB  mean %s dB  %s bytes\n' "$(basename "$output")" "$length" "$peak" "$mean" "$(stat -f %z "$output")"
+printf '%-24s %.2f s  peak %s dB  mean %s dB  %s bytes\n' "$(basename "$output")" "$length" "$peak" "$mean" "$(wc -c < "$output" | tr -d ' ')"

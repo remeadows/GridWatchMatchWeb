@@ -294,12 +294,18 @@ export interface RocketPassPlan {
   atMs: number;
 }
 
+/** One cell on a rocket head's way. The head accelerates, so the cells are not evenly timed. */
+export interface RocketLanePass extends RocketPassPlan {
+  /** How far along its flight path the head is at this cell, 0 to 1. */
+  laneFraction: number;
+}
+
 export interface RocketLaneHeadPlan {
   destination: GridPosition;
   direction: -1 | 1;
   flightMs: number;
   impactAtMs: number;
-  passTimes: RocketPassPlan[];
+  passTimes: RocketLanePass[];
 }
 
 export interface RocketLanePlan {
@@ -626,9 +632,14 @@ export function rocketLanePlan(
         const position = orientation === "horizontal"
           ? { row: origin.row, col: index }
           : { row: index, col: origin.col };
+        // The head leaves from rest under constant acceleration (Quad.easeIn in the scene), so it
+        // has covered a fraction f of the lane after sqrt(f) of the flight time. The pop schedule
+        // is built from these times, so the cell compresses just before the head gets there.
+        const laneFraction = step / Math.max(1, distance);
         return {
           position,
-          atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * step / Math.max(1, distance))
+          atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * Math.sqrt(laneFraction)),
+          laneFraction
         };
       });
       const finalPass = passTimes.at(-1);
