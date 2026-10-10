@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. PUSHED, PR #79 open, not merged, not in production (branch `dev/mechanics`)
+## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. MERGED to `main` (`41b003d`, PR #79), NOT in production
 
 **Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
 work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
@@ -21,6 +21,11 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **Pushed 2026-10-09 on his word ("push - open PR and turn on auto-fix CI"):** branch at
   `7a1b44b`, **PR #79** (https://github.com/remeadows/GridWatchMatchWeb/pull/79), Auto-fix on
   for it in the desktop app. Merging and any production deploy are his.
+- **Merged by Russ 2026-10-09 (01:52 UTC) as `41b003d`**, a squash of the branch at `dc3f970`;
+  CI and CodeQL passed on `main`. Two notes-only commits pushed to the branch after the merge
+  (review findings, final e2e result) were not in it and are carried by the branch
+  `docs/handoff-mechanics-merged`. **Production was not deployed:** checked the same evening,
+  the live game does not serve the new music or voice files. The deploy is his.
 - **Review on PR #79, 2026-10-09: eleven findings, all real, all fixed and resolved** (commits
   `15f4d02`, `b280170`, `dc3f970`).
   - **The merge effect never ran** (Codex). I had read the engine's step order backwards: a
