@@ -8,7 +8,7 @@ import {
   cascadeLandingPlan,
   clearCuePlayback,
   landingCuePlayback,
-  mergeTargets,
+  mergeSources,
   chainPlaybackRate,
   comboChoreographyPlan,
   comboOverlayPositions,
@@ -552,25 +552,36 @@ describe("sounds that follow the action", () => {
   });
 });
 
-describe("mergeTargets", () => {
+describe("mergeSources", () => {
   const at = (row: number, col: number) => ({ row, col });
-  const pacing = {
-    groups: [
-      { id: "0,0", positions: [at(0, 0), at(0, 1), at(0, 2), at(0, 3)] },
-      { id: "4,4", positions: [at(4, 4), at(5, 4), at(6, 4)] }
-    ]
-  };
+  const cleared = (row: number, col: number, tileType: "packet" | "key" = "packet") => ({ position: at(row, col), tileType });
 
-  it("sends the rest of the match that made a power-up into the power-up's cell", () => {
-    const merges = mergeTargets(pacing, [at(0, 1)]);
-    expect([...merges.keys()].sort()).toEqual(["0,0", "0,2", "0,3"]);
-    expect([...merges.values()].every((into) => into.row === 0 && into.col === 1)).toBe(true);
+  it("finds the rest of a line match in the clear that follows the creation", () => {
+    // A row of four packets made a rocket at (0,1); the engine clears the other three.
+    const sources = mergeSources([{ position: at(0, 1), tileType: "packet" }], [cleared(0, 0), cleared(0, 2), cleared(0, 3)]);
+    expect([...sources.keys()]).toEqual(["0,1"]);
+    expect(sources.get("0,1")!.map((p) => `${p.row},${p.col}`).sort()).toEqual(["0,0", "0,2", "0,3"]);
   });
 
-  it("leaves other matches, and a power-up made outside any match, alone", () => {
-    expect(mergeTargets(pacing, []).size).toBe(0);
-    expect(mergeTargets(pacing, [at(2, 2)]).size).toBe(0);
-    expect(mergeTargets(pacing, [at(0, 1)]).has("5,4")).toBe(false);
+  it("follows both arms of an L or T match, which the power-up's own cell splits apart", () => {
+    const sources = mergeSources(
+      [{ position: at(2, 2), tileType: "packet" }],
+      [cleared(2, 0), cleared(2, 1), cleared(0, 2), cleared(1, 2)]
+    );
+    expect(sources.get("2,2")).toHaveLength(4);
+  });
+
+  it("leaves out other tile types and matches that do not touch the power-up", () => {
+    const sources = mergeSources(
+      [{ position: at(0, 1), tileType: "packet" }],
+      [cleared(0, 0), cleared(0, 2, "key"), cleared(5, 5), cleared(5, 6), cleared(5, 7)]
+    );
+    expect(sources.get("0,1")!.map((p) => `${p.row},${p.col}`)).toEqual(["0,0"]);
+  });
+
+  it("gives nothing when no cleared piece joins the power-up", () => {
+    expect(mergeSources([{ position: at(0, 1), tileType: "packet" }], [cleared(4, 4)]).size).toBe(0);
+    expect(mergeSources([], [cleared(0, 0)]).size).toBe(0);
   });
 });
 

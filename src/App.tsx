@@ -342,6 +342,8 @@ export default function App() {
   useEffect(() => {
     if (!save) return;
     audioService.configure(save.settings);
+    // On the menu already, so that the first level's opening line is loaded before it is wanted.
+    void audioService.preloadVoice();
     if (screen.name === "game") return;
     audioService.playMusic("menu");
   }, [save, screen.name]);

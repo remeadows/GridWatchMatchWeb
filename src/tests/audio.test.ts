@@ -293,6 +293,50 @@ describe("Tish's voice lines", () => {
     expect(playFallback).not.toHaveBeenCalled();
   });
 
+  it("says a line that is not loaded yet as soon as it has loaded, never through an <audio> element", async () => {
+    const backend = new FakeBoardAudioBackend();
+    let ready = false;
+    let finishLoading: () => void = () => undefined;
+    backend.preload = () => new Promise<void>((resolve) => {
+      finishLoading = () => {
+        ready = true;
+        resolve();
+      };
+    });
+    const play = backend.play.bind(backend);
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : (null as unknown as BoardAudioSource));
+    const { service, playFallback } = createService(backend);
+    service.playVoice("breachAlert");
+    expect(backend.plays).toHaveLength(0);
+    finishLoading();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(backend.plays).toHaveLength(1);
+    expect(backend.plays[0].url).toContain(voiceFile("breachAlert"));
+    expect(playFallback).not.toHaveBeenCalled();
+  });
+
+  it("lets a line go unsaid when loading it took too long", async () => {
+    const backend = new FakeBoardAudioBackend();
+    let ready = false;
+    let finishLoading: () => void = () => undefined;
+    backend.preload = () => new Promise<void>((resolve) => {
+      finishLoading = () => {
+        ready = true;
+        resolve();
+      };
+    });
+    const play = backend.play.bind(backend);
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : (null as unknown as BoardAudioSource));
+    const { service } = createService(backend);
+    service.playVoice("connectionSecure");
+    backend.nowMs += 5_000;
+    finishLoading();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(backend.plays).toHaveLength(0);
+  });
+
   it("is silenced by the voice setting alone", () => {
     const backend = new FakeBoardAudioBackend();
     const { service } = createService(backend);

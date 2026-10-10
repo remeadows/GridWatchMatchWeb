@@ -208,19 +208,35 @@ export function matchPacingPlan(
 }
 
 /**
- * For a clear that makes power-ups: each matched cell, keyed `row,col`, and the cell its remains
- * fly into. Only the match group that holds a power-up's cell feeds it, and that cell itself
- * stays out (it is where the power-up lands).
+ * The pieces that made a power-up, for each power-up cell keyed `row,col`. The engine records a
+ * power-up's creation as its own step BEFORE the clear that removes the rest of its match, and
+ * leaves the power-up's own cell out of that clear. So the rest of the match is found in the
+ * clear that follows: every cleared piece of the power-up's tile type that is joined to its cell,
+ * directly or through other such pieces.
  */
-export function mergeTargets(pacing: Pick<MatchPacingPlan, "groups">, forged: readonly GridPosition[]): Map<string, GridPosition> {
-  const result = new Map<string, GridPosition>();
-  for (const into of forged) {
-    const group = pacing.groups.find((candidate) => candidate.positions.some((position) => position.row === into.row && position.col === into.col));
-    if (!group) continue;
-    for (const position of group.positions) {
-      if (position.row === into.row && position.col === into.col) continue;
-      result.set(`${position.row},${position.col}`, into);
+export function mergeSources(
+  forged: ReadonlyArray<{ position: GridPosition; tileType: TileType }>,
+  clears: ReadonlyArray<{ position: GridPosition; tileType: TileType }>
+): Map<string, GridPosition[]> {
+  const key = (position: GridPosition) => `${position.row},${position.col}`;
+  const cleared = new Map(clears.map((clear) => [key(clear.position), clear]));
+  const result = new Map<string, GridPosition[]>();
+  for (const made of forged) {
+    const found: GridPosition[] = [];
+    const seen = new Set<string>([key(made.position)]);
+    const frontier: GridPosition[] = [made.position];
+    for (let index = 0; index < frontier.length; index += 1) {
+      const { row, col } = frontier[index];
+      for (const next of [{ row: row - 1, col }, { row: row + 1, col }, { row, col: col - 1 }, { row, col: col + 1 }]) {
+        const id = key(next);
+        const clear = cleared.get(id);
+        if (seen.has(id) || !clear || clear.tileType !== made.tileType) continue;
+        seen.add(id);
+        found.push(clear.position);
+        frontier.push(clear.position);
+      }
     }
+    if (found.length > 0) result.set(key(made.position), found);
   }
   return result;
 }

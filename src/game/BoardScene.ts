@@ -89,7 +89,7 @@ import {
   type TileType
 } from "../engine";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { blastCuePlayback, cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, clearCuePlayback, landingCuePlayback, mergeTargets, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { blastCuePlayback, cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
 import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
@@ -1394,9 +1394,7 @@ export class BoardScene extends Phaser.Scene {
       if (step.kind === "clear") {
         const activeGroups = groups;
         groups = [];
-        const next = steps[steps.indexOf(step) + 1];
-        const forged = next?.kind === "creation" ? createdPowerUpSpawns(next.spawns).map((creation) => creation.position) : [];
-        this.playResolutionClear(step, activeGroups, complete, forged);
+        this.playResolutionClear(step, activeGroups, complete);
       } else if (step.kind === "gravity" || step.kind === "refill") {
         const plan = cascadePresentationPlan(step.before, step.after);
         if (plan.moves.length === 0 && plan.spawns.length === 0) {
@@ -1408,7 +1406,12 @@ export class BoardScene extends Phaser.Scene {
       } else if (step.kind === "creation") {
         this.snapshot = step.after;
         this.renderSnapshot(new Set(), false);
-        this.revealCreatedPowerUps(step.after, createdPowerUpSpawns(step.spawns), complete);
+        // The creation comes before the clear of the rest of its match (BoardEngine.resolveBoard),
+        // so the pieces that made the power-up are still standing: they are the ones that feed it.
+        const next = steps[steps.indexOf(step) + 1];
+        const made = step.spawns.filter((spawn) => spawn.asPowerUp !== null);
+        this.revealCreatedPowerUps(step.after, createdPowerUpSpawns(step.spawns), complete,
+          next?.kind === "clear" ? mergeSources(made, next.clears) : new Map());
       } else if (step.kind === "shuffle") {
         this.playResolutionShuffle(step, complete);
       } else complete();
@@ -1425,8 +1428,7 @@ export class BoardScene extends Phaser.Scene {
       scoreGained: 0, isWin: false, isFail: false, shuffleAttempts: 0 };
   }
 
-  private playResolutionClear(step: BoardResolutionStep, groups: ResolutionPowerUpGroup[], complete: () => void,
-    forged: readonly GridPosition[] = []): void {
+  private playResolutionClear(step: BoardResolutionStep, groups: ResolutionPowerUpGroup[], complete: () => void): void {
     const events = groups.flatMap(group => group.events);
     const delta = this.resolutionStepDelta(step, events);
     const keys = new Set(step.clears.map(clear => positionKey(clear.position)));
@@ -1462,7 +1464,7 @@ export class BoardScene extends Phaser.Scene {
       if (events.length === 0) this.recordPresentation("match-recognition-complete", String(step.ordinal));
       this.playTilePops(step.before, keys, pacing, () => { popsDone = true; finish(); },
         clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
-        undefined, events.length === 0, groups, mergeTargets(pacing, forged));
+        undefined, events.length === 0, groups);
     };
     if (events.length === 0) {
       this.recordPresentation("match-recognition-start", String(step.ordinal));
@@ -2126,8 +2128,7 @@ export class BoardScene extends Phaser.Scene {
     afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
     allowMatchShake = true,
-    powerUpGroups: readonly PowerUpPresentationGroup[] = [],
-    merges: ReadonlyMap<string, GridPosition> = new Map()
+    powerUpGroups: readonly PowerUpPresentationGroup[] = []
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -2242,8 +2243,6 @@ export class BoardScene extends Phaser.Scene {
           playbackRate: variation.playbackRate
         });
         this.playMatchBurst(entry.object, entry.tint);
-        const mergeInto = merges.get(key);
-        if (mergeInto) this.playMergeFlight(entry.object, piece, mergeInto, entry.tint);
         if (!cleanupScheduled) {
           cleanupScheduled = true;
           this.recordPresentation("debris-cleanup-pending");
@@ -2663,7 +2662,8 @@ export class BoardScene extends Phaser.Scene {
   private revealCreatedPowerUps(
     nextSnapshot: BoardSnapshot,
     creations: ReadonlyArray<CreatedPowerUpSpawn>,
-    onComplete: () => void
+    onComplete: () => void,
+    sources: ReadonlyMap<string, GridPosition[]> = new Map()
   ): void {
     if (!this.layer || !this.fxLayer || creations.length === 0) {
       onComplete();
@@ -2695,7 +2695,16 @@ export class BoardScene extends Phaser.Scene {
       reveal.setAngle(-6);
       this.recordPresentation("powerup-create-charge", creation.powerUp.kind);
 
-      // The cell gathers light while the pieces of the match arrive in it.
+      // The pieces that made it give something of themselves up to its cell. They stay where
+      // they are: the clear that follows is what breaks them.
+      for (const from of sources.get(positionKey(creation.position)) ?? []) {
+        const node = this.occupantNodes.get(positionKey(from));
+        if (!node?.active) continue;
+        const piece = node.getByName("piece") as Phaser.GameObjects.Image | Phaser.GameObjects.Text | null;
+        const fromCell = nextSnapshot.grid.get(from);
+        this.playMergeFlight(node, piece, creation.position, fromCell.baseTile ? tileVfxTints[fromCell.baseTile] : tint);
+      }
+      // The cell gathers light while they arrive.
       const gather = this.add.image(destination.x, destination.y, vfxTextureKeys.hotCore);
       gather.setTint(tint);
       gather.setBlendMode(Phaser.BlendModes.ADD);

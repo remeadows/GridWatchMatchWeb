@@ -75,6 +75,8 @@ export function voiceFile(line: VoiceLine): string {
 }
 
 const MAX_ACTIVE_BOARD_SOURCES = 16;
+// A line that had to be loaded first is still said if that took no longer than this.
+const VOICE_LATE_MS = 1_500;
 const CASCADE_LANDING_COALESCE_MS = 45;
 
 export interface BoardAudioPlayback {
@@ -145,6 +147,9 @@ export class AudioService {
 
   configure(settings: SettingsState): void {
     this.settings = settings;
+    // Whatever is switched on, the first touch has to wake the audio context: the voice and the
+    // board sounds run through it as well as the music's level.
+    this.installGestureUnlock();
     if (!settings.musicEnabled) this.stopMusic();
   }
 
@@ -154,7 +159,6 @@ export class AudioService {
    */
   playMusic(track: MusicTrack, options: { fresh?: boolean } = {}): void {
     if (!this.settings?.musicEnabled) return;
-    this.installGestureUnlock();
     const { files, level } = MUSIC_TRACKS[track];
     if (this.musicTrack === track && options.fresh) this.musicTurn[track] += 1;
     else if (this.musicTrack !== null && this.musicTrack !== track) this.musicTurn[this.musicTrack] += 1;
@@ -191,8 +195,23 @@ export class AudioService {
   playVoice(line: VoiceLine): void {
     if (!this.settings?.voiceEnabled) return;
     const url = audioUrl(VOICE_LINES[line]);
-    const source = this.resolveBoardBackend()?.play(url, { gain: 1, playbackRate: 1 }, () => undefined);
-    if (!source) this.playHtmlAudio(url, 1);
+    const backend = this.resolveBoardBackend();
+    if (!backend) {
+      this.playHtmlAudio(url, 1);
+      return;
+    }
+    const playback: BoardAudioPlayback = { gain: 1, playbackRate: 1 };
+    const say = () => backend.play(url, playback, () => undefined) !== null;
+    if (say()) return;
+    // Not decoded yet. Load it and say it then, unless the moment has passed; only if it cannot
+    // be loaded at all is an <audio> element tried.
+    const askedAtMs = this.now();
+    backend.preload(url).then(
+      () => {
+        if (this.settings?.voiceEnabled && this.now() - askedAtMs <= VOICE_LATE_MS) say();
+      },
+      () => this.playHtmlAudio(url, 1)
+    );
   }
 
   /** Her line as a level begins: the next of the openings. A turn is only used when she speaks. */
@@ -202,7 +221,9 @@ export class AudioService {
     this.openingTurn += 1;
   }
 
+  /** Load every line. Called as the app opens, so the first level's opening is ready to say. */
   async preloadVoice(): Promise<void> {
+    if (!this.settings?.voiceEnabled) return;
     const backend = this.resolveBoardBackend();
     if (!backend) return;
     await Promise.all(Object.values(VOICE_LINES).map((file) => backend.preload(audioUrl(file)).catch(() => undefined)));
