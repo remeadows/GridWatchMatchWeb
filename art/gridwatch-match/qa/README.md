@@ -18,6 +18,7 @@ Chrome and resolve `@playwright/test` from this repo. `<repo>` is the repository
 | `find-404.mjs <repo> <url>` | Lists failed requests |
 | `alpha_stats.py <rgba png>` | Whether a plate's transparency is real, with a coarse coverage map |
 | `release-check.mjs <repo> <base url> <out dir>` | A production build as a player meets it, desktop and phone: the theme it opens in, console errors, failed requests, the audio fetched. `GW_STEPS` names buttons to press. For before and after a production deploy |
+| `autoplay-probe.mjs <repo> <base url>` | When the music starts under Chrome's real autoplay rule: a direct visit, an arrival by a link from a page of the same site (the Nexus menu), and a first tap on a phone-sized touch screen |
 | `csp-server.mjs <dist dir> <port>` | Serves a build under `/play/match/` with the live page's security policy, for `release-check.mjs` |
 | `pw.config.mjs` | Runs the repo's e2e suite on a build whose default is the archived classic board (`GW_THEME=classic`) |
 
