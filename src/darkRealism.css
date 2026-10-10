@@ -1,6 +1,7 @@
 /* The dark-realism theme's UI treatment (docs/gridwatch-match). Everything here is scoped to
    :root[data-board-theme="darkRealism"] or to dr-* classes that only the dark theme renders, so
-   the classic look is untouched and rolling back is the theme switch (src/game/boardTheme.ts). */
+   the archived classic look is untouched and rolling back is the theme switch
+   (src/game/boardTheme.ts). */
 
 :root[data-board-theme="darkRealism"] {
   --bg: #050607;

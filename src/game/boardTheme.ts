@@ -2,11 +2,12 @@ import manifestJson from "../data/matchV2Manifest.generated.json";
 import type { BoosterType, TileType } from "../engine/types";
 import { defaultBoardTheme } from "../services/buildInfo";
 
-// The one selection point between the shipped board art ("classic") and the Blender-built
-// dark-realism set ("darkRealism", art/gridwatch-match). Classic is the default unless the build
-// says otherwise (VITE_BOARD_THEME, which only the dev instance sets), and `?theme=classic` /
-// `?theme=dark` overrides either way, so rolling back is a query parameter or one build setting. A theme only swaps pictures: it never touches engine IDs,
-// rules, timing or saved data.
+// The one selection point between the game's look, the Blender-built dark-realism set
+// ("darkRealism", art/gridwatch-match), and the archived art it replaced ("classic"). Dark realism
+// is what every build shows (Russ, 2026-10-10); classic is kept as a hidden fallback, reached only
+// by `?theme=classic` or a build made with VITE_BOARD_THEME=classic, so rolling back is a query
+// parameter or one build setting. A theme only swaps pictures: it never touches engine IDs, rules,
+// timing or saved data.
 export type BoardThemeId = "classic" | "darkRealism";
 
 export interface MatchV2Asset {
