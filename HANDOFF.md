@@ -45,7 +45,7 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
     parity pass must not revert them unasked. **Russ has not been asked whether iOS should
     follow.**
   - e2e gained assertions for target marks, knocks, the merge, the creation, and that reduced
-    motion draws none of them. Final e2e on `dc3f970`: classic board 218/218 (2026-10-09). The dark-board run was still going when this was written; if no later line here gives its result, treat it as not run and run it again (`art/gridwatch-match/qa/README.md` has the command).
+    motion draws none of them. Final e2e on `dc3f970` (2026-10-09): classic board 218/218 and dark board 218/218, no retries (`art/gridwatch-match/qa/README.md` has the dark command).
 - **Tish's voice is also in Drive** (he asked): `GridWatchArt / 0 - Gridwatch-Assets / 4 - Tish /
   Voice`, nine lines as the game plays them (`Comms/`), the same takes untreated (`Clean/`) and
   a README with the voice id and how to record a matching line. Checked present in Drive.
