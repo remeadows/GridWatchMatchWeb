@@ -118,28 +118,44 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
     `scripts/prepare-sfx.sh` (leading silence cut, capped length, mono, peak set per cue). Same
     file names in `public/assets/audio/web-overrides/`. Raw generations are only in the session
     scratch folder.
-- **⚠ Audition state for the board sounds, deliberately NOT committed:** the working tree holds
-  the 20 new cue files (modified, tracked), a copy of the old ones in
-  `public/assets/audio/sfx-old/` (untracked) and a temporary `?sfx=old` switch in
-  `src/data/assets.ts`. The dev site serves that as `5c64975-dirty-dev`. When Russ has judged:
-  regenerate the ones he rejects, delete `sfx-old/`, remove the switch, commit the cue files and
-  `scripts/prepare-sfx.sh`, re-upload, and run both e2e themes on the committed state.
-- **Sound verified so far:** unit 565/565, `tsc` clean; on the live dev site a level loads the new
-  cues and the five voice files with no failed request and no console error. **Not yet: e2e on
-  the sound work.** I cannot hear any of it; levels are a first guess.
-- **An e2e run on the audition state was started 2026-10-09 (both themes, about 32 minutes).** It
-  ran against the uncommitted tree (`a29b9b5` plus the new cue files and the `?sfx=old` switch),
-  so whatever it shows, the final committed state still needs its own run. If this session ended
-  before it reported, treat it as not run. Scratch logs do not survive the session.
-- **Waiting on Russ (asked 2026-10-09):** which board sounds miss and how; whether Tish talks too
-  often ("Initiating countermeasures" at every level start is the likely one); anything in the
-  motion or power-ups that feels off played together. He has not yet said anything about the
-  tile motion or the power-ups as played, only approved their designs.
+- **Five openings** (`b6d57ba`). Russ: "give Tish four more openings beyond 'initiating
+  countermeasures'". Added "Defences online.", "Securing the grid.", "Tracing the intrusion.",
+  "Systems ready. Begin." (my wording; he has heard them only as files sent after recording).
+  `audioService.playOpening()` takes the five in turn from a random first one; a boss level
+  still opens with "Breach alert". Nine voice files in all.
+- **Board sounds committed** (`f1c3e75`). Russ did not name any to redo; told to "continue with
+  what is left", I removed the temporary `?sfx=old` switch and the comparison copies and
+  committed the twenty new cues with `scripts/prepare-sfx.sh`. The previous cues are that
+  commit's parent. **He has not said the new sounds are right**: regenerate on his word.
+- **On the dev site:** `f1c3e75-dev`, the whole of mechanics.
+- **Sound verified:** unit 567/567, levels 100/100, `tsc` clean; on the live dev site a level
+  loads the new cues and voice files with no failed request and no console error (checked at
+  `5c64975-dirty-dev`; at `f1c3e75-dev` the new files are served). I cannot hear any of it;
+  levels are a first guess. An e2e run on the audition build was stopped when the openings
+  superseded it and is not a result.
+- **Final e2e on the committed state (`f1c3e75`):** 218/218 on the classic board and 218/218 on
+  the dark board (bundled Chromium, WebKit for the phone project), 2026-10-09. The two voice
+  files replaced afterwards (next item) are the only change since.
+- **Lily does not always sound like Lily.** Russ: "'systems ready.mp3' and 'securing the
+  grid.mp3' dont sound like Lily". Every take used her voice id, but she comes out in a higher
+  or lower register from one generation to the next, short lines most of all. Measured median
+  speaking pitch (`art/gridwatch-match/qa/voice/pitch.py`, autocorrelation; a rough stand-in for
+  his ear): the lines he accepted are 145 to 157 Hz, the two he rejected 242 and 276 Hz.
+  Re-recording a line alone, even at higher stability, gave the high register again; what works
+  is recording it several times inside a longer passage (`measure.sh` lists each stretch and its
+  pitch) and cutting out a take that lands low. Both lines replaced with such takes (163 and
+  147 Hz); **he has the files but has not yet said they are right.** By the same measure
+  "Connection secure" (250), "Area cleared" (242), "Breach alert" (217) and "Grid compromised"
+  (216) are also high: flagged to him, not changed, awaiting his word.
+- **Waiting on Russ:** which board sounds miss and how; whether Tish talks too often; anything
+  in the motion or power-ups that feels off played together. He approved each design and chose
+  the music and the voice; he has not yet commented on the tile motion, the power-ups or the
+  board sounds as played.
 - **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
   price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
   Creator; 15 were generated).
-- **All four pieces are built.** What is left: Russ's verdict on the sounds, the clean-up above,
-  the final e2e in both themes, and then his word on a push.
+- **All four pieces are built and committed.** Before a push is proposed: the final e2e above,
+  the acceptance and performance probes against classic, and Russ's word.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
