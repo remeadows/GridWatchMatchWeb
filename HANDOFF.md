@@ -2,13 +2,25 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. LOCAL ONLY (branch `dev/mechanics`), in design
+## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. Built, PREPARED TO PUSH, not pushed (branch `dev/mechanics`)
 
 **Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
 work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
 `1881b04`, no upstream), builds through the dev site, no push or PR until he says, and the full
 gates (unit, levels, e2e in both themes, the QA probes) before a push is even proposed.
 
+- **Push readiness (Russ, 2026-10-09: "prepare to push"; checked at `d9dd146`):** 22 commits
+  ahead of `origin/main` (`1881b04`), 0 behind; 57 files, 11.1 MB, of which 10.5 MB is the six
+  music files (largest 1.96 MB); gitleaks finds nothing in the commits; no `.env`, `dist/`,
+  account id, personal path or Drive link in the pushed text. On a fresh clone CI's own steps
+  pass: levels 100/100, unit 567/567, `npm audit --audit-level=high` 0 vulnerabilities, build
+  clean. e2e: 218/218 in both themes at `f1c3e75`; nothing under `src/` or `tests/` has changed since (six voice recordings, notes and measuring tools only). A confirming run on `d9dd146` was still going when he said push; see below for its result. As before, the repo is public, `main`
+  needs a pull request, and the old Pages project builds a public preview of any pushed branch.
+  **Unlike the art, this is not behind a switch: once merged and deployed, every player gets
+  the new music, motion, sounds and voice.** The push itself still needs his word.
+- **Tish's voice is also in Drive** (he asked): `GridWatchArt / 0 - Gridwatch-Assets / 4 - Tish /
+  Voice`, nine lines as the game plays them (`Comms/`), the same takes untreated (`Clean/`) and
+  a README with the voice id and how to record a matching line. Checked present in Drive.
 - **Scope (his answer when asked what "mechanics" covers):** feel only — tile animations,
   power-up animations, sound effects, and replacing the music ("i hate the music"). Not rules,
   not new mechanics, not balance. Worked as four pieces, one at a time, each with a short design
