@@ -342,11 +342,19 @@ export default function App() {
   useEffect(() => {
     if (!save) return;
     audioService.configure(save.settings);
-    // On the menu already, so that the first level's opening line is loaded before it is wanted.
-    void audioService.preloadVoice();
     if (screen.name === "game") return;
     audioService.playMusic("menu");
   }, [save, screen.name]);
+
+  // Fetch Tish's lines on the menu, so the first level's opening is at hand. Only fetched here:
+  // they are decoded from the player's first touch, which is also what may create the audio context.
+  const voiceEnabled = save?.settings.voiceEnabled ?? false;
+  useEffect(() => {
+    if (!voiceEnabled) return;
+    const abort = new AbortController();
+    audioService.prefetchVoice(abort.signal);
+    return () => abort.abort();
+  }, [voiceEnabled]);
 
   const commitSave = useCallback((next: SaveState) => {
     const previous = saveRef.current;

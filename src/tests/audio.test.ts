@@ -64,7 +64,7 @@ class FakeBoardAudioBackend implements BoardAudioBackend {
     this.preloaded.push(url);
   }
 
-  play(url: string, playback: BoardAudioPlayback, onEnded: () => void): BoardAudioSource {
+  play(url: string, playback: BoardAudioPlayback, onEnded: () => void): BoardAudioSource | null {
     const source = new FakeBoardAudioSource(onEnded);
     this.plays.push({ url, playback, source });
     return source;
@@ -304,7 +304,7 @@ describe("Tish's voice lines", () => {
       };
     });
     const play = backend.play.bind(backend);
-    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : (null as unknown as BoardAudioSource));
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : null);
     const { service, playFallback } = createService(backend);
     service.playVoice("breachAlert");
     expect(backend.plays).toHaveLength(0);
@@ -327,7 +327,7 @@ describe("Tish's voice lines", () => {
       };
     });
     const play = backend.play.bind(backend);
-    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : (null as unknown as BoardAudioSource));
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : null);
     const { service } = createService(backend);
     service.playVoice("connectionSecure");
     backend.nowMs += 5_000;
@@ -335,6 +335,48 @@ describe("Tish's voice lines", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(backend.plays).toHaveLength(0);
+  });
+
+  it("does not fall back to an <audio> element once the voice is off or the moment has passed", async () => {
+    for (const change of ["voice off", "too late"] as const) {
+      const backend = new FakeBoardAudioBackend();
+      let failLoading: () => void = () => undefined;
+      backend.preload = () => new Promise<void>((_resolve, reject) => {
+        failLoading = () => reject(new Error("offline"));
+      });
+      backend.play = () => null;
+      const { service, playFallback } = createService(backend);
+      service.playVoice("gridCompromised");
+      if (change === "voice off") service.configure({ ...enabledSettings, voiceEnabled: false });
+      else backend.nowMs += 5_000;
+      failLoading();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(playFallback, change).not.toHaveBeenCalled();
+    }
+  });
+
+  it("fetches the lines on the menu without making an audio backend", () => {
+    const fetched: string[] = [];
+    const createBoardBackend = vi.fn(() => new FakeBoardAudioBackend());
+    const service = new AudioService({
+      createBoardBackend,
+      now: () => 0,
+      prefetch: (url) => {
+        fetched.push(url);
+        return Promise.resolve();
+      }
+    });
+    service.prefetchVoice();
+    expect(fetched).toHaveLength(0);
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.prefetchVoice();
+    expect(fetched).toHaveLength(0);
+    service.configure(enabledSettings);
+    service.prefetchVoice();
+    service.prefetchVoice();
+    expect(fetched.map((url) => url.replace(/^.*assets\/audio\//, "")).sort()).toEqual(lines.map((line) => voiceFile(line)).sort());
+    expect(createBoardBackend).not.toHaveBeenCalled();
   });
 
   it("is silenced by the voice setting alone", () => {

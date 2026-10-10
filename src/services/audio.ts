@@ -102,6 +102,8 @@ interface AudioServiceOptions {
   firstMusicFile?: () => number;
   /** Which opening line is said first, as a fraction in [0, 1). Random unless given. */
   firstOpening?: () => number;
+  /** Fetches a file so the browser has it cached; the global `fetch` unless given. */
+  prefetch?: (url: string, signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   playFallback?: (url: string, volume: number) => void;
 }
@@ -117,6 +119,8 @@ export class AudioService {
   private musicTrack: MusicTrack | null = null;
   private readonly musicTurn: Record<MusicTrack, number>;
   private openingTurn: number;
+  private voicePrefetched = false;
+  private readonly prefetch: (url: string, signal?: AbortSignal) => Promise<unknown>;
   private gestureUnlockInstalled = false;
   private settings: SettingsState | null = null;
   private boardBackend: BoardAudioBackend | null = null;
@@ -135,13 +139,16 @@ export class AudioService {
     this.createAudio = options.createAudio ?? createHtmlAudio;
     this.now = options.now ?? (() => performance.now());
     this.music = new MusicPlayer({
-      createVoice: options.createMusicVoice ?? ((url) => createElementVoice(url, sharedAudioContext())),
+      // The level runs through the audio context only once a touch has created it: a track asked
+      // for before that is refused by a phone anyway, and is started again from the touch.
+      createVoice: options.createMusicVoice ?? ((url) => createElementVoice(url, sharedAudioContext(false))),
       now: this.now
     });
     const first = options.firstMusicFile ?? Math.random;
     const firstTurn = (track: MusicTrack) => Math.floor(first() * MUSIC_TRACKS[track].files.length);
     this.musicTurn = { menu: firstTurn("menu"), gameplay: firstTurn("gameplay"), boss: firstTurn("boss") };
     this.openingTurn = Math.floor((options.firstOpening ?? Math.random)() * OPENING_LINES.length);
+    this.prefetch = options.prefetch ?? ((url, signal) => (typeof fetch === "function" ? fetch(url, { signal }) : Promise.resolve()));
     this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
   }
 
@@ -179,6 +186,8 @@ export class AudioService {
   unlockMusic(): void {
     const context = sharedAudioContext();
     if (context && context.state !== "running") void context.resume().catch(() => undefined);
+    // Now that a touch has made the context, the voice can be decoded into it.
+    void this.preloadVoice();
     if (this.settings?.musicEnabled) this.music.retry();
   }
 
@@ -206,12 +215,31 @@ export class AudioService {
     // Not decoded yet. Load it and say it then, unless the moment has passed; only if it cannot
     // be loaded at all is an <audio> element tried.
     const askedAtMs = this.now();
+    const stillWanted = () => Boolean(this.settings?.voiceEnabled) && this.now() - askedAtMs <= VOICE_LATE_MS;
     backend.preload(url).then(
       () => {
-        if (this.settings?.voiceEnabled && this.now() - askedAtMs <= VOICE_LATE_MS) say();
+        if (stillWanted()) say();
       },
-      () => this.playHtmlAudio(url, 1)
+      () => {
+        if (stillWanted()) this.playHtmlAudio(url, 1);
+      }
     );
+  }
+
+  /**
+   * Have the browser fetch every line, without touching Web Audio: the audio context must not be
+   * made before the player's first touch, and this runs on the menu before there has been one.
+   * The touch then decodes them (unlockMusic), from the cache.
+   */
+  prefetchVoice(signal?: AbortSignal): void {
+    if (!this.settings?.voiceEnabled || this.voicePrefetched) return;
+    this.voicePrefetched = true;
+    for (const file of Object.values(VOICE_LINES)) {
+      this.prefetch(audioUrl(file), signal).catch(() => {
+        // Aborted or offline: let a later call try again. The touch-time preload does not depend on it.
+        this.voicePrefetched = false;
+      });
+    }
   }
 
   /** Her line as a level begins: the next of the openings. A turn is only used when she speaks. */
@@ -221,7 +249,7 @@ export class AudioService {
     this.openingTurn += 1;
   }
 
-  /** Load every line. Called as the app opens, so the first level's opening is ready to say. */
+  /** Decode every line into the audio backend. Called from the first touch and when a level's board mounts. */
   async preloadVoice(): Promise<void> {
     if (!this.settings?.voiceEnabled) return;
     const backend = this.resolveBoardBackend();
@@ -374,9 +402,13 @@ class WebAudioBoardBackend implements BoardAudioBackend {
 
 let audioContext: AudioContext | null | undefined;
 
-/** One audio context for the board sounds and the music's level, created on first use. */
-function sharedAudioContext(): AudioContext | null {
+/**
+ * One audio context for the board sounds, the voice and the music's level. It is made on first
+ * use, which should be inside a touch: pass `create = false` to get it only if it already exists.
+ */
+function sharedAudioContext(create = true): AudioContext | null {
   if (audioContext !== undefined) return audioContext;
+  if (!create) return null;
   const audioGlobal = globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext };
   const AudioContextConstructor = audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
   audioContext = AudioContextConstructor ? new AudioContextConstructor() : null;
