@@ -17,19 +17,23 @@ Chrome and resolve `@playwright/test` from this repo. `<repo>` is the repository
 | `net-check.mjs <repo> <base url>` | Which piece images each theme downloads |
 | `find-404.mjs <repo> <url>` | Lists failed requests |
 | `alpha_stats.py <rgba png>` | Whether a plate's transparency is real, with a coarse coverage map |
-| `pw.config.mjs` | Runs the repo's e2e suite with the dark board as the build default |
+| `release-check.mjs <repo> <base url> <out dir>` | A production build as a player meets it, desktop and phone: the theme it opens in, console errors, failed requests, the audio fetched. `GW_STEPS` names buttons to press. For before and after a production deploy |
+| `csp-server.mjs <dist dir> <port>` | Serves a build under `/play/match/` with the live page's security policy, for `release-check.mjs` |
+| `pw.config.mjs` | Runs the repo's e2e suite on a build whose default is the archived classic board (`GW_THEME=classic`) |
 
-The e2e suite on the dark board (WebKit for the mobile project, as the repo defines it):
+Since 2026-10-10 the dark board is every build's default, so `npm run test:e2e` is the suite on
+the dark board. The same suite on the archived classic board, which stays a working fallback
+(WebKit for the mobile project, as the repo defines it):
 
 ```sh
-GW_REPO="$PWD" GW_OUT=/tmp/gw-e2e-dark GW_THEME=darkRealism GW_BUNDLED=1 \
+GW_REPO="$PWD" GW_OUT=/tmp/gw-e2e-classic GW_THEME=classic GW_BUNDLED=1 \
   npx playwright test --config art/gridwatch-match/qa/pw.config.mjs
 ```
 
 To probe a real build without uploading it: `npm run cf:dev-instance -- --dry-run`, then
 `npx wrangler dev --config wrangler.dev.jsonc --port 8798 --ip 127.0.0.1` serves `dist/`.
 
-`npm run test:e2e` is the same suite on the classic board. Each takes about 16 minutes; do not
+Each run takes about 16 minutes and builds from the working tree when it starts; do not
 run a Blender build at the same time (both are CPU-bound and the timing tests are sensitive).
 Useful URLs: `?gwTestMode=1&level=N` jumps to a level; `?theme=classic` / `?theme=dark`;
 `?hidpi=0`. Level 54 has zero-day tiles; level 34 has locked, encrypted and malware cells; level 100 has
