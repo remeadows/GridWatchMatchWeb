@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest } from "../data/presentationAssets";
@@ -270,6 +270,9 @@ describe("music through the audio service", () => {
 });
 
 describe("music held back until the page is touched", () => {
+  // Restored here, not at the end of each test, so a failed assertion cannot leak the stub.
+  afterEach(() => vi.unstubAllGlobals());
+
   // The browser refuses every start until `allowed` is set, as it does before a first touch.
   function refusedService() {
     const listeners = new Map<string, Array<(event: unknown) => void>>();
@@ -312,7 +315,6 @@ describe("music held back until the page is touched", () => {
     gate.allowed = true;
     service.playMusic("menu");
     expect(started).toHaveLength(1);
-    vi.unstubAllGlobals();
   });
 
   it.each([
@@ -331,7 +333,6 @@ describe("music held back until the page is touched", () => {
     gate.allowed = true;
     await fire(type, event);
     expect(started).toHaveLength(1);
-    vi.unstubAllGlobals();
   });
 
   it("does not spend its retry on a finger going down, which the browser does not count as a touch", async () => {
@@ -346,7 +347,6 @@ describe("music held back until the page is touched", () => {
     expect(started).toHaveLength(1);
     await fire("click");
     expect(started).toHaveLength(1);
-    vi.unstubAllGlobals();
   });
 });
 

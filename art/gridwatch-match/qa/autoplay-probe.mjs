@@ -38,40 +38,43 @@ const open = async (options = {}) => {
   return page;
 };
 
-{
-  const page = await open({ viewport: { width: 1280, height: 800 } });
-  await page.goto(base, { waitUntil: "networkidle" });
-  await page.waitForTimeout(3000);
-  await state(page, "direct, 3 s after load, no touch");
-  await page.mouse.click(640, 790);
-  await page.waitForTimeout(1500);
-  await state(page, "direct, after one mouse click on empty space");
-  await page.context().close();
+try {
+  {
+    const page = await open({ viewport: { width: 1280, height: 800 } });
+    await page.goto(base, { waitUntil: "networkidle" });
+    await page.waitForTimeout(3000);
+    await state(page, "direct, 3 s after load, no touch");
+    await page.mouse.click(640, 790);
+    await page.waitForTimeout(1500);
+    await state(page, "direct, after one mouse click on empty space");
+    await page.context().close();
+  }
+  {
+    const page = await open({ viewport: { width: 1280, height: 800 } });
+    const launcher = new URL("launcher.html", base).toString();
+    await page.route(launcher, (route) =>
+      route.fulfill({ contentType: "text/html", body: `<!doctype html><title>menu</title><a id="go" href="${new URL(base).pathname}">Match</a>` })
+    );
+    await page.goto(launcher);
+    await page.click("#go");
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(3000);
+    await state(page, "menu link on the same site, 3 s after load, no touch on the game");
+    await page.context().close();
+  }
+  {
+    const page = await open({ ...devices["Pixel 7"] });
+    await page.goto(base, { waitUntil: "networkidle" });
+    await page.waitForTimeout(2000);
+    await state(page, "phone, direct, before any tap");
+    await page.touchscreen.tap(200, 20);
+    await page.waitForTimeout(1500);
+    await state(page, "phone, after the first tap");
+    await page.touchscreen.tap(200, 20);
+    await page.waitForTimeout(1500);
+    await state(page, "phone, after the second tap");
+    await page.context().close();
+  }
+} finally {
+  await browser.close();
 }
-{
-  const page = await open({ viewport: { width: 1280, height: 800 } });
-  const launcher = new URL("launcher.html", base).toString();
-  await page.route(launcher, (route) =>
-    route.fulfill({ contentType: "text/html", body: `<!doctype html><title>menu</title><a id="go" href="${new URL(base).pathname}">Match</a>` })
-  );
-  await page.goto(launcher);
-  await page.click("#go");
-  await page.waitForLoadState("networkidle");
-  await page.waitForTimeout(3000);
-  await state(page, "menu link on the same site, 3 s after load, no touch on the game");
-  await page.context().close();
-}
-{
-  const page = await open({ ...devices["Pixel 7"] });
-  await page.goto(base, { waitUntil: "networkidle" });
-  await page.waitForTimeout(2000);
-  await state(page, "phone, direct, before any tap");
-  await page.touchscreen.tap(200, 20);
-  await page.waitForTimeout(1500);
-  await state(page, "phone, after the first tap");
-  await page.touchscreen.tap(200, 20);
-  await page.waitForTimeout(1500);
-  await state(page, "phone, after the second tap");
-  await page.context().close();
-}
-await browser.close();

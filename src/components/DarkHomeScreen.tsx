@@ -49,7 +49,7 @@ export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy
       <div className="dr-home-panel">
         {/* Kept in the panel's own box and its contents only hidden, so nothing moves when they arrive. */}
         {onTitle && (
-          <button type="button" className="dr-enter" data-testid="title-enter" aria-label="Enter the main menu" onClick={onEnter}>
+          <button type="button" className="dr-enter" data-testid="title-enter" aria-label="Enter the main menu. Sound on." onClick={onEnter}>
             <span className="dr-enter-touch">Tap to Enter</span>
             <span className="dr-enter-key">Press any key</span>
             <small>Sound on</small>

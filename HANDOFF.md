@@ -102,7 +102,7 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   - **What went out** (everything on `main` since `fda9ed0`): mechanics (#79), the dark-realism
     art behind its switch (#77; classic stays the default, `?theme=dark` shows the dark board),
     and two dependency overrides (#76, #78).
-  - **Checked live afterwards** at `https://nexus.warsignallabs.net/play/match/`: the page serves
+  - **Checked live afterward** at `https://nexus.warsignallabs.net/play/match/`: the page serves
     the same bundle as the build, music and voice files answer as `audio/mpeg`, `GET /api/score`
     answers 405 "POST only.", the old hostname still redirects. A desktop Chromium and an
     iPhone-15 WebKit each opened the game and started level 1 with Quick Deploy: board drawn,
@@ -335,7 +335,8 @@ the 2026-09-25 entry leaves them.
   `main`); it is not the live game, which is deployed by hand. `wrangler.dev.jsonc` carries the
   Cloudflare account ID, which `origin/main` does not: an identifier, not a credential, but it
   becomes public with the push.
-- **After a merge and a production deploy** the default look is still classic, and `?theme=dark`
+- **After a merge and a production deploy** (true until 2026-10-10, when dark became the default:
+  top entry) the default look is still classic, and `?theme=dark`
   shows the dark board to anyone who adds it, by design of the switch.
 - **Next dev project (Russ, 2026-10-09): "mechanics".** His word; the scope is his to state.
 
@@ -353,7 +354,8 @@ the 2026-09-25 entry leaves them.
   board canvas in device pixels; the Tish main menu (`src/components/DarkHomeScreen.tsx`); the
   game HUD, objective, dock and result dialog, and the shared treatment on the other screens, with
   a phone tab bar (`src/darkRealism.css`, CSS on the classic markup).
-- **How it is switched:** `src/game/boardTheme.ts`. Classic is the default; only the dev-instance
+- **How it is switched** (as built; since 2026-10-10 dark is the default and classic the
+  fallback, top entry): `src/game/boardTheme.ts`. Classic is the default; only the dev-instance
   build sets `VITE_BOARD_THEME=darkRealism`; `?theme=classic|dark` overrides. A production build
   is unchanged.
 - **Not done** (the list is `docs/gridwatch-match/README.md` §7): nothing was checked on a
