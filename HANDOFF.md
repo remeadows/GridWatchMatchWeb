@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-10
 
-## 🟡 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. On the dev site; NOT pushed, NOT in production (branch `dev/dark-default`)
+## 🟡 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. PUSHED, PR #81 open, not merged, NOT in production (branch `dev/dark-default`)
 
 **Russ's words, 2026-10-10.** After the mechanics deploy he did not see the dark look on Nexus
 (production opened on classic; dark was behind `?theme=dark`): "Dark theme becomes production. Old
@@ -58,7 +58,9 @@ below, which is not on `main` yet.
 - **Correction to the entry below:** the two WebKit "Refused to apply a stylesheet" console lines
   appear at page load, not when a level starts. They still predate all of this (`fda9ed0`).
 - **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` serves `9f7e3b3-dev`.
-- **Not done / his:** his look at the dev site on his phone and Mac; the word to push; the merge;
+- **Pushed 2026-10-10 on his word ("push - open PR and turn on auto-fix CI"):** PR #81
+  (https://github.com/remeadows/GridWatchMatchWeb/pull/81), Auto-fix on for it in the desktop app.
+- **Not done / his:** his look at the dev site on his phone and Mac; the merge;
   the production deploy (procedure in the entry below: clean checkout of `origin/main`,
   `CLOUDFLARE_ACCOUNT_ID` set, tag the version, rollback target is then `61a35720`). Unverified:
   a physical phone (title screen, music on first tap, frame rate at 3×), Safari, and how any of
