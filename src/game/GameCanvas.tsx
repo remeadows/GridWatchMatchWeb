@@ -61,6 +61,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return;
     void audioService.preloadBoardSounds();
+    void audioService.preloadVoice();
     const unlockBoardSounds = () => audioService.unlockBoardSounds();
     containerRef.current.addEventListener("pointerdown", unlockBoardSounds, { passive: true });
     // Headless WebKit under CPU contention can starve requestAnimationFrame for

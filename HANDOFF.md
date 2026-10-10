@@ -2,7 +2,192 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: Dark-realism art upgrade — built, look approved by Russ, PUSHED, PR #77 open, not merged, not in production (branch `dev/dark-realism`)
+## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. PUSHED, PR #79 open, not merged, not in production (branch `dev/mechanics`)
+
+**Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
+work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
+`1881b04`, no upstream), builds through the dev site, no push or PR until he says, and the full
+gates (unit, levels, e2e in both themes, the QA probes) before a push is even proposed.
+
+- **Push readiness (Russ, 2026-10-09: "prepare to push"; checked at `d9dd146`):** 22 commits
+  ahead of `origin/main` (`1881b04`), 0 behind; 57 files, 11.1 MB, of which 10.5 MB is the six
+  music files (largest 1.96 MB); gitleaks finds nothing in the commits; no `.env`, `dist/`,
+  account id, personal path or Drive link in the pushed text. On a fresh clone CI's own steps
+  pass: levels 100/100, unit 567/567, `npm audit --audit-level=high` 0 vulnerabilities, build
+  clean. e2e: 218/218 in both themes at `f1c3e75`; nothing under `src/` or `tests/` has changed since (six voice recordings, notes and measuring tools only). A confirming run on `d9dd146` was still going when he said push; see below for its result. As before, the repo is public, `main`
+  needs a pull request, and the old Pages project builds a public preview of any pushed branch.
+  **Unlike the art, this is not behind a switch: once merged and deployed, every player gets
+  the new music, motion, sounds and voice.**
+- **Pushed 2026-10-09 on his word ("push - open PR and turn on auto-fix CI"):** branch at
+  `7a1b44b`, **PR #79** (https://github.com/remeadows/GridWatchMatchWeb/pull/79), Auto-fix on
+  for it in the desktop app. Merging and any production deploy are his.
+- **Tish's voice is also in Drive** (he asked): `GridWatchArt / 0 - Gridwatch-Assets / 4 - Tish /
+  Voice`, nine lines as the game plays them (`Comms/`), the same takes untreated (`Clean/`) and
+  a README with the voice id and how to record a matching line. Checked present in Drive.
+- **Scope (his answer when asked what "mechanics" covers):** feel only — tile animations,
+  power-up animations, sound effects, and replacing the music ("i hate the music"). Not rules,
+  not new mechanics, not balance. Worked as four pieces, one at a time, each with a short design
+  he approves and a dev build he plays: music, then tile motion, power-up motion, sound effects.
+- **Music, decided by Russ:** dark ambient (slow low drones, distant city and rain, no melody or
+  beat, under the effects, seamless 2 to 3 minute loops); generated on his ElevenLabs account
+  (Creator plan). **Licence, his call:** ElevenLabs' music terms exclude "Studio Games" (a
+  monetised game on more than one platform) on self-serve plans; told this, he chose
+  "ElevenLabs anyway". Revisit if Match is monetised on both web and iOS.
+- **Music as found:** `bgm_menu.mp3`, `bgm_gameplay.mp3`, `bgm_boss.mp3` are three different
+  30-second files played with `HTMLAudioElement.loop` at volume 0.45 (`src/services/audio.ts`,
+  called from `src/App.tsx`), which leaves a gap at each loop point.
+- **Music playback, built (local commit `7c94af2`):** `src/services/music.ts` (`MusicPlayer`)
+  replaces the looping `<audio>` element. A track is streamed, loops by crossfading into a fresh
+  copy 4 s before its end, and changes track over 1.5 s; levels go through a Web Audio gain node
+  because iOS ignores an element's volume (so the old music most likely played at full volume on
+  iPhones: not checked on a device). One audio context is shared with the board sounds and woken
+  by the first gesture. Russ approved this design ("yes to the design").
+- **Tracks, picked by Russ:** six were generated (A and B for menu, gameplay, boss). After
+  hearing them in the game: "the music in A, B and boss was great", then, asked which to ship,
+  "Both, alternating". All six are in `public/assets/audio/music/` (`menu_a.mp3` ... `boss_b.mp3`,
+  1.5 to 2 MB each, about 10.7 MB together; a player downloads only the one playing). A track
+  plays its other file the next time it comes round, and gameplay changes file from one level to
+  the next (`playMusic(track, { fresh: true })` at level start); which file a session begins on
+  is random. Local commit `0a3df36`, on the dev site as `0a3df36-dev`.
+- **How a generated track becomes a loop file:** `scripts/prepare-music.sh <source> <out>
+  <start-s> <end-s>` cuts off the generated fades, levels to -24 LUFS and encodes 112 kbps MP3.
+  The raw generated files live only in the session scratch folder, not in the repo. Levels in
+  `MUSIC_TRACKS` (`src/services/audio.ts`: menu 0.8, gameplay 0.6, boss 0.75) are a first guess;
+  Russ has not said they are wrong.
+- **Not for `web-overrides/`:** `src/tests/assets.test.ts` allows only the approved board sounds
+  in `public/assets/audio/web-overrides/`, which is why music has its own folder. The old
+  `bgm_*.mp3` files stay where they are, unused by the web game: `npm run sync:assets` copies
+  them from the iOS project.
+- **Verified:** unit 550/550, levels 100/100, `tsc` clean; `art/gridwatch-match/qa/music-probe.mjs`
+  passes in installed Chrome and bundled WebKit on a local build and in Chrome on the live dev
+  site (first gesture starts the music, the loop overlaps two copies and never goes silent, a
+  level start crossfades to the gameplay track). e2e: see the next line. Nothing here has been
+  heard by me; the sound is Russ's to judge. Not checked on a physical phone.
+- **Tile motion, built (local commit `0efa0c3`):** Russ picked "More weight and impact" and said
+  "yes to the design, go ahead". A fall is constant acceleration (`cascadeFallDurationMs`: 250 ms
+  for one cell, time with the square root of distance, cap still 540 ms; `Quad.easeIn`). On
+  landing the piece squashes against the floor of its cell, hops once and settles, harder the
+  further it fell (`cascadeLandingPlan`, 55 + 70 + 65 = 190 ms as before); its shadow tightens
+  (`pressShadow`); eight pieces at once or a three-cell drop knocks the board down by 3.5% of a
+  cell (`cascadeJoltPx`, driven from `update()` so cancelling tweens cannot leave the board
+  displaced). A swapped piece lifts while it travels and is set down; a refused swap is knocked
+  back. Sizes are fractions of the cell, not fixed pixels. Both themes; reduced motion skips it
+  all. Constants are in `src/data/presentationTiming.ts`. Not changed: rules, the length of a
+  move, the hold before a match breaks, how clears look.
+- **Seen, not felt:** `art/gridwatch-match/qa/motion-probe.mjs` captures a swap and its cascade
+  from the browser's screencast at about 60 frames a second. On level 1 the landing frames show
+  the piece accelerating in, flattening on contact and settling, with no clipping. That was a
+  one-cell drop (the lightest landing); a long drop and the board knock have not been looked at
+  frame by frame. Whether it feels right is Russ's to say.
+- **e2e for music and tile motion together (commit `4b1f515`):** 218/218 on the classic board and
+  218/218 on the dark board (bundled Chromium, WebKit for the phone project), 2026-10-09. An
+  earlier run for music alone was stopped part-way at Russ's word and is not a result.
+- **Power-up motion, built in three steps (merge `7e0b3db`; on the dev site as `7e0b3db-dev`):**
+  asked what he wanted, Russ picked all four ("More weight and impact", "A better creation
+  moment", "Clearer what each one does", "Faster, less waiting") and said "yes to the design, go
+  ahead".
+  1. *Faster and heavier* (`adc1d01`): rocket flight 420 -> 320 ms with `Quad.easeIn` and a knock
+     at the board edge in its direction of travel; TNT shake 0.008 -> 0.012 and `shoveSurvivors`
+     pushes the pieces round the blast outward; propeller flight 450 -> 340 ms ending in a dive,
+     with a ring and a knock; the light ball's dim/charge/wave/release 120 -> 80/100/90/90 ms;
+     `POWERUP_CASCADE_HOLD_MS` 200 -> 140; each combo about a fifth shorter (charge x0.85,
+     impact and cascade x0.8). **This reverses September's deliberately slower pacing**; the
+     numbers are all in `src/data/presentationTiming.ts`. Two specs were moved on purpose, with a
+     dated comment in each: the combo cascade floor 850 -> 700 ms (`presentation.test.ts`) and
+     the light-ball hold floor 180 -> 130 ms (`tests/e2e/presentation.spec.ts`).
+  2. *Creation* (`06faec1`): a clear step that is followed by a creation step sends the rest of
+     the match into the power-up's cell (`mergeTargets`, `playMergeFlight`); the cell gathers
+     light and the power-up is dropped in from above (drop, squash, hop, settle, ring, flash,
+     knock). 310 ms as before; trace order charge < impact < stable unchanged.
+  3. *Marks* (`3a87343`): `markTargets` draws corner brackets before the hit: the rocket's lane,
+     TNT's blast area, the propeller's target for the whole flight, every piece the light ball
+     picked. Trace kind `target-mark`.
+  The board knock (`joltBoard`/`knockBoard`) now takes a direction; trace kind `powerup-knock`.
+- **Power-ups seen, not felt:** `motion-probe.mjs` (it can use a booster now) on a local build,
+  level 1: the creation beats, every knock and every mark fire with no page error, and the
+  frames show the lane mark, the TNT brackets, the propeller lock, the light ball's marks and the
+  power-up dropping into its cell. Not judged frame by frame: the TNT shove, the merge flights,
+  and any of the ten combos. Whether any of it feels right is Russ's to say.
+- **Seen in passing, not from this work:** after a booster is picked and used by click, a box
+  outline (the booster drag ghost, a DOM element) hangs below the pointer over the board. It is
+  the same on the build before the power-up changes. Not touched.
+- **e2e for the power-up work (commit `7e0b3db`, with music and tile motion):** 218/218 on the
+  classic board and 218/218 on the dark board (bundled Chromium, WebKit for the phone project),
+  2026-10-09.
+- **Sound, the last piece.** Asked what he wanted, Russ picked "Heavier, to match the look",
+  "Sounds that follow the action" and "Rework the voice lines" (not "Fill the silent moments":
+  buttons, menus and the swap stay silent), then "Tish says them", "Tish voice English female",
+  "Lily, and yes to the sound design, go ahead".
+  - *Follows the action* (`2f1c575`): `landingCuePlayback`, `clearCuePlayback`,
+    `blastCuePlayback` in `src/game/presentation.ts`. One landing sound per group of pieces that
+    land together (at most three a cascade), voiced by how hard and how many; clears grow from
+    three pieces to seven; TNT, rocket and light-ball hits scale with what they destroyed.
+  - *Tish* (`5c64975`): ElevenLabs stock voice "Lily" (id `pFZP5JQG7iQjIQuC4Bku`), five lines in
+    `public/assets/audio/voice/tish_*.mp3`, made with `scripts/prepare-voice.sh` (silence cut,
+    radio band, compressed, a noise click in and out, -19 LUFS target). `audioService.playVoice`:
+    "Initiating countermeasures" at level start, "Breach alert" at a boss level's start,
+    "Connection secure" on a win, "Area cleared" on a sector's last level, "Grid compromised"
+    when a mission ends in a loss (End Mission, not enough coins to play on, boss timer). Checked
+    by length that no line was cut short; not heard by me.
+  - *Heavier board sounds:* all 20 cues regenerated on his ElevenLabs account and prepared with
+    `scripts/prepare-sfx.sh` (leading silence cut, capped length, mono, peak set per cue). Same
+    file names in `public/assets/audio/web-overrides/`. Raw generations are only in the session
+    scratch folder.
+- **Five openings** (`b6d57ba`). Russ: "give Tish four more openings beyond 'initiating
+  countermeasures'". Added "Defences online.", "Securing the grid.", "Tracing the intrusion.",
+  "Systems ready. Begin." (my wording; he has heard them only as files sent after recording).
+  `audioService.playOpening()` takes the five in turn from a random first one; a boss level
+  still opens with "Breach alert". Nine voice files in all.
+- **Board sounds committed** (`f1c3e75`). Russ did not name any to redo; told to "continue with
+  what is left", I removed the temporary `?sfx=old` switch and the comparison copies and
+  committed the twenty new cues with `scripts/prepare-sfx.sh`. The previous cues are that
+  commit's parent. **He has not said the new sounds are right**: regenerate on his word.
+- **On the dev site:** `f1c3e75-dev`, the whole of mechanics.
+- **Sound verified:** unit 567/567, levels 100/100, `tsc` clean; on the live dev site a level
+  loads the new cues and voice files with no failed request and no console error (checked at
+  `5c64975-dirty-dev`; at `f1c3e75-dev` the new files are served). I cannot hear any of it;
+  levels are a first guess. An e2e run on the audition build was stopped when the openings
+  superseded it and is not a result.
+- **Final e2e on the committed state (`f1c3e75`):** 218/218 on the classic board and 218/218 on
+  the dark board (bundled Chromium, WebKit for the phone project), 2026-10-09. The two voice
+  files replaced afterwards (next item) are the only change since.
+- **Lily does not always sound like Lily.** Russ: "'systems ready.mp3' and 'securing the
+  grid.mp3' dont sound like Lily". Every take used her voice id, but she comes out in a higher
+  or lower register from one generation to the next, short lines most of all. Measured median
+  speaking pitch (`art/gridwatch-match/qa/voice/pitch.py`, autocorrelation; a rough stand-in for
+  his ear): the lines he accepted are 145 to 157 Hz, the two he rejected 242 and 276 Hz.
+  Re-recording a line alone, even at higher stability, gave the high register again; what works
+  is recording it several times inside a longer passage (`measure.sh` lists each stretch and its
+  pitch) and cutting out a take that lands low. Both lines replaced with such takes (163 and
+  147 Hz); **he has the files but has not yet said they are right.** By the same measure
+  "Connection secure" (250), "Area cleared" (242), "Breach alert" (217) and "Grid compromised"
+  (216) were also high. Told this, Russ said "yes, re-record the other four lines": done the
+  same way. All nine installed files now measure 145 to 186 Hz median ("Breach alert" is the
+  186; it took three passages to get one that low). **He has not yet heard the six replaced
+  lines in their final form and said they are right.**
+- **Probes on a local build of `cdc1dd2`** (`docs/gridwatch-match/evidence/2026-10-09-mechanics/`):
+  `acceptance-probe.mjs` passes every check (18 refused sprites fall back and a swap still takes
+  a move; ten level entries leave one canvas; hide and show mid-level; the full loop keeps
+  progress across a reload; no page error). `perf-probe.mjs`, level 1, this 12-core Mac: frame
+  interval 16.7 ms median in both themes at both sizes, at rest and through a swap, at most one
+  33 ms frame with the CPU slowed four times, as before mechanics; heap 17.5 to 26.3 MB. Time
+  to board ready was 232 to 388 ms (688 to 942 ms slowed), against 166 to 345 ms when measured
+  for the art work: within run-to-run spread for classic, slower for dark, cause not looked
+  into (nine voice files are now fetched as a level opens). **A real phone is still unmeasured.**
+- **Waiting on Russ:** whether the six re-recorded lines sound like Lily; which board sounds
+  miss and how; whether Tish talks too often; anything
+  in the motion or power-ups that feels off played together. He approved each design and chose
+  the music and the voice; he has not yet commented on the tile motion, the power-ups or the
+  board sounds as played.
+- **ElevenLabs cost:** the plan's credit counter did not move across the six generations, so the
+  price of music on this plan is unmeasured (their terms list 62 generation minutes a month for
+  Creator; 15 were generated).
+- **All four pieces are built, committed and pushed (PR #79).** Done before the push: fresh-clone
+  CI steps, gitleaks, the acceptance and performance probes, and e2e 218/218 in both themes at
+  `f1c3e75`. Still open: the e2e run on the review fixes, Russ's verdict on how it plays, and
+  the merge and any production deploy, which are his.
+
+## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
 **Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
 and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look

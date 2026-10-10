@@ -3,6 +3,12 @@ import { Grid2D, emptyCell, type BoardSnapshot, type PowerUpEvent, type PowerUpT
 import {
   canonicalComboKey,
   cascadeFallDurationMs,
+  cascadeJoltPx,
+  blastCuePlayback,
+  cascadeLandingPlan,
+  clearCuePlayback,
+  landingCuePlayback,
+  mergeSources,
   chainPlaybackRate,
   comboChoreographyPlan,
   comboOverlayPositions,
@@ -220,7 +226,8 @@ describe("comboChoreographyPlan", () => {
     expect(plan.screenFlashCount).toBeLessThanOrEqual(1);
     expect(plan.chargeAtMs).toBeGreaterThanOrEqual(180);
     expect(plan.chargeAtMs).toBeLessThanOrEqual(300);
-    expect(plan.cascadeAtMs).toBeGreaterThanOrEqual(850);
+    // 850 until 2026-10-09, when Russ asked for power-ups to resolve sooner and each combo lost about a fifth.
+    expect(plan.cascadeAtMs).toBeGreaterThanOrEqual(700);
     expect(plan.cascadeAtMs).toBeLessThanOrEqual(1_450);
     expect(plan.batches.every((batch, index) => index === 0 || batch.atMs >= plan.batches[index - 1].atMs)).toBe(true);
   });
@@ -359,6 +366,17 @@ describe("rocketLanePlan", () => {
     ]);
     expect(plan.heads.every((head) => head.impactAtMs === head.passTimes.at(-1)?.atMs)).toBe(true);
     expect(plan.heads.every((head) => head.flightMs >= 320 && head.flightMs <= 430)).toBe(true);
+    // The head accelerates from rest: it reaches a fraction f of its lane after sqrt(f) of the
+    // flight, so the first cells take longest and the last cell is reached exactly at the end.
+    for (const head of plan.heads) {
+      const passes = head.passTimes;
+      expect(passes.map((pass) => pass.laneFraction)).toEqual([0, 1 / 3, 2 / 3, 1]);
+      expect(passes.map((pass) => pass.atMs)).toEqual(
+        passes.map((pass) => plan.ignitionMs + Math.round(head.flightMs * Math.sqrt(pass.laneFraction)))
+      );
+      expect(passes[1].atMs - passes[0].atMs).toBeGreaterThan(passes[3].atMs - passes[2].atMs);
+      expect(passes.at(-1)!.atMs).toBe(plan.ignitionMs + head.flightMs);
+    }
     expect(plan.heads.every((head) => head.passTimes.every((pass, index, passes) => (
       index === 0 || pass.atMs >= passes[index - 1].atMs
     )))).toBe(true);
@@ -463,10 +481,131 @@ describe("matchTimeline", () => {
 });
 
 describe("cascadeFallDurationMs", () => {
-  it("uses distance-based falls with the specified minimum and cap", () => {
-    expect(cascadeFallDurationMs(1)).toBe(260);
-    expect(cascadeFallDurationMs(2)).toBeGreaterThan(cascadeFallDurationMs(1));
+  it("falls under constant acceleration: time goes with the square root of the distance", () => {
+    expect(cascadeFallDurationMs(1)).toBe(250);
+    expect(cascadeFallDurationMs(4)).toBe(500);
+    expect(cascadeFallDurationMs(2)).toBe(Math.round(250 * Math.SQRT2));
+    // Each further cell costs less time than the one before it.
+    const step = (cells: number) => cascadeFallDurationMs(cells + 1) - cascadeFallDurationMs(cells);
+    expect(step(1)).toBeGreaterThan(step(2));
+    expect(step(2)).toBeGreaterThan(step(3));
+  });
+
+  it("keeps the old floor and cap, so no fall is longer than before", () => {
+    expect(cascadeFallDurationMs(0)).toBe(250);
+    expect(cascadeFallDurationMs(0.4)).toBe(250);
     expect(cascadeFallDurationMs(7)).toBe(540);
+    expect(cascadeFallDurationMs(Number.NaN)).toBe(250);
+  });
+});
+
+describe("cascadeLandingPlan", () => {
+  it("lands harder the further the piece fell, up to a cap", () => {
+    const one = cascadeLandingPlan(1, 100, 120);
+    const three = cascadeLandingPlan(3, 100, 120);
+    const five = cascadeLandingPlan(5, 100, 120);
+    const nine = cascadeLandingPlan(9, 100, 120);
+    expect(one.strength).toBeLessThan(three.strength);
+    expect(three.strength).toBeLessThan(five.strength);
+    expect(five.strength).toBe(1);
+    expect(nine).toEqual(five);
+    expect(one.squashScaleY).toBeGreaterThan(five.squashScaleY);
+    expect(one.hopPx).toBeLessThan(five.hopPx);
+  });
+
+  it("squashes wider and shorter, with its foot kept on the floor", () => {
+    const plan = cascadeLandingPlan(5, 100, 120);
+    expect(plan.squashScaleX).toBeCloseTo(1.12, 5);
+    expect(plan.squashScaleY).toBeCloseTo(0.84, 5);
+    // The foot of a 100 px piece is at +50; squashed to 84 px it is at +42, so the centre drops 8.
+    expect(plan.sinkPx).toBeCloseTo(8, 5);
+    expect(plan.hopPx).toBeCloseTo(6, 5);
+  });
+
+  it("never lands softer than the lightest landing, and takes 190 ms in all", () => {
+    const short = cascadeLandingPlan(0.2, 100, 120);
+    expect(short.strength).toBe(0.35);
+    expect(short.squashMs + short.hopMs + short.settleMs).toBe(190);
+    expect(cascadeLandingPlan(Number.NaN, 100, 120)).toEqual(cascadeLandingPlan(0, 100, 120));
+  });
+});
+
+describe("sounds that follow the action", () => {
+  it("makes a landing louder and lower the harder and the heavier it is", () => {
+    const tick = landingCuePlayback(0.35, 1);
+    const thud = landingCuePlayback(1, 12);
+    expect(tick.gain).toBeLessThan(landingCuePlayback(0.7, 1).gain);
+    expect(landingCuePlayback(0.35, 6).gain).toBeGreaterThan(tick.gain);
+    expect(thud.gain).toBeCloseTo(0.62, 5);
+    expect(thud.playbackRate).toBeCloseTo(0.8, 5);
+    expect(tick.playbackRate).toBeGreaterThan(1);
+    expect(landingCuePlayback(9, 99)).toEqual(thud);
+    expect(landingCuePlayback(Number.NaN, 1).gain).toBeCloseTo(0.22, 5);
+  });
+
+  it("makes a bigger clear bigger and deeper, up to seven pieces", () => {
+    expect(clearCuePlayback(3)).toEqual({ gain: 0.5, playbackRate: 1.06 });
+    expect(clearCuePlayback(5).gain).toBeGreaterThan(clearCuePlayback(3).gain);
+    expect(clearCuePlayback(5).playbackRate).toBeLessThan(clearCuePlayback(3).playbackRate);
+    expect(clearCuePlayback(7)).toEqual(clearCuePlayback(20));
+  });
+
+  it("scales a power-up's hit by what it destroyed, within fixed limits", () => {
+    for (const kind of ["tnt", "rocket", "lightBall"] as const) {
+      const small = blastCuePlayback(kind, 1);
+      const large = blastCuePlayback(kind, 40);
+      expect(large.gain).toBeGreaterThan(small.gain);
+      expect(large.playbackRate).toBeLessThan(small.playbackRate);
+      expect(large.gain).toBeLessThanOrEqual(0.9);
+      expect(small.gain).toBeGreaterThanOrEqual(0.3);
+      expect(blastCuePlayback(kind, 400)).toEqual(large);
+    }
+  });
+});
+
+describe("mergeSources", () => {
+  const at = (row: number, col: number) => ({ row, col });
+  const cleared = (row: number, col: number, tileType: "packet" | "key" = "packet") => ({ position: at(row, col), tileType });
+
+  it("finds the rest of a line match in the clear that follows the creation", () => {
+    // A row of four packets made a rocket at (0,1); the engine clears the other three.
+    const sources = mergeSources([{ position: at(0, 1), tileType: "packet" }], [cleared(0, 0), cleared(0, 2), cleared(0, 3)]);
+    expect([...sources.keys()]).toEqual(["0,1"]);
+    expect(sources.get("0,1")!.map((p) => `${p.row},${p.col}`).sort()).toEqual(["0,0", "0,2", "0,3"]);
+  });
+
+  it("follows both arms of an L or T match, which the power-up's own cell splits apart", () => {
+    const sources = mergeSources(
+      [{ position: at(2, 2), tileType: "packet" }],
+      [cleared(2, 0), cleared(2, 1), cleared(0, 2), cleared(1, 2)]
+    );
+    expect(sources.get("2,2")).toHaveLength(4);
+  });
+
+  it("leaves out other tile types and matches that do not touch the power-up", () => {
+    const sources = mergeSources(
+      [{ position: at(0, 1), tileType: "packet" }],
+      [cleared(0, 0), cleared(0, 2, "key"), cleared(5, 5), cleared(5, 6), cleared(5, 7)]
+    );
+    expect(sources.get("0,1")!.map((p) => `${p.row},${p.col}`)).toEqual(["0,0"]);
+  });
+
+  it("gives nothing when no cleared piece joins the power-up", () => {
+    expect(mergeSources([{ position: at(0, 1), tileType: "packet" }], [cleared(4, 4)]).size).toBe(0);
+    expect(mergeSources([], [cleared(0, 0)]).size).toBe(0);
+  });
+});
+
+describe("cascadeJoltPx", () => {
+  it("leaves the board still for an ordinary cascade", () => {
+    expect(cascadeJoltPx(3, 1, 120)).toBe(0);
+    expect(cascadeJoltPx(7, 2, 120)).toBe(0);
+  });
+
+  it("knocks the board for a lot of pieces or a long drop, by a fraction of a cell", () => {
+    expect(cascadeJoltPx(8, 1, 120)).toBe(4);
+    expect(cascadeJoltPx(2, 3, 120)).toBe(4);
+    expect(cascadeJoltPx(20, 7, 40)).toBe(1);
   });
 });
 

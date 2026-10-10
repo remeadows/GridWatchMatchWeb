@@ -2,8 +2,25 @@ import { audioUrl, presentationAudioUrl } from "../data/assets";
 import { presentationAudioManifest, type PresentationAudioKey } from "../data/presentationAssets";
 import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import type { SettingsState } from "../state/save";
+import { createElementVoice, MusicPlayer, type MusicVoice } from "./music";
 
-type MusicTrack = "bgm_menu.mp3" | "bgm_gameplay.mp3" | "bgm_boss.mp3";
+export type MusicTrack = "menu" | "gameplay" | "boss";
+
+/**
+ * Each track's files and how loud it sits under the effects (1 is the file's own level, and
+ * scripts/prepare-music.sh brings every file to one loudness). A track has more than one file so
+ * it does not sound the same every time: each time the track comes round, the next file plays.
+ */
+const MUSIC_TRACKS: Record<MusicTrack, { files: readonly string[]; level: number }> = {
+  menu: { files: ["music/menu_a.mp3", "music/menu_b.mp3"], level: 0.8 },
+  gameplay: { files: ["music/gameplay_a.mp3", "music/gameplay_b.mp3"], level: 0.6 },
+  boss: { files: ["music/boss_a.mp3", "music/boss_b.mp3"], level: 0.75 }
+};
+
+export function musicFiles(track: MusicTrack): readonly string[] {
+  return MUSIC_TRACKS[track].files;
+}
+
 type SoundName =
   | "sfx_breach_alert.mp3"
   | "sfx_chain_cascade.mp3"
@@ -11,14 +28,55 @@ type SoundName =
   | "sfx_level_fail.mp3"
   | "sfx_power_up.mp3"
   | "sfx_tile_clear.mp3"
-  | "sfx_ui_tap.mp3"
-  | "vo_area_cleared.mp3"
-  | "vo_breach_alert.mp3"
-  | "vo_connection_secure.mp3"
-  | "vo_grid_compromised.mp3"
-  | "vo_initiating_countermeasures.mp3";
+  | "sfx_ui_tap.mp3";
+
+/**
+ * What Tish says over the comms channel. The recordings are prepared by scripts/prepare-voice.sh,
+ * which also sets their level: they play at their own loudness.
+ */
+export type VoiceLine =
+  | "connectionSecure"
+  | "gridCompromised"
+  | "areaCleared"
+  | "breachAlert"
+  | "initiatingCountermeasures"
+  | "defencesOnline"
+  | "securingTheGrid"
+  | "tracingTheIntrusion"
+  | "systemsReady";
+
+const VOICE_LINES: Record<VoiceLine, string> = {
+  connectionSecure: "voice/tish_connection_secure.mp3",
+  gridCompromised: "voice/tish_grid_compromised.mp3",
+  areaCleared: "voice/tish_area_cleared.mp3",
+  breachAlert: "voice/tish_breach_alert.mp3",
+  initiatingCountermeasures: "voice/tish_initiating_countermeasures.mp3",
+  defencesOnline: "voice/tish_defences_online.mp3",
+  securingTheGrid: "voice/tish_securing_the_grid.mp3",
+  tracingTheIntrusion: "voice/tish_tracing_the_intrusion.mp3",
+  systemsReady: "voice/tish_systems_ready.mp3"
+};
+
+/** What she can say as a level begins. She takes them in turn, so no two levels running open alike. */
+const OPENING_LINES: readonly VoiceLine[] = [
+  "initiatingCountermeasures",
+  "defencesOnline",
+  "securingTheGrid",
+  "tracingTheIntrusion",
+  "systemsReady"
+];
+
+export function openingLines(): readonly VoiceLine[] {
+  return OPENING_LINES;
+}
+
+export function voiceFile(line: VoiceLine): string {
+  return VOICE_LINES[line];
+}
 
 const MAX_ACTIVE_BOARD_SOURCES = 16;
+// A line that had to be loaded first is still said if that took no longer than this.
+const VOICE_LATE_MS = 1_500;
 const CASCADE_LANDING_COALESCE_MS = 45;
 
 export interface BoardAudioPlayback {
@@ -39,6 +97,13 @@ export interface BoardAudioBackend {
 interface AudioServiceOptions {
   createBoardBackend?: () => BoardAudioBackend | null;
   createAudio?: (url: string) => HTMLAudioElement | null;
+  createMusicVoice?: (url: string) => MusicVoice | null;
+  /** Which of a track's files plays first, as a fraction in [0, 1). Random unless given. */
+  firstMusicFile?: () => number;
+  /** Which opening line is said first, as a fraction in [0, 1). Random unless given. */
+  firstOpening?: () => number;
+  /** Fetches a file so the browser has it cached; the global `fetch` unless given. */
+  prefetch?: (url: string, signal?: AbortSignal) => Promise<unknown>;
   now?: () => number;
   playFallback?: (url: string, volume: number) => void;
 }
@@ -50,7 +115,13 @@ interface ActiveBoardSource {
 }
 
 export class AudioService {
-  private music: HTMLAudioElement | null = null;
+  private readonly music: MusicPlayer;
+  private musicTrack: MusicTrack | null = null;
+  private readonly musicTurn: Record<MusicTrack, number>;
+  private openingTurn: number;
+  private voicePrefetched = false;
+  private readonly prefetch: (url: string, signal?: AbortSignal) => Promise<unknown>;
+  private gestureUnlockInstalled = false;
   private settings: SettingsState | null = null;
   private boardBackend: BoardAudioBackend | null = null;
   private boardBackendResolved = false;
@@ -67,39 +138,123 @@ export class AudioService {
     this.createBoardBackend = options.createBoardBackend ?? createDefaultBoardBackend;
     this.createAudio = options.createAudio ?? createHtmlAudio;
     this.now = options.now ?? (() => performance.now());
+    this.music = new MusicPlayer({
+      // The level runs through the audio context only once a touch has created it: a track asked
+      // for before that is refused by a phone anyway, and is started again from the touch.
+      createVoice: options.createMusicVoice ?? ((url) => createElementVoice(url, sharedAudioContext(false))),
+      now: this.now
+    });
+    const first = options.firstMusicFile ?? Math.random;
+    const firstTurn = (track: MusicTrack) => Math.floor(first() * MUSIC_TRACKS[track].files.length);
+    this.musicTurn = { menu: firstTurn("menu"), gameplay: firstTurn("gameplay"), boss: firstTurn("boss") };
+    this.openingTurn = Math.floor((options.firstOpening ?? Math.random)() * OPENING_LINES.length);
+    this.prefetch = options.prefetch ?? ((url, signal) => (typeof fetch === "function" ? fetch(url, { signal }) : Promise.resolve()));
     this.playFallback = options.playFallback ?? ((url, volume) => this.playHtmlAudio(url, volume));
   }
 
   configure(settings: SettingsState): void {
     this.settings = settings;
-    if (this.music) this.music.muted = !settings.musicEnabled;
+    // Whatever is switched on, the first touch has to wake the audio context: the voice and the
+    // board sounds run through it as well as the music's level.
+    this.installGestureUnlock();
+    if (!settings.musicEnabled) this.stopMusic();
   }
 
-  playMusic(track: MusicTrack): void {
+  /**
+   * Play a track. Asking again for the one that is playing changes nothing, unless `fresh` says
+   * this is a new occasion for it (the next level): then the track's next file is crossfaded in.
+   */
+  playMusic(track: MusicTrack, options: { fresh?: boolean } = {}): void {
     if (!this.settings?.musicEnabled) return;
-    if (this.music?.dataset.track === track && !this.music.paused) return;
-    this.stopMusic();
-    const audio = this.createAudio(audioUrl(track));
-    if (!audio) return;
-    audio.dataset.track = track;
-    audio.loop = true;
-    audio.volume = 0.45;
-    audio.muted = !this.settings.musicEnabled;
-    this.music = audio;
-    void audio.play().catch(() => undefined);
+    const { files, level } = MUSIC_TRACKS[track];
+    if (this.musicTrack === track && options.fresh) this.musicTurn[track] += 1;
+    else if (this.musicTrack !== null && this.musicTrack !== track) this.musicTurn[this.musicTrack] += 1;
+    this.musicTrack = track;
+    this.music.play(audioUrl(files[this.musicTurn[track] % files.length]), level);
   }
 
   stopMusic(): void {
-    if (!this.music) return;
-    this.music.pause();
-    this.music.currentTime = 0;
-    this.music = null;
+    if (this.musicTrack !== null) this.musicTurn[this.musicTrack] += 1;
+    this.musicTrack = null;
+    this.music.stop();
+  }
+
+  /**
+   * Browsers hold audio back until the player has touched the page. Call from a user gesture:
+   * it wakes the audio context the music's level runs through and starts a track that was refused.
+   */
+  unlockMusic(): void {
+    const context = sharedAudioContext();
+    if (context && context.state !== "running") void context.resume().catch(() => undefined);
+    // Now that a touch has made the context, the voice can be decoded into it.
+    void this.preloadVoice();
+    if (this.settings?.musicEnabled) this.music.retry();
   }
 
   playSfx(sound: SoundName): void {
-    if (!this.settings?.sfxEnabled && !sound.startsWith("vo_")) return;
-    if (sound.startsWith("vo_") && !this.settings?.voiceEnabled) return;
-    this.playHtmlAudio(audioUrl(sound), sound.startsWith("vo_") ? 0.8 : 0.65);
+    if (!this.settings?.sfxEnabled) return;
+    this.playHtmlAudio(audioUrl(sound), 0.65);
+  }
+
+  /**
+   * A spoken line. It goes through the decoded-audio backend when the line is loaded there, since
+   * that is already unlocked by the player's first touch; an <audio> element started outside a
+   * touch can be refused on a phone.
+   */
+  playVoice(line: VoiceLine): void {
+    if (!this.settings?.voiceEnabled) return;
+    const url = audioUrl(VOICE_LINES[line]);
+    const backend = this.resolveBoardBackend();
+    if (!backend) {
+      this.playHtmlAudio(url, 1);
+      return;
+    }
+    const playback: BoardAudioPlayback = { gain: 1, playbackRate: 1 };
+    const say = () => backend.play(url, playback, () => undefined) !== null;
+    if (say()) return;
+    // Not decoded yet. Load it and say it then, unless the moment has passed; only if it cannot
+    // be loaded at all is an <audio> element tried.
+    const askedAtMs = this.now();
+    const stillWanted = () => Boolean(this.settings?.voiceEnabled) && this.now() - askedAtMs <= VOICE_LATE_MS;
+    backend.preload(url).then(
+      () => {
+        if (stillWanted()) say();
+      },
+      () => {
+        if (stillWanted()) this.playHtmlAudio(url, 1);
+      }
+    );
+  }
+
+  /**
+   * Have the browser fetch every line, without touching Web Audio: the audio context must not be
+   * made before the player's first touch, and this runs on the menu before there has been one.
+   * The touch then decodes them (unlockMusic), from the cache.
+   */
+  prefetchVoice(signal?: AbortSignal): void {
+    if (!this.settings?.voiceEnabled || this.voicePrefetched) return;
+    this.voicePrefetched = true;
+    for (const file of Object.values(VOICE_LINES)) {
+      this.prefetch(audioUrl(file), signal).catch(() => {
+        // Aborted or offline: let a later call try again. The touch-time preload does not depend on it.
+        this.voicePrefetched = false;
+      });
+    }
+  }
+
+  /** Her line as a level begins: the next of the openings. A turn is only used when she speaks. */
+  playOpening(): void {
+    if (!this.settings?.voiceEnabled) return;
+    this.playVoice(OPENING_LINES[this.openingTurn % OPENING_LINES.length]);
+    this.openingTurn += 1;
+  }
+
+  /** Decode every line into the audio backend. Called from the first touch and when a level's board mounts. */
+  async preloadVoice(): Promise<void> {
+    if (!this.settings?.voiceEnabled) return;
+    const backend = this.resolveBoardBackend();
+    if (!backend) return;
+    await Promise.all(Object.values(VOICE_LINES).map((file) => backend.preload(audioUrl(file)).catch(() => undefined)));
   }
 
   async preloadBoardSounds(): Promise<void> {
@@ -166,6 +321,14 @@ export class AudioService {
   vibrate(pattern: number | number[]): void {
     const nav = typeof navigator === "undefined" ? null : navigator;
     if (typeof nav?.vibrate === "function") nav.vibrate(pattern);
+  }
+
+  private installGestureUnlock(): void {
+    if (this.gestureUnlockInstalled || typeof document === "undefined") return;
+    this.gestureUnlockInstalled = true;
+    const unlock = () => this.unlockMusic();
+    document.addEventListener("pointerdown", unlock, { capture: true, passive: true });
+    document.addEventListener("keydown", unlock, { capture: true, passive: true });
   }
 
   private resolveBoardBackend(): BoardAudioBackend | null {
@@ -237,11 +400,24 @@ class WebAudioBoardBackend implements BoardAudioBackend {
   }
 }
 
-function createDefaultBoardBackend(): BoardAudioBackend | null {
+let audioContext: AudioContext | null | undefined;
+
+/**
+ * One audio context for the board sounds, the voice and the music's level. It is made on first
+ * use, which should be inside a touch: pass `create = false` to get it only if it already exists.
+ */
+function sharedAudioContext(create = true): AudioContext | null {
+  if (audioContext !== undefined) return audioContext;
+  if (!create) return null;
   const audioGlobal = globalThis as typeof globalThis & { webkitAudioContext?: typeof AudioContext };
   const AudioContextConstructor = audioGlobal.AudioContext ?? audioGlobal.webkitAudioContext;
-  if (!AudioContextConstructor) return null;
-  return new WebAudioBoardBackend(new AudioContextConstructor());
+  audioContext = AudioContextConstructor ? new AudioContextConstructor() : null;
+  return audioContext;
+}
+
+function createDefaultBoardBackend(): BoardAudioBackend | null {
+  const context = sharedAudioContext();
+  return context ? new WebAudioBoardBackend(context) : null;
 }
 
 function createHtmlAudio(url: string): HTMLAudioElement | null {

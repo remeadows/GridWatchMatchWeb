@@ -1,12 +1,21 @@
 import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent, TileType } from "../engine";
 import { computeCentroidStagger } from "./motion";
 import {
-  CASCADE_FALL_BASE_MS,
   CASCADE_FALL_MAX_MS,
   CASCADE_FALL_MIN_MS,
-  CASCADE_FALL_PER_CELL_MS,
-  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_FALL_ONE_CELL_MS,
+  CASCADE_JOLT_MIN_CELLS,
+  CASCADE_JOLT_MIN_PIECES,
+  CASCADE_JOLT_TILE_FRACTION,
+  CASCADE_LANDING_FULL_STRENGTH_CELLS,
+  CASCADE_LANDING_HOP_MS,
+  CASCADE_LANDING_HOP_TILE_FRACTION,
+  CASCADE_LANDING_MIN_STRENGTH,
   CASCADE_LANDING_SETTLE_MS,
+  CASCADE_LANDING_SQUASH_DEPTH,
+  CASCADE_LANDING_SQUASH_MS,
+  CASCADE_LANDING_SQUASH_SPREAD,
+  CASCADE_LANDING_TOTAL_MS,
   CASCADE_START_AFTER_IMPACT_MS,
   CASCADE_RECOGNITION_HOLD_MS,
   CHAIN_PLAYBACK_RATE_MAX_DEPTH,
@@ -198,6 +207,73 @@ export function matchPacingPlan(
     lastImpactAtMs, gravityNotBeforeMs: impacts.length > 0 ? lastImpactAtMs + MATCH_OPEN_HOLD_MS : 0 };
 }
 
+/**
+ * The pieces that made a power-up, for each power-up cell keyed `row,col`. The engine records a
+ * power-up's creation as its own step BEFORE the clear that removes the rest of its match, and
+ * leaves the power-up's own cell out of that clear. So the rest of the match is found in the
+ * clear that follows: every cleared piece of the power-up's tile type that is joined to its cell,
+ * directly or through other such pieces.
+ */
+export function mergeSources(
+  forged: ReadonlyArray<{ position: GridPosition; tileType: TileType }>,
+  clears: ReadonlyArray<{ position: GridPosition; tileType: TileType }>
+): Map<string, GridPosition[]> {
+  const key = (position: GridPosition) => `${position.row},${position.col}`;
+  const cleared = new Map(clears.map((clear) => [key(clear.position), clear]));
+  const result = new Map<string, GridPosition[]>();
+  for (const made of forged) {
+    const found: GridPosition[] = [];
+    const seen = new Set<string>([key(made.position)]);
+    const frontier: GridPosition[] = [made.position];
+    for (let index = 0; index < frontier.length; index += 1) {
+      const { row, col } = frontier[index];
+      for (const next of [{ row: row - 1, col }, { row: row + 1, col }, { row, col: col - 1 }, { row, col: col + 1 }]) {
+        const id = key(next);
+        const clear = cleared.get(id);
+        if (seen.has(id) || !clear || clear.tileType !== made.tileType) continue;
+        seen.add(id);
+        found.push(clear.position);
+        frontier.push(clear.position);
+      }
+    }
+    if (found.length > 0) result.set(key(made.position), found);
+  }
+  return result;
+}
+
+/** How one play of a board sound is voiced: how loud, and how far its pitch is moved. */
+export interface CuePlayback {
+  gain: number;
+  playbackRate: number;
+}
+
+function scaledCue(amount: number, quiet: number, loud: number, high: number, low: number): CuePlayback {
+  const weight = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
+  return { gain: quiet + (loud - quiet) * weight, playbackRate: high + (low - high) * weight };
+}
+
+/**
+ * A landing sounds like what landed: louder and lower the harder the pieces hit (`strength`, from
+ * cascadeLandingPlan) and the more of them hit together. A single one-cell drop is a light tick.
+ */
+export function landingCuePlayback(strength: number, pieceCount: number): CuePlayback {
+  const hit = Math.min(1, Math.max(0, Number.isFinite(strength) ? strength : 0));
+  const mass = Math.min(1, Math.max(0, (pieceCount - 1) / 11));
+  return scaledCue(0.6 * hit + 0.4 * mass, 0.22, 0.62, 1.1, 0.8);
+}
+
+/** A match of three is a small break; seven or more pieces is the biggest and deepest. */
+export function clearCuePlayback(pieceCount: number): CuePlayback {
+  return scaledCue((pieceCount - 3) / 4, 0.5, 0.8, 1.06, 0.86);
+}
+
+/** A power-up's hit, by how many cells it destroyed. `full` cells is the loudest it gets. */
+export function blastCuePlayback(kind: "tnt" | "rocket" | "lightBall", destroyedCount: number): CuePlayback {
+  if (kind === "tnt") return scaledCue((destroyedCount - 1) / 8, 0.6, 0.9, 1.05, 0.9);
+  if (kind === "rocket") return scaledCue((destroyedCount - 1) / 6, 0.3, 0.56, 1.06, 0.92);
+  return scaledCue((destroyedCount - 3) / 12, 0.5, 0.74, 1.04, 0.92);
+}
+
 export interface TilePopVariation {
   sample: "tile_pop_a" | "tile_pop_b";
   playbackRate: number;
@@ -218,12 +294,18 @@ export interface RocketPassPlan {
   atMs: number;
 }
 
+/** One cell on a rocket head's way. The head accelerates, so the cells are not evenly timed. */
+export interface RocketLanePass extends RocketPassPlan {
+  /** How far along its flight path the head is at this cell, 0 to 1. */
+  laneFraction: number;
+}
+
 export interface RocketLaneHeadPlan {
   destination: GridPosition;
   direction: -1 | 1;
   flightMs: number;
   impactAtMs: number;
-  passTimes: RocketPassPlan[];
+  passTimes: RocketLanePass[];
 }
 
 export interface RocketLanePlan {
@@ -550,9 +632,14 @@ export function rocketLanePlan(
         const position = orientation === "horizontal"
           ? { row: origin.row, col: index }
           : { row: index, col: origin.col };
+        // The head leaves from rest under constant acceleration (Quad.easeIn in the scene), so it
+        // has covered a fraction f of the lane after sqrt(f) of the flight time. The pop schedule
+        // is built from these times, so the cell compresses just before the head gets there.
+        const laneFraction = step / Math.max(1, distance);
         return {
           position,
-          atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * step / Math.max(1, distance))
+          atMs: ROCKET_IGNITION_MS + Math.round(ROCKET_LANE_FLIGHT_MS * Math.sqrt(laneFraction)),
+          laneFraction
         };
       });
       const finalPass = passTimes.at(-1);
@@ -630,7 +717,7 @@ export function lightBallWavePlan(
 
 export function matchTimeline(maxStaggerMs: number): MatchTimeline {
   const stagger = clampFinite(maxStaggerMs, 0, MATCH_WAVE_MAX_MS);
-  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_SQUASH_MS + CASCADE_LANDING_SETTLE_MS;
+  const cascadeCompletionMs = CASCADE_START_AFTER_IMPACT_MS + CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS;
   const impactCompletionMs = MATCH_IMPACT_MS + stagger;
 
   return {
@@ -647,7 +734,48 @@ export function matchTimeline(maxStaggerMs: number): MatchTimeline {
 
 export function cascadeFallDurationMs(distanceCells: number): number {
   const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
-  return Math.min(CASCADE_FALL_MAX_MS, Math.max(CASCADE_FALL_MIN_MS, CASCADE_FALL_BASE_MS + distance * CASCADE_FALL_PER_CELL_MS));
+  // Constant acceleration from rest: time grows with the square root of the distance.
+  return Math.round(Math.min(CASCADE_FALL_MAX_MS, Math.max(CASCADE_FALL_MIN_MS, CASCADE_FALL_ONE_CELL_MS * Math.sqrt(distance))));
+}
+
+/** How a piece that fell `distanceCells` meets the floor of its cell: squash, one hop, settle. */
+export interface CascadeLandingPlan {
+  /** 0 to 1: how hard the landing is. */
+  strength: number;
+  squashScaleX: number;
+  squashScaleY: number;
+  /** How far the squashed piece's centre drops so that its foot stays on the floor. */
+  sinkPx: number;
+  hopPx: number;
+  squashMs: number;
+  hopMs: number;
+  settleMs: number;
+}
+
+export function cascadeLandingPlan(distanceCells: number, pieceSizePx: number, tileSize: number): CascadeLandingPlan {
+  const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
+  // Impact speed under constant acceleration goes with the square root of the height.
+  const strength = Math.min(1, Math.max(CASCADE_LANDING_MIN_STRENGTH, Math.sqrt(distance / CASCADE_LANDING_FULL_STRENGTH_CELLS)));
+  const squashScaleY = 1 - CASCADE_LANDING_SQUASH_DEPTH * strength;
+  return {
+    strength,
+    squashScaleX: 1 + CASCADE_LANDING_SQUASH_SPREAD * strength,
+    squashScaleY,
+    sinkPx: (Math.max(0, pieceSizePx) * (1 - squashScaleY)) / 2,
+    hopPx: Math.max(0, tileSize) * CASCADE_LANDING_HOP_TILE_FRACTION * strength,
+    squashMs: CASCADE_LANDING_SQUASH_MS,
+    hopMs: CASCADE_LANDING_HOP_MS,
+    settleMs: CASCADE_LANDING_SETTLE_MS
+  };
+}
+
+/**
+ * The downward knock the board takes when a cascade lands, in pixels, or 0 for an ordinary one:
+ * it needs a lot of pieces at once or a long drop.
+ */
+export function cascadeJoltPx(pieceCount: number, longestFallCells: number, tileSize: number): number {
+  if (pieceCount < CASCADE_JOLT_MIN_PIECES && longestFallCells < CASCADE_JOLT_MIN_CELLS) return 0;
+  return Math.max(1, Math.round(Math.max(0, tileSize) * CASCADE_JOLT_TILE_FRACTION));
 }
 
 export function eventIntensity(affectedCount: number, isCombo: boolean): number {

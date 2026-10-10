@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { presentationAudioUrl } from "../data/assets";
@@ -5,6 +8,9 @@ import { presentationAudioManifest } from "../data/presentationAssets";
 import { chainPlaybackRate, type TilePopVariation } from "../game/presentation";
 import {
   AudioService,
+  musicFiles,
+  openingLines,
+  voiceFile,
   type BoardAudioBackend,
   type BoardAudioPlayback,
   type BoardAudioSource
@@ -58,7 +64,7 @@ class FakeBoardAudioBackend implements BoardAudioBackend {
     this.preloaded.push(url);
   }
 
-  play(url: string, playback: BoardAudioPlayback, onEnded: () => void): BoardAudioSource {
+  play(url: string, playback: BoardAudioPlayback, onEnded: () => void): BoardAudioSource | null {
     const source = new FakeBoardAudioSource(onEnded);
     this.plays.push({ url, playback, source });
     return source;
@@ -164,5 +170,256 @@ describe("board audio service", () => {
 
   it("imports in Node without touching browser globals", () => {
     expect(AudioService).toBeTypeOf("function");
+  });
+});
+
+describe("music through the audio service", () => {
+  function musicService(settings: SettingsState = enabledSettings, firstMusicFile = () => 0) {
+    const started: string[] = [];
+    const stopped: string[] = [];
+    const service = new AudioService({
+      createBoardBackend: () => null,
+      now: () => 0,
+      firstMusicFile,
+      createMusicVoice: (url) => ({
+        start: () => {
+          started.push(url);
+          return Promise.resolve();
+        },
+        stop: () => {
+          stopped.push(url);
+        },
+        setGain: () => undefined,
+        positionMs: 0,
+        durationMs: null,
+        onEnded: () => undefined
+      })
+    });
+    service.configure(settings);
+    return { service, started, stopped };
+  }
+  const file = (url: string) => url.replace(/^.*assets\/audio\//, "");
+
+  it("gives every track two prepared files of its own", () => {
+    const all = (["menu", "gameplay", "boss"] as const).flatMap((track) => musicFiles(track));
+    expect(all).toHaveLength(6);
+    expect(new Set(all).size).toBe(6);
+    for (const name of all) {
+      expect(name).toMatch(/^music\/(menu|gameplay|boss)_[ab]\.mp3$/);
+      expect(existsSync(join(process.cwd(), "public/assets/audio", name)), name).toBe(true);
+    }
+  });
+
+  it("starts a track once, however often the same track is asked for", () => {
+    const { service, started } = musicService();
+    service.playMusic("menu");
+    service.playMusic("menu");
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([musicFiles("menu")[0]]);
+  });
+
+  it("plays a track's other file the next time the track comes round", () => {
+    const { service, started } = musicService();
+    service.playMusic("menu");
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("menu");
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([
+      musicFiles("menu")[0],
+      musicFiles("gameplay")[0],
+      musicFiles("menu")[1],
+      musicFiles("gameplay")[1],
+      musicFiles("menu")[0]
+    ]);
+  });
+
+  it("changes file from one level to the next without leaving the game", () => {
+    const { service, started } = musicService();
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("gameplay", { fresh: true });
+    service.playMusic("boss", { fresh: true });
+    service.playMusic("gameplay", { fresh: true });
+    expect(started.map(file)).toEqual([
+      musicFiles("gameplay")[0],
+      musicFiles("gameplay")[1],
+      musicFiles("boss")[0],
+      musicFiles("gameplay")[0]
+    ]);
+  });
+
+  it("can begin on either file", () => {
+    const { service, started } = musicService(enabledSettings, () => 0.99);
+    service.playMusic("menu");
+    expect(started.map(file)).toEqual([musicFiles("menu")[1]]);
+  });
+
+  it("plays nothing while music is off, and stops what is playing when it is turned off", () => {
+    const off = musicService({ ...enabledSettings, musicEnabled: false });
+    off.service.playMusic("menu");
+    expect(off.started).toHaveLength(0);
+
+    const { service, started, stopped } = musicService();
+    service.playMusic("menu");
+    service.configure({ ...enabledSettings, musicEnabled: false });
+    expect(stopped).toEqual(started);
+    service.configure(enabledSettings);
+    service.playMusic("menu");
+    expect(started).toHaveLength(2);
+  });
+});
+
+describe("Tish's voice lines", () => {
+  const lines = [
+    "connectionSecure", "gridCompromised", "areaCleared", "breachAlert",
+    "initiatingCountermeasures", "defencesOnline", "securingTheGrid", "tracingTheIntrusion", "systemsReady"
+  ] as const;
+
+  it("has a prepared recording for every line", () => {
+    for (const line of lines) {
+      expect(voiceFile(line)).toMatch(/^voice\/tish_[a-z_]+\.mp3$/);
+      expect(existsSync(join(process.cwd(), "public/assets/audio", voiceFile(line))), line).toBe(true);
+    }
+    expect(new Set(lines.map((line) => voiceFile(line))).size).toBe(lines.length);
+  });
+
+  it("plays through the decoded-audio backend at its own level", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service, playFallback } = createService(backend);
+    service.playVoice("connectionSecure");
+    expect(backend.plays).toHaveLength(1);
+    expect(backend.plays[0].url).toContain(voiceFile("connectionSecure"));
+    expect(backend.plays[0].playback).toEqual({ gain: 1, playbackRate: 1 });
+    expect(playFallback).not.toHaveBeenCalled();
+  });
+
+  it("says a line that is not loaded yet as soon as it has loaded, never through an <audio> element", async () => {
+    const backend = new FakeBoardAudioBackend();
+    let ready = false;
+    let finishLoading: () => void = () => undefined;
+    backend.preload = () => new Promise<void>((resolve) => {
+      finishLoading = () => {
+        ready = true;
+        resolve();
+      };
+    });
+    const play = backend.play.bind(backend);
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : null);
+    const { service, playFallback } = createService(backend);
+    service.playVoice("breachAlert");
+    expect(backend.plays).toHaveLength(0);
+    finishLoading();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(backend.plays).toHaveLength(1);
+    expect(backend.plays[0].url).toContain(voiceFile("breachAlert"));
+    expect(playFallback).not.toHaveBeenCalled();
+  });
+
+  it("lets a line go unsaid when loading it took too long", async () => {
+    const backend = new FakeBoardAudioBackend();
+    let ready = false;
+    let finishLoading: () => void = () => undefined;
+    backend.preload = () => new Promise<void>((resolve) => {
+      finishLoading = () => {
+        ready = true;
+        resolve();
+      };
+    });
+    const play = backend.play.bind(backend);
+    backend.play = (url, playback, onEnded) => (ready ? play(url, playback, onEnded) : null);
+    const { service } = createService(backend);
+    service.playVoice("connectionSecure");
+    backend.nowMs += 5_000;
+    finishLoading();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(backend.plays).toHaveLength(0);
+  });
+
+  it("does not fall back to an <audio> element once the voice is off or the moment has passed", async () => {
+    for (const change of ["voice off", "too late"] as const) {
+      const backend = new FakeBoardAudioBackend();
+      let failLoading: () => void = () => undefined;
+      backend.preload = () => new Promise<void>((_resolve, reject) => {
+        failLoading = () => reject(new Error("offline"));
+      });
+      backend.play = () => null;
+      const { service, playFallback } = createService(backend);
+      service.playVoice("gridCompromised");
+      if (change === "voice off") service.configure({ ...enabledSettings, voiceEnabled: false });
+      else backend.nowMs += 5_000;
+      failLoading();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(playFallback, change).not.toHaveBeenCalled();
+    }
+  });
+
+  it("fetches the lines on the menu without making an audio backend", () => {
+    const fetched: string[] = [];
+    const createBoardBackend = vi.fn(() => new FakeBoardAudioBackend());
+    const service = new AudioService({
+      createBoardBackend,
+      now: () => 0,
+      prefetch: (url) => {
+        fetched.push(url);
+        return Promise.resolve();
+      }
+    });
+    service.prefetchVoice();
+    expect(fetched).toHaveLength(0);
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.prefetchVoice();
+    expect(fetched).toHaveLength(0);
+    service.configure(enabledSettings);
+    service.prefetchVoice();
+    service.prefetchVoice();
+    expect(fetched.map((url) => url.replace(/^.*assets\/audio\//, "")).sort()).toEqual(lines.map((line) => voiceFile(line)).sort());
+    expect(createBoardBackend).not.toHaveBeenCalled();
+  });
+
+  it("is silenced by the voice setting alone", () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    service.configure({ ...enabledSettings, sfxEnabled: false });
+    service.playVoice("gridCompromised");
+    expect(backend.plays).toHaveLength(1);
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.playVoice("gridCompromised");
+    expect(backend.plays).toHaveLength(1);
+  });
+
+  it("opens each level with the next of five lines, and none twice running", () => {
+    expect(openingLines()).toHaveLength(5);
+    expect(new Set(openingLines()).size).toBe(5);
+    expect(openingLines()).toContain("initiatingCountermeasures");
+    const backend = new FakeBoardAudioBackend();
+    const service = new AudioService({ createBoardBackend: () => backend, now: () => 0, firstOpening: () => 0 });
+    service.configure(enabledSettings);
+    for (let level = 0; level < 7; level += 1) service.playOpening();
+    const said = backend.plays.map((entry) => entry.url.replace(/^.*assets\/audio\//, ""));
+    expect(said.slice(0, 5)).toEqual(openingLines().map((line) => voiceFile(line)));
+    expect(said.slice(5)).toEqual(said.slice(0, 2));
+    expect(said.every((file, index) => index === 0 || file !== said[index - 1])).toBe(true);
+  });
+
+  it("can open on any of them, and does not use up a turn while the voice is off", () => {
+    const backend = new FakeBoardAudioBackend();
+    const service = new AudioService({ createBoardBackend: () => backend, now: () => 0, firstOpening: () => 0.99 });
+    service.configure({ ...enabledSettings, voiceEnabled: false });
+    service.playOpening();
+    service.playOpening();
+    expect(backend.plays).toHaveLength(0);
+    service.configure(enabledSettings);
+    service.playOpening();
+    expect(backend.plays[0].url).toContain(voiceFile(openingLines()[4]));
+  });
+
+  it("loads every line ahead of time", async () => {
+    const backend = new FakeBoardAudioBackend();
+    const { service } = createService(backend);
+    await service.preloadVoice();
+    expect(backend.preloaded).toHaveLength(lines.length);
   });
 });
