@@ -21,6 +21,31 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
 - **Pushed 2026-10-09 on his word ("push - open PR and turn on auto-fix CI"):** branch at
   `7a1b44b`, **PR #79** (https://github.com/remeadows/GridWatchMatchWeb/pull/79), Auto-fix on
   for it in the desktop app. Merging and any production deploy are his.
+- **Review on PR #79, 2026-10-09: eleven findings, all real, all fixed and resolved** (commits
+  `15f4d02`, `b280170`, `dc3f970`).
+  - **The merge effect never ran** (Codex). I had read the engine's step order backwards: a
+    power-up's creation is recorded BEFORE the clear of the rest of its match, and its cell is
+    left out of that clear. Now `mergeSources` finds the feeding pieces in the clear that
+    follows and the flights run in the creation step; trace kind `powerup-merge`, asserted in
+    e2e. I had told Russ step 2 was built when this part was not working. The matched pieces
+    still break a moment after the power-up lands: that order is the engine's.
+  - **First opening line could be silent on a phone** (Codex), then **no audio context before
+    the first touch** (CodeRabbit): the menu only fetches the nine voice files
+    (`prefetchVoice`, cancelled on cleanup); the first touch creates the context and decodes
+    them; a line not decoded yet is loaded and then said through the backend (dropped after
+    1.5 s); music uses the context only once a touch has made it. Checked in Chrome and
+    WebKit on a local build. Still not checked on a real iPhone.
+  - Swap lift snapped a dragged piece down 6% at settle (yoyo returned to 1.06): each stage
+    now names its end scale. Rocket pass times were planned for even speed while the head
+    eases in: `rocketLanePlan` times each cell at sqrt(fraction) and the scene triggers on
+    `laneFraction`. `prepare-*.sh` no longer use macOS-only `stat -f`; `measure.sh` passes
+    `-nostdin`.
+  - **The new timings are now marked as an intentional web-only divergence from iOS** (top of
+    `src/data/presentationTiming.ts`): they were tuned to Russ's direction, not ported, and a
+    parity pass must not revert them unasked. **Russ has not been asked whether iOS should
+    follow.**
+  - e2e gained assertions for target marks, knocks, the merge, the creation, and that reduced
+    motion draws none of them. Final e2e on `dc3f970`: classic board 218/218 (2026-10-09). The dark-board run was still going when this was written; if no later line here gives its result, treat it as not run and run it again (`art/gridwatch-match/qa/README.md` has the command).
 - **Tish's voice is also in Drive** (he asked): `GridWatchArt / 0 - Gridwatch-Assets / 4 - Tish /
   Voice`, nine lines as the game plays them (`Comms/`), the same takes untreated (`Clean/`) and
   a README with the voice id and how to record a matching line. Checked present in Drive.
@@ -184,8 +209,8 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   Creator; 15 were generated).
 - **All four pieces are built, committed and pushed (PR #79).** Done before the push: fresh-clone
   CI steps, gitleaks, the acceptance and performance probes, and e2e 218/218 in both themes at
-  `f1c3e75`. Still open: the e2e run on the review fixes, Russ's verdict on how it plays, and
-  the merge and any production deploy, which are his.
+  `f1c3e75`. Still open: Russ's verdict on how it plays, and the merge and any production deploy, which
+  are his.
 
 ## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
 
