@@ -1,6 +1,68 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-10-09
+Last updated: 2026-10-10
+
+## 🟡 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. On the dev site; NOT pushed, NOT in production (branch `dev/dark-default`)
+
+**Russ's words, 2026-10-10.** After the mechanics deploy he did not see the dark look on Nexus
+(production opened on classic; dark was behind `?theme=dark`): "Dark theme becomes production. Old
+theme is to be archived. When select Match from the Nexus menu, dark theme should come up
+immediately." Asked what archived should mean, he chose **"Hidden fallback"** over locking classic
+out or removing it. Then: "One item of note before anything is pushed. The music needs to start at
+page load. Let's fix that before the push." Told that a browser will not play sound before the
+page is touched, and asked where he saw the silence: "I am using Chrome on my phone and mac. Music
+guaranteed on the first screen using 'one tap' is fine. Sort of like we did for Drift."
+
+**His standing rules still apply:** local `dev/...` branch, extensive testing, push only on his
+word, merge his, production deploy only on his word. The branch is cut from
+`docs/handoff-mechanics-deployed`, so it also carries the production deploy record in the entry
+below, which is not on `main` yet.
+
+- **Dark is every build's default** (`src/services/buildInfo.ts` `boardThemeForBuild`). Classic is
+  archived as a hidden fallback: art and code untouched, never shown, reached only by
+  `?theme=classic` or a build made with `VITE_BOARD_THEME=classic`. `index.html` carries the theme
+  attribute and a dark `theme-color`, so the page is dark from its first paint. The dev-instance
+  script no longer sets a theme; `npm run test:e2e` is now the suite on the dark board, and
+  `art/gridwatch-match/qa/pw.config.mjs` with `GW_THEME=classic` is the suite on the fallback.
+  **Making dark the default also gives every phone the device-pixel canvas (up to 3×), which has
+  never been checked on a physical phone;** `?hidpi=0` is the off switch. The open items in
+  `docs/gridwatch-match/README.md` §7 (results dialog, classic effects, Tish as plates) now reach
+  players.
+- **Music.** The menu music was already asked for at page load. Measured in real Chrome with its
+  autoplay rule on (`art/gridwatch-match/qa/autoplay-probe.mjs`): arriving by a link from a page
+  of the same site, as from the Nexus menu, it plays at load; on a direct visit it is silent until
+  a touch. Safari is expected to hold it until a touch; that is unmeasured, because Playwright's
+  WebKit does not enforce the rule. The retry on first touch was tied to `pointerdown` and
+  `keydown`, and a finger going down is not a touch the browser counts, so it now starts on a
+  mouse press, a finger or pen lifting, `touchend`, `click` or a key (`src/services/audio.ts`
+  `installGestureUnlock`). Why Russ heard nothing in Chrome arriving from Nexus was not
+  established (a direct link or a reload would explain it; Chrome on an iPhone is Safari's engine).
+- **Title screen** (`src/state/titleGate.ts`, `DarkHomeScreen`, modelled on Drift's `enterMenu` in
+  `GWTetrisRace/game/game.js`): the dark menu opens with "Tap to Enter" ("Press any key" for a
+  mouse and keyboard, "Sound on" beneath) in the panel where its actions will be; the first click
+  anywhere or the first key (not Tab, Escape or a modifier) opens the menu and starts the music.
+  It opens on the click, not the press. Once per page load; skipped when the music is off and in
+  test mode (`gwTestMode`); the classic menu has none. A top-bar button clicked on the title both
+  enters and does its job. The "progress moved" notice from the old site stays readable on the
+  title.
+- **Verified at `9f7e3b3`:** unit 586/586, `tsc` clean. e2e on the dark default 228/228. e2e on a
+  classic-default build 218 passed, 10 skipped (the title-screen tests skip themselves there). A
+  first classic run had one failure: `presentation.spec.ts` "cleanup empties the registry after
+  every single and combo effect tail", a 20 s test, hit its 30 s limit; it then passed 8 of 8 on
+  repeat and the full classic rerun was clean. Taken to be machine load (15-minute load average
+  above 9 on a 12-core Mac), not proven. A production-style build served under the live page's
+  security policy (`csp-server.mjs`, `release-check.mjs`) opens dark on desktop Chromium and
+  iPhone-15 WebKit with no new console messages, and `?theme=classic` opens classic. The autoplay
+  probe after the title screen: playing after the first click (desktop) and the first tap (phone
+  size), and playing at load when arriving by a same-site link.
+- **Correction to the entry below:** the two WebKit "Refused to apply a stylesheet" console lines
+  appear at page load, not when a level starts. They still predate all of this (`fda9ed0`).
+- **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` serves `9f7e3b3-dev`.
+- **Not done / his:** his look at the dev site on his phone and Mac; the word to push; the merge;
+  the production deploy (procedure in the entry below: clean checkout of `origin/main`,
+  `CLOUDFLARE_ACCOUNT_ID` set, tag the version, rollback target is then `61a35720`). Unverified:
+  a physical phone (title screen, music on first tap, frame rate at 3×), Safari, and how any of
+  it sounds.
 
 ## 🟢 2026-10-09: "Mechanics" — game feel: motion and audio. MERGED (`41b003d`, PR #79) and IN PRODUCTION (version `61a35720`); Russ's verdict from play still open
 
