@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-09
 
-## 🟡 2026-10-09: "Mechanics" — game feel: motion and audio. MERGED to `main` (`41b003d`, PR #79), NOT in production
+## 🟢 2026-10-09: "Mechanics" — game feel: motion and audio. MERGED (`41b003d`, PR #79) and IN PRODUCTION (version `61a35720`); Russ's verdict from play still open
 
 **Russ's rules (2026-10-09):** "start mechanics. Keep all mechanics work using dev. Do not push any
 work without extensive testing." So: local commits on `dev/mechanics` (cut from `origin/main`
@@ -26,6 +26,31 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   (review findings, final e2e result) were not in it and are carried by the branch
   `docs/handoff-mechanics-merged`. **Production was not deployed:** checked the same evening,
   the live game does not serve the new music or voice files. The deploy is his.
+- **Deployed to production on Russ's word ("deploy to production"), 2026-10-10 03:08 UTC**
+  (the evening of 2026-10-09 local). From a clean detached checkout of `origin/main` `8bde261`
+  with no `.env`: `npm ci`, levels 100/100, unit 573/573, `npm audit --audit-level=high` 0
+  vulnerabilities, `npm run build`; `dist/` holds no `localhost:4173` and no dev label. Then
+  `npx wrangler deploy --tag match-mechanics-8bde261` with `CLOUDFLARE_ACCOUNT_ID` set (wrangler
+  now sees two accounts and will not pick one unprompted). **Version
+  `61a35720-6bbb-4b7d-b28f-0a4bbab1f1f5`. Rollback target: `e8e7b03b-88a3-4076-91bc-219231b2d8ab`**
+  (tag `match-lb-fda9ed0`, live since 2026-09-25). The worker code did not change and the
+  `SUPABASE_SERVICE_ROLE_KEY` secret is still bound.
+  - **What went out** (everything on `main` since `fda9ed0`): mechanics (#79), the dark-realism
+    art behind its switch (#77; classic stays the default, `?theme=dark` shows the dark board),
+    and two dependency overrides (#76, #78).
+  - **Checked live afterwards** at `https://nexus.warsignallabs.net/play/match/`: the page serves
+    the same bundle as the build, music and voice files answer as `audio/mpeg`, `GET /api/score`
+    answers 405 "POST only.", the old hostname still redirects. A desktop Chromium and an
+    iPhone-15 WebKit each opened the game and started level 1 with Quick Deploy: board drawn,
+    classic art, no failed requests, nine voice files and the menu and gameplay tracks fetched.
+    Emulated browsers only, not a physical phone, and nothing here says how it sounds.
+  - **Console messages on the live page, none from this release:** Cloudflare injects an analytics
+    beacon and a challenge script on the Nexus hostname and the page's own security policy blocks
+    both (so that analytics is not collecting); and WebKit logs two "Refused to apply a
+    stylesheet" lines when a level starts, which the previous production build (`fda9ed0`) logs
+    identically under the same policy. The board looks right in both. Neither was investigated.
+  - **Not done, his:** player acceptance of how it plays and sounds; whether iOS follows the new
+    timings.
 - **Review on PR #79, 2026-10-09: eleven findings, all real, all fixed and resolved** (commits
   `15f4d02`, `b280170`, `dc3f970`).
   - **The merge effect never ran** (Codex). I had read the engine's step order backwards: a
@@ -214,9 +239,9 @@ gates (unit, levels, e2e in both themes, the QA probes) before a push is even pr
   Creator; 15 were generated).
 - **All four pieces are built and merged (PR #79, `41b003d`).** Done before the push: fresh-clone
   CI steps, gitleaks, the acceptance and performance probes, and e2e 218/218 in both themes at
-  `f1c3e75`. Still open: Russ's verdict on how it plays, and the production deploy, which is his.
+  `f1c3e75`. Deployed 2026-10-10 03:08 UTC (above). Still open: Russ's verdict on how it plays.
 
-## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); production not redeployed (branch `dev/dark-realism`)
+## 🟢 2026-10-09: Dark-realism art upgrade — MERGED to `main` as `1881b04` (PR #77, merged by Russ); in production since 2026-10-10 with the mechanics deploy, classic still the default (branch `dev/dark-realism`)
 
 **Russ's rules for this work:** 2026-10-08, local commits only — no push, no PR, no GitHub branch —
 and a dev site for his play tests. 2026-10-09, after playing it: "prepare to push - changes look
