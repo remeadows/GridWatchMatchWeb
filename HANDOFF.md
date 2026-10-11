@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-10
 
-## 🟡 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. PUSHED, PR #81 open, not merged, NOT in production (branch `dev/dark-default`)
+## 🟢 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. MERGED (`2cfd470`, PR #81) and IN PRODUCTION (version `1556f47a`); Russ's look on a real phone still open
 
 **Russ's words, 2026-10-10.** After the mechanics deploy he did not see the dark look on Nexus
 (production opened on classic; dark was behind `?theme=dark`): "Dark theme becomes production. Old
@@ -67,12 +67,37 @@ below, which is not on `main` yet.
   (the title-screen tests).** Unit 586/586. During the fixes one more one-off timeout appeared
   (`app.spec.ts` "handles fail, Play On decline…", then 20 of 20 on repeat); another session's
   job was holding a core the whole morning and the load average sat near 9.
+- **Merged by Russ 2026-10-10 (14:59 UTC) as `2cfd470`**, a squash of the branch at `a8beb3f`;
+  nothing was left on the branch this time. CI and CodeQL passed on `main`.
+- **Deployed to production on his word ("81 is merged. deploy to production"), 2026-10-10
+  15:03 UTC.** Same procedure as the mechanics deploy: a clean detached checkout of `origin/main`
+  `2cfd470` with no `.env`; `npm ci`; levels 100/100; unit 586/586; `npm audit --audit-level=high`
+  0 vulnerabilities; `npm run build` (no `localhost:4173`, no dev label, `index.html` carries the
+  dark theme attribute); `release-check.mjs` on that build under `csp-server.mjs`, default and
+  `?theme=classic`; then `npx wrangler deploy --tag match-dark-default-2cfd470` with
+  `CLOUDFLARE_ACCOUNT_ID` set. **Version `1556f47a-be79-45ed-ab24-0dad5cb6ff92`. Rollback target:
+  `61a35720-6bbb-4b7d-b28f-0a4bbab1f1f5`** (tag `match-mechanics-8bde261`). Worker code unchanged;
+  `SUPABASE_SERVICE_ROLE_KEY` still bound.
+  - **Checked live** at `https://nexus.warsignallabs.net/play/match/`: the page serves the build's
+    bundle and opens dark with no parameter; `GET /api/score` answers 405; the old hostname still
+    redirects. Desktop Chromium and iPhone-15 WebKit each opened on the title, entered, and
+    started level 1 with no failed requests. `autoplay-probe.mjs` against the live site (real
+    Chrome, autoplay rule on): silent on a direct visit, playing after the first click and the
+    first tap, playing at load when arriving by a same-site link.
+  - **Not done, his:** a real phone (title screen, music on the first tap, frame rate with the
+    device-pixel canvas; `?hidpi=0` is the off switch), Safari, and how it sounds.
+- **The WebKit "Refused to apply a stylesheet" lines were never the game's.** Found while
+  deploying: the count followed the number of screenshots the probe took. Each one is Playwright's
+  own caret-hiding style being refused by the page's security policy; with no screenshot WebKit
+  logs none through title, menu and level 1. `release-check.mjs` no longer counts them, and now
+  exits 0 on a clean local build. This replaces the next bullet and the note in the entry below.
 - **Correction to the entry below:** the two WebKit "Refused to apply a stylesheet" console lines
   appear at page load, not when a level starts. They still predate all of this (`fda9ed0`).
 - **Dev site:** `https://gridwatch-match-dev.russell-meadows.workers.dev` serves `9f7e3b3-dev`.
 - **Pushed 2026-10-10 on his word ("push - open PR and turn on auto-fix CI"):** PR #81
   (https://github.com/remeadows/GridWatchMatchWeb/pull/81), Auto-fix on for it in the desktop app.
-- **Not done / his:** his look at the dev site on his phone and Mac; the merge;
+- **As it stood before the merge (superseded by the deploy record above):** his look at the dev
+  site on his phone and Mac; the merge;
   the production deploy (procedure in the entry below: clean checkout of `origin/main`,
   `CLOUDFLARE_ACCOUNT_ID` set, tag the version, rollback target is then `61a35720`). Unverified:
   a physical phone (title screen, music on first tap, frame rate at 3×), Safari, and how any of
