@@ -193,8 +193,9 @@ Not done, or done only in part. None of it blocks playing the dev build.
   the game goes straight from the level tile to the board, and the brief says not to add a step.
 - **`cell_blocked` has not been seen in play.** No shipped level starts with a blocked cell, so it
   is verified as a render and a mapping test only.
-- **Effects are the classic effects.** Match bursts, rocket trails, the TNT blast and the rest
-  keep their shapes, colours and timing. On a 3× canvas their drawn lines are a third as wide.
+- **Effects are the classic effects with bigger blasts on top** (2026-11-01, `HANDOFF.md`). Sizes
+  now follow the tile on a 3× canvas, and blasts gained blooms, beams and metal debris. Match
+  bursts, rocket trails and the rest keep their shapes and timing, and nothing passes the canvas.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were
   checked for layout at both sizes, not designed screen by screen against a concept.
 - **Heap after repeated level entry** climbs about 0.16 MB per entry over thirty entries, by the

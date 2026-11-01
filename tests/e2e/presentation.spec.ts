@@ -747,7 +747,7 @@ test.describe("presentation budget and cleanup", () => {
     const resources = await presentationResourceCounts(page);
     const particleCap = testInfo.project.name === "mobile" ? 110 : 180;
 
-    expect(resources.peak.activeEmitters).toBeLessThanOrEqual(12);
+    expect(resources.peak.activeEmitters).toBeLessThanOrEqual(36);
     expect(resources.peak.liveParticles).toBeLessThanOrEqual(particleCap);
     expect(resources.peak.simultaneousArcs).toBeLessThanOrEqual(12);
     expect(resources.peak.activeBoardAudio).toBeLessThanOrEqual(16);

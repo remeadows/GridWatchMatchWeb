@@ -1,6 +1,45 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-10-10
+Last updated: 2026-11-01
+
+## 🟡 2026-11-01: Royal Match feel, part 1: flying pieces and bigger effects. On the dev site; NOT pushed, NOT in production (branch `dev/feel-pieces-effects`)
+
+**Russ's words, 2026-11-01.** He put two iPhone recordings of Royal Match (levels 181 and 183, audio
+tracks silent) in Drive, `GridWatchArt / 4 - GridWatch Match`, and after a comparison said: "copy
+this feel - start with the flying pieces and bigger effects", then "just start". Rules as before:
+local `dev/...` branch, extensive testing, push only on his word, merge and production his.
+Reference for feel only: nothing is taken from Royal Match's art or sound, and the look stays dark.
+
+- **Flying pieces** (`src/game/objectiveFlight.ts` the path and count, `src/game/pieceFlights.ts`
+  the drawing, `collectPiece` in `BoardScene`): a clear that counts for an objective leaves its cell
+  as it breaks, swells, curves up and lands on the objective's picture, which pulses and ticks
+  (the existing `tilePopB` cue, quiet, rising; no new sound). The count rises on landing, not at
+  the step. The objective is outside the canvas, so flights are page elements in one fixed layer,
+  animated by the browser. 480 ms, 35 ms apart, 14 in the air at most (the rest count at once).
+  Pieces cleared by power-ups fly too. Dark board only; nothing under the reduced-motion setting
+  or the OS preference; leaving a level clears them. They do not hold up play. Trace: `objective-fly`.
+- **Bigger effects** (`src/game/vfx.ts`, `BoardScene`). Two measured limiters came first. Sizes in
+  canvas pixels came out a third as big on a phone's 3x canvas: `setVfxTileSize` now scales the
+  primitives by the tile. And `concurrentEmitters: 12` was spent by the first three pieces of any
+  blast, so the rest broke with no debris (every power-up peaked at 12 with a third to a half of
+  its particles unused): it is 36 now, and the live particle caps (180/110), which now do get
+  reached, are unchanged. New: `blastCore` (a soft bloom that holds, then goes out), `laneBeam`,
+  `heavyDebris` (grey metal chunks that tumble and drop), thicker rings and bolts. TNT, rocket,
+  propeller, light ball, combos and the win use them; a breaking piece's coloured orb is dimmer.
+  Durations of the board's steps did not change. The screen flash limits (0.38, 80 ms) are untouched.
+- **Verified at `1ca9c1e`:** unit 605/605; e2e on the dark default 236 passed, 2 failed; on a
+  classic-default build 216 passed, 20 skipped (title and flight tests), the same 2 failed. Both
+  were the one budget test asserting the old limit of 12 (it saw 20). That literal is now 36 and
+  that test was rerun on both themes; no other test was rerun after that one-line change. Frames
+  read by eye for TNT, rocket, light ball, propeller and a swap (`motion-probe.mjs`, which now
+  re-reads the cell after a booster press scrolls the page). Frame intervals through the five
+  heaviest effects, phone-sized page, CPU slowed 4x: old and new alike, 16.7 ms, none over 33 ms.
+  That rules out script cost, not a phone's GPU filling large glows on a 3x canvas.
+- **Not done / open:** a real phone (frame rate, and whether the blooms are too much); the arrival
+  tick has not been heard by anyone; effects stop at the canvas edge, so they cannot break out past
+  the board as Royal Match's do (a layout change, `.game-board-panel`); the leftover-moves payout
+  and win banner seen in the recordings are not built (the payout changes coin economy: his call);
+  light ball stages and level-start power-ups not touched. Next from him: his verdict on the dev site.
 
 ## 🟢 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. MERGED (`2cfd470`, PR #81) and IN PRODUCTION (version `1556f47a`); Russ's look on a real phone still open
 
