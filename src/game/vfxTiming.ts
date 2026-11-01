@@ -19,6 +19,15 @@ export const VFX_SCREEN_FLASH = {
 } as const;
 
 export const VFX_TEXTURE_CONFIG = {
+  bloom: {
+    centerX: 64,
+    centerY: 64,
+    radius: 62,
+    steps: 31,
+    stepAlpha: 0.05,
+    textureHeight: 128,
+    textureWidth: 128
+  },
   glow: {
     centerX: 16,
     centerY: 16,

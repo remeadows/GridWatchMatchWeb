@@ -78,7 +78,11 @@ export type PresentationEffectKey = SinglePowerUpEffectKey | CanonicalComboKey;
 export type PresentationViewportProfile = "desktop" | "mobile";
 
 export const PRESENTATION_RESOURCE_LIMITS = {
-  concurrentEmitters: 12,
+  // Each debris burst is its own emitter and a broken piece makes four, so 12 was spent by the
+  // first three pieces and the rest broke with no debris at all (measured 2026-11-01: every
+  // power-up peaked at 12 with a third to a half of its particles unused). What costs a phone is
+  // the live particle count, which stays capped below.
+  concurrentEmitters: 36,
   liveParticles: {
     desktop: 180,
     mobile: 110

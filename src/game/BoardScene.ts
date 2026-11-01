@@ -92,7 +92,7 @@ import {
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
 import { blastCuePlayback, cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
-import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
+import { blastCore, boardDimmer, burst, ensureVfxTextures, heavyDebris, impactBurst, laneBeam, laneBlast, screenFlash, setVfxTileSize, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
 import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle";
@@ -284,6 +284,21 @@ const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
   TNT_SHARD_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
 // Web-only tuning: Phaser camera shake intensity.
+// Web-only tuning (Russ, 2026-11-01, of the Royal Match recordings: "bigger effects"): the light
+// and metal of a blast, in tiles. None of it holds the board up: it plays out over what comes next.
+const BLAST_BLOOM_MS = 300;
+const BLAST_DEBRIS_MS = 520;
+const BLAST_DEBRIS_TINT = 0x8f98a1;
+const TNT_BLOOM_CELLS = 5.2;
+const TNT_DEBRIS_COUNT = 9;
+const TNT_DEBRIS_REACH_CELLS = 3;
+const TNT_DEBRIS_SIZE_CELLS = 0.42;
+const ROCKET_BEAM_WIDTH_CELLS = 0.62;
+const ROCKET_BEAM_FADE_MS = 150;
+const ROCKET_EDGE_BLOOM_CELLS = 2.4;
+const PROPELLER_BLOOM_CELLS = 3;
+const LIGHTBALL_BLOOM_BOARD_SHARE = 0.65;
+const COMBO_BLOOM_BOARD_SHARE = 0.8;
 const TNT_SHAKE_INTENSITY = 0.012;
 // Web-only tuning: Phaser camera shake duration.
 const TNT_SHAKE_DURATION_MS = 260;
@@ -1999,6 +2014,20 @@ export class BoardScene extends Phaser.Scene {
       durationMs: 80,
       tint: comboTint(plan.key)
     }, this.vfxCleanup);
+    this.recordPresentation("blast-bloom", `combo:${plan.key}`);
+    blastCore(this, this.fxLayer, center.x, center.y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * COMBO_BLOOM_BOARD_SHARE,
+      durationMs: BLAST_BLOOM_MS,
+      tint: comboTint(plan.key)
+    }, this.vfxCleanup);
+    heavyDebris(this, this.fxLayer, center.x, center.y, {
+      count: plan.key === "tnt+tnt" ? 14 : TNT_DEBRIS_COUNT,
+      reachPx: this.tileSize * (TNT_DEBRIS_REACH_CELLS + 1),
+      sizePx: this.tileSize * TNT_DEBRIS_SIZE_CELLS,
+      durationMs: BLAST_DEBRIS_MS,
+      seed: `combo:${plan.key}`,
+      tint: BLAST_DEBRIS_TINT
+    }, this.vfxCleanup);
     shockwave(this, this.fxLayer, center.x, center.y, {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * (plan.key === "lightBall+lightBall" ? 0.78 : 0.58),
       durationMs: 320,
@@ -2364,6 +2393,8 @@ export class BoardScene extends Phaser.Scene {
     const core = this.add.image(object.x, object.y, vfxTextureKeys.hotCore);
     core.setTint(tint);
     core.setBlendMode(Phaser.BlendModes.ADD);
+    // Dim enough that the piece breaks into light, not into a coloured ball.
+    core.setAlpha(0.55);
     core.setScale(Math.max(0.7, this.tileSize / 34));
     this.fxLayer.add(core);
     this.vfxCleanup.trackObject(core);
@@ -2387,7 +2418,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.9,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.22, this.tileSize / 190)
+      scale: Math.max(0.22, this.tileSize / 130)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.shard,
@@ -2395,7 +2426,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.45,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.22, this.tileSize / 220)
+      scale: Math.max(0.22, this.tileSize / 130)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.shardWide,
@@ -2403,7 +2434,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.3,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.2, this.tileSize / 235)
+      scale: Math.max(0.2, this.tileSize / 140)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.smoke,
@@ -2465,6 +2496,11 @@ export class BoardScene extends Phaser.Scene {
     if (!this.fxLayer) return;
     const x = this.boardBounds.centerX;
     const y = this.boardBounds.centerY;
+    blastCore(this, this.fxLayer, x, y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * COMBO_BLOOM_BOARD_SHARE,
+      durationMs: BLAST_BLOOM_MS,
+      tint: 0x9bfff2
+    }, this.vfxCleanup);
     shockwave(this, this.fxLayer, x, y, {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
       durationMs: WIN_ROW_DESTRUCTION_POP_MS,
@@ -2917,11 +2953,31 @@ export class BoardScene extends Phaser.Scene {
         boardDimmer(this, this.fxScreen, { alpha: 0.16, durationMs: 120 }, this.vfxCleanup);
         screenFlash(this, this.fxScreen, { alpha: 0.3, durationMs: 70, tint: 0xffe4c0 }, this.vfxCleanup);
       }
+      this.recordPresentation("blast-bloom", "tnt");
+      blastCore(this, activeFxLayer, origin.x, origin.y, {
+        radiusPx: this.tileSize * TNT_BLOOM_CELLS,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xff9a43
+      }, this.vfxCleanup);
       this.recordPresentation("shockwave");
       shockwave(this, activeFxLayer, origin.x, origin.y, {
         radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
         durationMs: TNT_SHOCKWAVE_MS,
         tint: 0xff8a3d
+      }, this.vfxCleanup);
+      shockwave(this, activeFxLayer, origin.x, origin.y, {
+        radiusPx: this.tileSize * TNT_BLAST_RADIUS_CELLS * 0.6,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xfff1b8
+      }, this.vfxCleanup);
+      this.recordPresentation("blast-debris", "tnt");
+      heavyDebris(this, activeFxLayer, origin.x, origin.y, {
+        count: TNT_DEBRIS_COUNT,
+        reachPx: this.tileSize * TNT_DEBRIS_REACH_CELLS,
+        sizePx: this.tileSize * TNT_DEBRIS_SIZE_CELLS,
+        durationMs: BLAST_DEBRIS_MS,
+        seed: `tnt:${positionKey(event.origin)}`,
+        tint: BLAST_DEBRIS_TINT
       }, this.vfxCleanup);
       for (const offset of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]) {
         laneBlast(this, activeFxLayer, origin, {
@@ -2932,18 +2988,18 @@ export class BoardScene extends Phaser.Scene {
       burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.spark,
         count: 18,
-        speed: this.tileSize * 3.4,
+        speed: this.tileSize * 4.6,
         lifespanMs: TNT_SPARK_BURST_LIFESPAN_MS,
         tint: 0xfff1b8,
-        scale: Math.max(0.42, this.tileSize / 120)
+        scale: Math.max(0.42, this.tileSize / 70)
       }, this.vfxCleanup);
       burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.shard,
         count: 12,
-        speed: this.tileSize * 2.5,
+        speed: this.tileSize * 3.6,
         lifespanMs: TNT_SHARD_BURST_LIFESPAN_MS,
         tint: 0xff8a3d,
-        scale: Math.max(0.34, this.tileSize / 150)
+        scale: Math.max(0.34, this.tileSize / 80)
       }, this.vfxCleanup);
       this.recordPresentation("shake-request", String(TNT_SHAKE_INTENSITY));
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
@@ -3032,6 +3088,13 @@ export class BoardScene extends Phaser.Scene {
         this.vfxCleanup.trackObject(sprite);
         this.recordPresentation("rocket-head-launch", String(head.direction));
 
+        this.recordPresentation("rocket-beam", String(head.direction));
+        laneBeam(this, layer, origin, end, {
+          widthPx: this.tileSize * ROCKET_BEAM_WIDTH_CELLS,
+          travelMs: head.flightMs,
+          fadeMs: ROCKET_BEAM_FADE_MS,
+          tint: 0x58e6ff
+        }, this.vfxCleanup);
         laneBlast(this, layer, origin, end, {
           durationMs: head.flightMs,
           scale: Math.max(0.48, this.tileSize / 98),
@@ -3105,6 +3168,11 @@ export class BoardScene extends Phaser.Scene {
             this.recordPresentation("powerup-impact", "rocket");
             this.cueBoardAudio("rocketImpact", blastCuePlayback("rocket", head.passTimes.length));
             if (hasTrailBudget) trail.stop();
+            blastCore(this, layer, end.x, end.y, {
+              radiusPx: this.tileSize * ROCKET_EDGE_BLOOM_CELLS,
+              durationMs: BLAST_BLOOM_MS,
+              tint: 0x8af1ff
+            }, this.vfxCleanup);
             impactBurst(this, layer, end.x, end.y, {
               intensity: 0.8,
               lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
@@ -3211,7 +3279,16 @@ export class BoardScene extends Phaser.Scene {
             drone.destroy();
             this.recordPropellerStrike(targets.length);
             impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.9, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
-            shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 0.7, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
+            blastCore(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * PROPELLER_BLOOM_CELLS, durationMs: BLAST_BLOOM_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 1.25, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
+            heavyDebris(this, layer, primaryCenter.x, primaryCenter.y, {
+              count: 5,
+              reachPx: this.tileSize * 1.6,
+              sizePx: this.tileSize * 0.3,
+              durationMs: BLAST_DEBRIS_MS,
+              seed: `propeller:${positionKey(plan.target)}`,
+              tint: BLAST_DEBRIS_TINT
+            }, this.vfxCleanup);
             this.knockBoard({ x: 0, y: 1 });
             targets.slice(1).forEach((target, index) => {
               this.vfxCleanup.schedule(this, (index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
@@ -3292,6 +3369,12 @@ export class BoardScene extends Phaser.Scene {
         this.recordPresentation("screen-flash", "alpha=0.22;durationMs=80");
         screenFlash(this, this.fxScreen, { alpha: 0.22, durationMs: 80, tint: 0xe6d8ff }, this.vfxCleanup);
       }
+      this.recordPresentation("blast-bloom", "lightBall");
+      blastCore(this, this.fxLayer, origin.x, origin.y, {
+        radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * LIGHTBALL_BLOOM_BOARD_SHARE,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xf15bd7
+      }, this.vfxCleanup);
       shockwave(this, this.fxLayer, origin.x, origin.y, {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
@@ -4140,6 +4223,7 @@ export class BoardScene extends Phaser.Scene {
     const frameBorder = this.v2Texture(frame) ? frame?.frameBorder ?? 0 : 0;
     const margin = frameBorder > 0 ? 4 / this.scale.zoom : 12;
     this.tileSize = boardTileSize(width, height, rows, cols, margin, frameBorder);
+    setVfxTileSize(this, this.tileSize);
     // On whole pixels under the frame, so its lengths and the cells meet without a soft seam.
     const snap = frameBorder > 0 ? Math.round : (value: number) => value;
     this.boardBounds.setTo(

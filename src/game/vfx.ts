@@ -3,6 +3,7 @@ import { PRESENTATION_RESOURCE_LIMITS, type PresentationViewportProfile } from "
 import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG, VFX_TIMING } from "./vfxTiming";
 
 export const vfxTextureKeys = {
+  bloom: "vfx-bloom",
   glow: "vfx-glow",
   hotCore: "vfx-hot-core",
   spark: "vfx-spark",
@@ -55,6 +56,31 @@ export interface ElectricArcOptions {
   segments?: number;
   tint: number;
   width?: number;
+}
+
+export interface BlastCoreOptions {
+  radiusPx: number;
+  durationMs: number;
+  tint: number;
+  reducedMotion?: boolean;
+}
+
+export interface HeavyDebrisOptions {
+  count: number;
+  reachPx: number;
+  sizePx: number;
+  durationMs: number;
+  seed: string;
+  tint: number;
+  reducedMotion?: boolean;
+}
+
+export interface LaneBeamOptions {
+  widthPx: number;
+  travelMs: number;
+  fadeMs: number;
+  tint: number;
+  reducedMotion?: boolean;
 }
 
 export interface ImpactBurstOptions {
@@ -343,6 +369,20 @@ export class VfxCleanupRegistry {
   }
 }
 
+// Sizes in this file were set for a 72 px tile on a 1x canvas. The dark board's canvas draws device
+// pixels, so its tile is two or three times that, and a fixed pixel size came out a third as big
+// on a phone. The scene states its tile size here and the primitives scale with it.
+const VFX_DESIGN_TILE_PX = 72;
+const vfxUnits = new WeakMap<object, number>();
+
+export function setVfxTileSize(scene: Phaser.Scene, tileSize: number): void {
+  vfxUnits.set(scene, Math.max(1, tileSize / VFX_DESIGN_TILE_PX));
+}
+
+export function vfxUnit(scene: Phaser.Scene): number {
+  return vfxUnits.get(scene) ?? 1;
+}
+
 export function vfxIntensity(affectedCount: number, isCombo: boolean, viewport: "desktop" | "mobile"): number {
   if (!Number.isFinite(affectedCount)) throw new Error(`Invalid VFX affectedCount (${affectedCount}): expected a finite number`);
   const cap = viewport === "mobile" ? VFX_BUDGETS.mobileIntensityCap : VFX_BUDGETS.desktopIntensityCap;
@@ -485,7 +525,8 @@ export function electricArc(
   if (!options.seed) throw new Error("Invalid VFX electricArc seed: expected a non-empty string");
   if (!layer) return;
   const segments = options.segments ?? 6;
-  const width = options.width ?? 2;
+  const unit = vfxUnit(scene);
+  const width = (options.width ?? 2) * unit;
   assertPositiveFinite("electricArc", "segments", segments);
   assertPositiveFinite("electricArc", "width", width);
   const graphics = scene.add.graphics();
@@ -497,16 +538,21 @@ export function electricArc(
   const dy = localTo.y - localFrom.y;
   const length = Math.hypot(dx, dy);
   const perpendicular = length > 0 ? { x: -dy / length, y: dx / length } : { x: 0, y: 0 };
-  graphics.lineStyle(width, options.tint, 0.92);
-  graphics.beginPath();
-  graphics.moveTo(localFrom.x, localFrom.y);
+  const points = [localFrom];
   for (let index = 1; index < segments; index += 1) {
     const progress = index / segments;
-    const jitter = (random() - 0.5) * Math.min(20, length * 0.18);
-    graphics.lineTo(localFrom.x + dx * progress + perpendicular.x * jitter, localFrom.y + dy * progress + perpendicular.y * jitter);
+    const jitter = (random() - 0.5) * Math.min(20 * unit, length * 0.18);
+    points.push({ x: localFrom.x + dx * progress + perpendicular.x * jitter, y: localFrom.y + dy * progress + perpendicular.y * jitter });
   }
-  graphics.lineTo(localTo.x, localTo.y);
-  graphics.strokePath();
+  points.push(localTo);
+  // A wide dim pass under the bright one is the bolt's glow.
+  for (const [lineWidth, alpha] of [[width * 3, 0.28], [width, 0.92]]) {
+    graphics.lineStyle(lineWidth, options.tint, alpha);
+    graphics.beginPath();
+    graphics.moveTo(points[0].x, points[0].y);
+    for (const point of points.slice(1)) graphics.lineTo(point.x, point.y);
+    graphics.strokePath();
+  }
   graphics.setBlendMode(Phaser.BlendModes.ADD);
   layer.add(graphics);
   const tween = scene.tweens.add({
@@ -542,10 +588,11 @@ export function impactBurst(
   assertPositiveFinite("impactBurst", "lifespanMs", lifespanMs);
   const localX = x - layer.x;
   const localY = y - layer.y;
+  const unit = vfxUnit(scene);
   const core = scene.add.image(localX, localY, vfxTextureKeys.hotCore);
   core.setTint(options.tint);
   core.setBlendMode(Phaser.BlendModes.ADD);
-  core.setScale(0.45 + options.intensity * 0.45);
+  core.setScale((0.45 + options.intensity * 0.45) * unit);
   layer.add(core);
   cleanup?.trackObject(core);
   const coreTween = scene.tweens.add({
@@ -566,38 +613,39 @@ export function impactBurst(
   burst(scene, layer, x, y, {
     texture: vfxTextureKeys.spark,
     count,
-    speed: 100 + options.intensity * 100,
+    speed: (100 + options.intensity * 100) * unit,
     lifespanMs,
     tint: options.tint,
-    scale: 0.25 + options.intensity * 0.15
+    scale: (0.25 + options.intensity * 0.15) * unit
   }, cleanup);
   burst(scene, layer, x, y, {
     texture: vfxTextureKeys.shard,
     count: Math.max(3, Math.round(count * 0.6)),
-    speed: 75 + options.intensity * 80,
+    speed: (75 + options.intensity * 80) * unit,
     lifespanMs: Math.min(lifespanMs, 280),
     tint: options.tint,
-    scale: 0.22 + options.intensity * 0.12
+    scale: (0.22 + options.intensity * 0.12) * unit
   }, cleanup);
   burst(scene, layer, x, y, {
     texture: vfxTextureKeys.shardWide,
     count: Math.max(2, Math.round(count * 0.35)),
-    speed: 65 + options.intensity * 70,
+    speed: (65 + options.intensity * 70) * unit,
     lifespanMs: Math.min(lifespanMs, 240),
     tint: options.tint,
-    scale: 0.2 + options.intensity * 0.1
+    scale: (0.2 + options.intensity * 0.1) * unit
   }, cleanup);
   burst(scene, layer, x, y, {
     texture: vfxTextureKeys.smoke,
     count: 2,
-    speed: 30 + options.intensity * 40,
+    speed: (30 + options.intensity * 40) * unit,
     lifespanMs: Math.min(lifespanMs, 320),
     tint: 0xffffff,
-    scale: 0.3 + options.intensity * 0.2
+    scale: (0.3 + options.intensity * 0.2) * unit
   }, cleanup);
 }
 
 export function ensureVfxTextures(scene: Phaser.Scene): void {
+  generateBloomTexture(scene);
   if (!scene.textures.exists(vfxTextureKeys.spark)) {
     const config = VFX_TEXTURE_CONFIG.spark;
     const spark = scene.add.graphics();
@@ -690,6 +738,19 @@ export function burst(
   else scene.time.delayedCall(vfxCleanupDelayMs(options.lifespanMs), destroy);
 }
 
+/** Many faint circles, largest first: their overlap fades smoothly from a bright centre to nothing. */
+function generateBloomTexture(scene: Phaser.Scene): void {
+  const { centerX, centerY, radius, steps, stepAlpha, textureHeight, textureWidth } = VFX_TEXTURE_CONFIG.bloom;
+  if (scene.textures.exists(vfxTextureKeys.bloom)) return;
+  const graphic = scene.add.graphics();
+  for (let step = steps; step > 0; step -= 1) {
+    graphic.fillStyle(0xffffff, stepAlpha);
+    graphic.fillCircle(centerX, centerY, (radius * step) / steps);
+  }
+  graphic.generateTexture(vfxTextureKeys.bloom, textureWidth, textureHeight);
+  graphic.destroy();
+}
+
 function generateSoftTexture(
   scene: Phaser.Scene,
   key: string,
@@ -727,7 +788,11 @@ export function shockwave(
   const ring = scene.add.graphics();
   ring.setPosition(localX, localY);
   ring.setScale(VFX_TIMING.SHOCKWAVE_INITIAL_SCALE);
-  ring.lineStyle(VFX_TIMING.SHOCKWAVE_LINE_WIDTH, options.tint, VFX_TIMING.SHOCKWAVE_INITIAL_ALPHA);
+  // The ring is scaled up from a fifth of its size, so its line is drawn for the size it ends at.
+  const lineWidth = VFX_TIMING.SHOCKWAVE_LINE_WIDTH * vfxUnit(scene);
+  ring.lineStyle(lineWidth * 3, options.tint, VFX_TIMING.SHOCKWAVE_INITIAL_ALPHA * 0.3);
+  ring.strokeCircle(0, 0, options.radiusPx);
+  ring.lineStyle(lineWidth, options.tint, VFX_TIMING.SHOCKWAVE_INITIAL_ALPHA);
   ring.strokeCircle(0, 0, options.radiusPx);
   layer.add(ring);
   cleanup?.trackObject(ring);
@@ -745,6 +810,160 @@ export function shockwave(
     }
   });
   cleanup?.trackTween(tween);
+}
+
+/** The white-hot bloom at the heart of a blast: a large soft light that swells and dies fast. */
+export function blastCore(
+  scene: Phaser.Scene,
+  layer: Phaser.GameObjects.Container,
+  x: number,
+  y: number,
+  options: BlastCoreOptions,
+  cleanup?: VfxCleanupRegistry
+): void {
+  assertScene("blastCore", scene);
+  assertFinite("blastCore", "x", x);
+  assertFinite("blastCore", "y", y);
+  assertPositiveFinite("blastCore", "radiusPx", options.radiusPx);
+  assertPositiveFinite("blastCore", "durationMs", options.durationMs);
+  assertFinite("blastCore", "tint", options.tint);
+  if (!layer || options.reducedMotion) return;
+  ensureVfxTextures(scene);
+  const textureRadius = VFX_TEXTURE_CONFIG.bloom.radius;
+  for (const { tint, share, alpha } of [
+    { tint: options.tint, share: 1, alpha: 0.85 },
+    { tint: 0xffffff, share: 0.62, alpha: 1 }
+  ]) {
+    const light = scene.add.image(x - layer.x, y - layer.y, vfxTextureKeys.bloom);
+    const scale = (options.radiusPx * share) / textureRadius;
+    light.setTint(tint);
+    light.setBlendMode(Phaser.BlendModes.ADD);
+    light.setAlpha(alpha);
+    light.setScale(scale * 0.4);
+    layer.add(light);
+    cleanup?.trackObject(light);
+    const tween = scene.tweens.add({
+      targets: light,
+      // It swells at once and holds its brightness, then goes out: a flash, not a fade.
+      alpha: { value: 0, ease: "Cubic.easeIn" },
+      scaleX: { value: scale, ease: "Cubic.easeOut" },
+      scaleY: { value: scale, ease: "Cubic.easeOut" },
+      duration: options.durationMs,
+      onComplete: () => {
+        cleanup?.release(light);
+        cleanup?.release(tween);
+        light.destroy();
+      }
+    });
+    cleanup?.trackTween(tween);
+  }
+}
+
+/** Heavy chunks of metal thrown clear of a blast: they tumble up and out, then drop. */
+export function heavyDebris(
+  scene: Phaser.Scene,
+  layer: Phaser.GameObjects.Container,
+  x: number,
+  y: number,
+  options: HeavyDebrisOptions,
+  cleanup?: VfxCleanupRegistry
+): void {
+  assertScene("heavyDebris", scene);
+  assertFinite("heavyDebris", "x", x);
+  assertFinite("heavyDebris", "y", y);
+  assertPositiveFinite("heavyDebris", "count", options.count);
+  assertPositiveFinite("heavyDebris", "reachPx", options.reachPx);
+  assertPositiveFinite("heavyDebris", "sizePx", options.sizePx);
+  assertPositiveFinite("heavyDebris", "durationMs", options.durationMs);
+  assertFinite("heavyDebris", "tint", options.tint);
+  if (!options.seed) throw new Error("Invalid VFX heavyDebris seed: expected a non-empty string");
+  if (!layer || options.reducedMotion) return;
+  ensureVfxTextures(scene);
+  const random = seededRandom(options.seed);
+  const localX = x - layer.x;
+  const localY = y - layer.y;
+  for (let index = 0; index < options.count; index += 1) {
+    const angle = (Math.PI * 2 * (index + random() * 0.8)) / options.count;
+    const reach = options.reachPx * (0.55 + random() * 0.45);
+    const chunk = scene.add.image(localX, localY, index % 2 === 0 ? vfxTextureKeys.shard : vfxTextureKeys.shardWide);
+    chunk.setTint(options.tint);
+    chunk.setRotation(angle);
+    chunk.setScale((options.sizePx * (0.7 + random() * 0.6)) / VFX_TEXTURE_CONFIG.shardWide.textureWidth);
+    layer.add(chunk);
+    cleanup?.trackObject(chunk);
+    const tween = scene.tweens.add({
+      targets: chunk,
+      x: { value: localX + Math.cos(angle) * reach, ease: "Quad.easeOut" },
+      // Up and out first, then pulled down past where it would have stopped.
+      y: { value: localY + Math.sin(angle) * reach * 0.6 + reach * 0.75, ease: "Back.easeIn" },
+      angle: { value: chunk.angle + (index % 2 === 0 ? 1 : -1) * (260 + random() * 260), ease: "Linear" },
+      alpha: { value: 0, ease: "Cubic.easeIn" },
+      duration: options.durationMs,
+      onComplete: () => {
+        cleanup?.release(chunk);
+        cleanup?.release(tween);
+        chunk.destroy();
+      }
+    });
+    cleanup?.trackTween(tween);
+  }
+}
+
+/** The light a rocket leaves along its lane: it runs out with the rocket, then narrows and goes. */
+export function laneBeam(
+  scene: Phaser.Scene,
+  layer: Phaser.GameObjects.Container,
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  options: LaneBeamOptions,
+  cleanup?: VfxCleanupRegistry
+): void {
+  assertScene("laneBeam", scene);
+  assertFinite("laneBeam", "from.x", from.x);
+  assertFinite("laneBeam", "from.y", from.y);
+  assertFinite("laneBeam", "to.x", to.x);
+  assertFinite("laneBeam", "to.y", to.y);
+  assertPositiveFinite("laneBeam", "widthPx", options.widthPx);
+  assertPositiveFinite("laneBeam", "travelMs", options.travelMs);
+  assertPositiveFinite("laneBeam", "fadeMs", options.fadeMs);
+  assertFinite("laneBeam", "tint", options.tint);
+  if (!layer || options.reducedMotion) return;
+  const length = Math.hypot(to.x - from.x, to.y - from.y);
+  if (length === 0) return;
+  const beam = scene.add.graphics({ x: from.x - layer.x, y: from.y - layer.y });
+  beam.setBlendMode(Phaser.BlendModes.ADD);
+  beam.setRotation(Math.atan2(to.y - from.y, to.x - from.x));
+  beam.fillStyle(options.tint, 0.32);
+  beam.fillRect(0, -options.widthPx / 2, length, options.widthPx);
+  beam.fillStyle(0xffffff, 0.75);
+  beam.fillRect(0, -options.widthPx / 8, length, options.widthPx / 4);
+  beam.setScale(0, 1);
+  layer.add(beam);
+  cleanup?.trackObject(beam);
+  const run = scene.tweens.add({
+    targets: beam,
+    scaleX: 1,
+    duration: options.travelMs,
+    // The same ease as the rocket's flight, so the light stays with the head.
+    ease: "Quad.easeIn",
+    onComplete: () => {
+      cleanup?.release(run);
+      const fade = scene.tweens.add({
+        targets: beam,
+        alpha: 0,
+        scaleY: 0.15,
+        duration: options.fadeMs,
+        ease: "Quad.easeOut",
+        onComplete: () => {
+          cleanup?.release(beam);
+          cleanup?.release(fade);
+          beam.destroy();
+        }
+      });
+      cleanup?.trackTween(fade);
+    }
+  });
+  cleanup?.trackTween(run);
 }
 
 export function shake(scene: Phaser.Scene, intensity: number, durationMs: number, reducedMotion = false): void {

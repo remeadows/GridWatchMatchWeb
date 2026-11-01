@@ -11,7 +11,7 @@ const [repo, base, out, level = "1", from = "0,0", to = "1,0", booster = ""] = p
 const { chromium } = createRequire(repo + "/package.json")("@playwright/test");
 mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 900, height: 900 }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: 900, height: 1200 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 await page.goto(`${base}/?gwTestMode=1&level=${level}`, { waitUntil: "networkidle" });
@@ -43,7 +43,9 @@ cdp.on("Page.screencastFrame", (frame) => {
 await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, everyNthFrame: 1 });
 if (booster) {
   await page.getByTestId(`booster-${booster}`).click();
-  await page.mouse.click(a.x, a.y);
+  // Pressing the booster can scroll the page, so the cell is read again.
+  const target = await cell(fr, fc);
+  await page.mouse.click(target.x, target.y);
 } else {
   await page.mouse.move(a.x, a.y);
   await page.mouse.down();
