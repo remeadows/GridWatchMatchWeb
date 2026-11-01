@@ -7,8 +7,10 @@ import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
-import { type BoardAnimationEvent } from "./game/BoardScene";
+import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
+import { landPiece, launchPiece, objectiveCountShown, skipPiece, type ObjectiveFlightCounts } from "./game/objectiveFlight";
+import { PieceFlights } from "./game/pieceFlights";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
@@ -691,6 +693,26 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [tutorialStep, setTutorialStep] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
   const [runId, setRunId] = useState(0);
+  // Pieces in the air to an objective hold its count back until they land (src/game/objectiveFlight.ts).
+  const [flightCounts, setFlightCounts] = useState<ObjectiveFlightCounts>({});
+  const hudRef = useRef(hud);
+  hudRef.current = hud;
+  const pieceFlightsRef = useRef<PieceFlights | null>(null);
+  useEffect(() => {
+    const flights = new PieceFlights((objectiveId) => setFlightCounts((counts) => landPiece(counts, objectiveId)));
+    pieceFlightsRef.current = flights;
+    return () => {
+      flights.dispose();
+      pieceFlightsRef.current = null;
+      setFlightCounts({});
+    };
+  }, [levelId, runId]);
+  const handlePieceCollected = useCallback((piece: CollectedPiece) => {
+    const progress = hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
+    const flew = pieceFlightsRef.current?.launch(piece) ?? false;
+    setFlightCounts((counts) => (flew ? launchPiece(counts, piece.objectiveId, progress) : skipPiece(counts, piece.objectiveId)));
+  }, []);
+
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
   const [selectedBooster, setSelectedBooster] = useState<BoosterType | null>(null);
   const [boosterDrag, setBoosterDrag] = useState<BoosterDragState | null>(null);
@@ -1202,9 +1224,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           // Dark realism: a "collect" objective shows the piece it names, so the word has a face.
           const picture = activeBoardTheme() === "darkRealism" && objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
           return (
-            <div className="objective-chip" key={objective.id}>
+            <div className="objective-chip" data-objective-id={objective.id} key={objective.id}>
               {picture && <img className="objective-picture" src={assetUrl(picture.path)} alt="" />}
-              {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
+              {objectiveLabel(objective, objectiveCountShown(flightCounts, objective.id, hud?.objectiveProgress[objective.id] ?? 0))}
             </div>
           );
         })}
@@ -1222,6 +1244,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           onAnimationComplete={handleBoardAnimationComplete}
           onStepComplete={handleBoardStepComplete}
           onAnimationError={handleBoardAnimationError}
+          onPieceCollected={handlePieceCollected}
         />
       </div>
 

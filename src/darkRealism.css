@@ -541,6 +541,36 @@
   text-transform: uppercase;
 }
 
+/* Pieces flying from the board to their objective (src/game/pieceFlights.ts). */
+.piece-flights {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.piece-flight {
+  position: absolute;
+  will-change: transform;
+}
+
+.piece-flight::before {
+  content: "";
+  position: absolute;
+  inset: -22%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--cyan) 45%, transparent) 0%, transparent 68%);
+}
+
+.piece-flight img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
 .objective-picture {
   flex: none;
   width: 40px;

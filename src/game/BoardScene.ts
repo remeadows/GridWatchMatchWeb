@@ -83,6 +83,7 @@ import {
   type BoardSnapshot,
   type BoosterType,
   type CellState,
+  type ClearEvent,
   type GridPosition,
   type PowerUpEvent,
   type PowerUpType,
@@ -96,7 +97,17 @@ import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
 import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle";
 
+/** A piece that counts for an objective has just broken: where it is on the page, for its flight. */
+export interface CollectedPiece {
+  objectiveId: string;
+  tileType: TileType;
+  x: number;
+  y: number;
+  size: number;
+}
+
 export interface BoardSceneData {
+  onPieceCollected?: (piece: CollectedPiece) => void;
   onAction: (action: BoardAction) => void;
   onAnimationComplete: (animationId: number) => void;
   onStepComplete: (animationId: number, ordinal: number) => void;
@@ -392,6 +403,9 @@ export class BoardScene extends Phaser.Scene {
   private onAction: ((action: BoardAction) => void) | null = null;
   private onAnimationComplete: ((animationId: number) => void) | null = null;
   private onStepComplete: BoardSceneData["onStepComplete"] | null = null;
+  private onPieceCollected: BoardSceneData["onPieceCollected"] | null = null;
+  /** This step's clears that count for an objective, by cell, until each one breaks. */
+  private objectiveClears = new Map<string, ClearEvent>();
   private onAnimationError: BoardSceneData["onAnimationError"] | null = null;
   private playbackWatchdog: Phaser.Time.TimerEvent | null = null;
   private layer: Phaser.GameObjects.Container | null = null;
@@ -449,6 +463,7 @@ export class BoardScene extends Phaser.Scene {
     this.onAction = data.onAction;
     this.onAnimationComplete = data.onAnimationComplete;
     this.onStepComplete = data.onStepComplete;
+    this.onPieceCollected = data.onPieceCollected ?? null;
     this.onAnimationError = data.onAnimationError;
   }
 
@@ -1435,6 +1450,9 @@ export class BoardScene extends Phaser.Scene {
     const events = groups.flatMap(group => group.events);
     const delta = this.resolutionStepDelta(step, events);
     const keys = new Set(step.clears.map(clear => positionKey(clear.position)));
+    this.objectiveClears = new Map(step.clears
+      .filter(clear => clear.contributedToObjective && clear.objectiveId !== null)
+      .map(clear => [positionKey(clear.position), clear]));
     let popsDone = keys.size === 0;
     let effectsDone = events.length === 0;
     let finished = false;
@@ -2236,6 +2254,7 @@ export class BoardScene extends Phaser.Scene {
           playbackRate: variation.playbackRate
         });
         this.playMatchBurst(entry.object, entry.tint);
+        this.collectPiece(key);
         if (!cleanupScheduled) {
           cleanupScheduled = true;
           this.recordPresentation("debris-cleanup-pending");
@@ -2283,6 +2302,19 @@ export class BoardScene extends Phaser.Scene {
       else startPop();
     }
     afterRender?.(dispatchContact);
+  }
+
+  // A piece that counts for an objective leaves the board for it. The flight itself is drawn over
+  // the page (src/game/pieceFlights.ts): the objective is outside this canvas.
+  private collectPiece(key: string): void {
+    const clear = this.objectiveClears.get(key);
+    if (!clear?.objectiveId || this.reducedMotion || this.boardTheme !== "darkRealism") return;
+    this.objectiveClears.delete(key);
+    const point = this.cellClientPoint(clear.position.row, clear.position.col);
+    if (!point) return;
+    this.recordPresentation("objective-fly", `${clear.objectiveId}:${key}`);
+    const size = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: clear.tileType, x: point.x, y: point.y, size });
   }
 
   // A piece of the match that makes a power-up does not just break: what is left of it is pulled

@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import Phaser from "phaser";
-import { BoardScene, type BoardAnimationEvent } from "./BoardScene";
+import { BoardScene, type BoardAnimationEvent, type CollectedPiece } from "./BoardScene";
 import type { BoardAction, BoardSnapshot, BoosterType } from "../engine";
 import { audioService } from "../services/audio";
 import { activeBoardTheme, resolveBoardPixelRatio } from "./boardTheme";
@@ -14,6 +14,7 @@ interface GameCanvasProps {
   onAnimationComplete: (animationId: number) => void;
   onStepComplete: (animationId: number, ordinal: number) => void;
   onAnimationError: (animationId: number) => void;
+  onPieceCollected: (piece: CollectedPiece) => void;
 }
 
 export interface GameCanvasHandle {
@@ -22,7 +23,7 @@ export interface GameCanvasHandle {
 }
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
-  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete, onStepComplete, onAnimationError },
+  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete, onStepComplete, onAnimationError, onPieceCollected },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -31,6 +32,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   const onAnimationCompleteRef = useRef(onAnimationComplete);
   const onStepCompleteRef = useRef(onStepComplete);
   const onAnimationErrorRef = useRef(onAnimationError);
+  const onPieceCollectedRef = useRef(onPieceCollected);
   const presentationRef = useRef({ snapshot, animationEvent, reducedMotion, pendingBooster });
 
   useEffect(() => {
@@ -43,6 +45,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
 
   useEffect(() => { onStepCompleteRef.current = onStepComplete; }, [onStepComplete]);
   useEffect(() => { onAnimationErrorRef.current = onAnimationError; }, [onAnimationError]);
+  useEffect(() => { onPieceCollectedRef.current = onPieceCollected; }, [onPieceCollected]);
   useEffect(() => {
     presentationRef.current = { snapshot, animationEvent, reducedMotion, pendingBooster };
   }, [snapshot, animationEvent, reducedMotion, pendingBooster]);
@@ -113,7 +116,8 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
       onAction: (action: BoardAction) => onActionRef.current(action),
       onAnimationComplete: (animationId: number) => onAnimationCompleteRef.current(animationId),
       onStepComplete: (animationId: number, ordinal: number) => onStepCompleteRef.current(animationId, ordinal),
-      onAnimationError: (animationId: number) => onAnimationErrorRef.current(animationId)
+      onAnimationError: (animationId: number) => onAnimationErrorRef.current(animationId),
+      onPieceCollected: (piece: CollectedPiece) => onPieceCollectedRef.current(piece)
     });
     gameRef.current = game;
     const resizeObserver = pixelRatio === 1 ? null : new ResizeObserver(() => {

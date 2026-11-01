@@ -833,6 +833,7 @@ test.describe("reduced motion presentation budget", () => {
         "shake-request",
         "vfx-particles",
         "target-mark",
+        "objective-fly",
         "powerup-knock",
         "powerup-merge",
         "cascade-jolt"
