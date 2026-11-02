@@ -21,6 +21,14 @@ potential add per level?"
   11, so a real player earns somewhat more.
 - **Finding, not acted on:** the random bot wins 92-100% per sector, and sectors 6-10 have 34-48
   moves where 1-5 have 17-29. Coins and Play On matter little unless levels get harder.
+- **Verified:** unit 626/626. Full e2e at `470d122`: dark 268 passed; classic 238 passed, 30 skipped
+  (dark-only tests). Store, empty power-up and offer read by eye at 440x748. No real phone yet.
+- **Under discussion, nothing built (Russ: "Dont make code changes yet, let's talk about it first").**
+  He suspects levels feel alike because blockers are moderate and do not count toward winning, and
+  he is right: objectives are only `collect*` and `clear`, levels 51-55 have no blockers, every
+  board is a full 7x7. Levels are synced from iOS and `scripts/sync-ios-assets.mjs` wipes
+  `public/levels`, and `worker/level-limits.json` follows the move limits. Open with him: a
+  web-only level set, and how hard late levels should be. My advice: ship the feel work first.
 
 ## 🟡 2026-11-02: Leftover moves pay coins, and a level fits one phone screen. On the dev site as `331b3cb-dev`; NOT pushed, NOT in production
 
