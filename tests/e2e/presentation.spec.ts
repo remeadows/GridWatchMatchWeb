@@ -654,6 +654,37 @@ test.describe("engine-driven power-up chains", () => {
     });
   }
 
+  test("a blast throws shards past the board's edge on the page, and clears them away", async ({ page }) => {
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const { trace } = await playRecordedPowerUpAction(page, specimen.level, specimen.actions[0]);
+    const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+    const spilled = trace.filter(entry => entry.kind === "blast-spill");
+    if (theme !== "darkRealism") {
+      expect(spilled).toHaveLength(0);
+      return;
+    }
+    expect(spilled.length).toBeGreaterThan(0);
+    await page.waitForFunction(() => document.querySelectorAll(".blast-spill-shard, .blast-spill-glow").length === 0);
+
+    const escaped = await page.evaluate(async () => {
+      const canvas = document.querySelector('[data-testid="board-canvas"] canvas')!.getBoundingClientRect();
+      const seen = { shards: 0, outside: 0 };
+      const started = performance.now();
+      (window as Window & { __gwPreviewPresentationEffect?: (effect: string) => void }).__gwPreviewPresentationEffect?.("tnt");
+      while (performance.now() - started < 2_500) {
+        for (const shard of document.querySelectorAll(".blast-spill-shard")) {
+          const rect = shard.getBoundingClientRect();
+          seen.shards += 1;
+          if (rect.bottom < canvas.top || rect.top > canvas.bottom || rect.right < canvas.left || rect.left > canvas.right) seen.outside += 1;
+        }
+        await new Promise(requestAnimationFrame);
+      }
+      return seen;
+    });
+    expect(escaped.shards).toBeGreaterThan(0);
+    expect(escaped.outside).toBeGreaterThan(0);
+  });
+
   test("finishes a deliberate combo and the third Light Ball without a fictitious second combo", async ({ page }) => {
     test.setTimeout(60_000);
     const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;

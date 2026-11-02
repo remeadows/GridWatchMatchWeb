@@ -541,6 +541,39 @@
   text-transform: uppercase;
 }
 
+/* What escapes a blast past the board's edge (src/game/blastSpill.ts). Under the result panel. */
+.blast-spill {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.blast-spill-glow {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  margin: -110px 0 0 -110px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--spill-tint) 0%, transparent 68%);
+  will-change: transform, opacity;
+}
+
+.blast-spill-shard {
+  position: absolute;
+  background: linear-gradient(135deg, #b4bdc6, #4a525b 55%, #22272c);
+  clip-path: polygon(14% 0, 100% 22%, 78% 100%, 0 70%);
+  will-change: transform, opacity;
+}
+
+.blast-spill-shard.is-spark {
+  border-radius: 1px;
+  background: var(--spill-tint);
+  box-shadow: 0 0 6px var(--spill-tint);
+  clip-path: none;
+}
+
 /* Pieces flying from the board to their objective (src/game/pieceFlights.ts). */
 .piece-flights {
   position: fixed;

@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { seededRandom } from "./motion";
 import { PRESENTATION_RESOURCE_LIMITS, type PresentationViewportProfile } from "./presentation";
 import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG, VFX_TIMING } from "./vfxTiming";
 
@@ -986,20 +987,6 @@ export function requestShake(scene: Phaser.Scene, intensity: number, durationMs:
   camera.shake(durationMs, capped);
 }
 
-function seededRandom(seed: string): () => number {
-  let state = 2166136261;
-  for (let index = 0; index < seed.length; index += 1) {
-    state ^= seed.charCodeAt(index);
-    state = Math.imul(state, 16777619);
-  }
-  return () => {
-    state += 0x6d2b79f5;
-    let value = state;
-    value = Math.imul(value ^ (value >>> 15), value | 1);
-    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
-    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function assertScene(scope: string, scene: Phaser.Scene): void {
   if (!scene?.add) {

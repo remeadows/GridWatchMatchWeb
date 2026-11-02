@@ -91,6 +91,7 @@ import {
   type PowerUpType,
   type TileType
 } from "../engine";
+import { BlastSpill } from "./blastSpill";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, fallOrderInColumn, orderCascadeMoves, quadraticFlightPath, radialStagger, refillStartRows, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
 import { blastCuePlayback, cascadeFallDurationMs, cascadeFallEase, cascadeJoltPx, cascadeLandingPlan, cascadeReboundPx, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
@@ -288,6 +289,17 @@ const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
 const BLAST_BLOOM_MS = 300;
 const BLAST_DEBRIS_MS = 520;
 const BLAST_DEBRIS_TINT = 0x8f98a1;
+const SPILL_COMBO_RADIUS_CELLS = 5;
+const SPILL_COMBO_SHARDS = 20;
+const SPILL_LIGHTBALL_RADIUS_CELLS = 4.5;
+const SPILL_LIGHTBALL_SHARDS = 14;
+const SPILL_TNT_RADIUS_CELLS = 3.5;
+const SPILL_TNT_SHARDS = 14;
+const SPILL_ROCKET_RADIUS_CELLS = 2.2;
+const SPILL_ROCKET_SHARDS = 8;
+const SPILL_ROCKET_SPREAD_DEG = 80;
+const SPILL_PROPELLER_RADIUS_CELLS = 2;
+const SPILL_PROPELLER_SHARDS = 5;
 const TNT_BLOOM_CELLS = 5.2;
 const TNT_DEBRIS_COUNT = 9;
 const TNT_DEBRIS_REACH_CELLS = 3;
@@ -421,6 +433,7 @@ export class BoardScene extends Phaser.Scene {
   private objectiveClears = new Map<string, ClearEvent>();
   private onAnimationError: BoardSceneData["onAnimationError"] | null = null;
   private playbackWatchdog: Phaser.Time.TimerEvent | null = null;
+  private readonly blastSpill = new BlastSpill();
   private layer: Phaser.GameObjects.Container | null = null;
   private fxUnderlay: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
@@ -761,6 +774,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private disposeVfx(): void {
+    this.blastSpill.dispose();
     this.winTimeline?.cancel();
     this.winTimeline = null;
     this.winTick = null;
@@ -2019,6 +2033,7 @@ export class BoardScene extends Phaser.Scene {
       durationMs: BLAST_BLOOM_MS,
       tint: comboTint(plan.key)
     }, this.vfxCleanup);
+    this.spillBlast(center, SPILL_COMBO_RADIUS_CELLS, SPILL_COMBO_SHARDS, comboTint(plan.key), `combo:${plan.key}`);
     heavyDebris(this, this.fxLayer, center.x, center.y, {
       count: plan.key === "tnt+tnt" ? 14 : TNT_DEBRIS_COUNT,
       reachPx: this.tileSize * (TNT_DEBRIS_REACH_CELLS + 1),
@@ -2500,6 +2515,7 @@ export class BoardScene extends Phaser.Scene {
       durationMs: BLAST_BLOOM_MS,
       tint: 0x9bfff2
     }, this.vfxCleanup);
+    this.spillBlast({ x, y }, SPILL_COMBO_RADIUS_CELLS, SPILL_COMBO_SHARDS, 0x9bfff2, "win");
     shockwave(this, this.fxLayer, x, y, {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
       durationMs: WIN_ROW_DESTRUCTION_POP_MS,
@@ -2957,6 +2973,7 @@ export class BoardScene extends Phaser.Scene {
         durationMs: BLAST_BLOOM_MS,
         tint: 0xff9a43
       }, this.vfxCleanup);
+      this.spillBlast(origin, SPILL_TNT_RADIUS_CELLS, SPILL_TNT_SHARDS, 0xff9a43, `tnt:${positionKey(event.origin)}`);
       this.recordPresentation("shockwave");
       shockwave(this, activeFxLayer, origin.x, origin.y, {
         radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
@@ -3171,6 +3188,9 @@ export class BoardScene extends Phaser.Scene {
               durationMs: BLAST_BLOOM_MS,
               tint: 0x8af1ff
             }, this.vfxCleanup);
+            // The head is leaving the board: what it throws carries on the way it was going.
+            this.spillBlast(end, SPILL_ROCKET_RADIUS_CELLS, SPILL_ROCKET_SHARDS, 0x8af1ff, `rocket:${positionKey(head.destination)}`,
+              orientation === "horizontal" ? (head.direction > 0 ? 0 : 180) : (head.direction > 0 ? 90 : -90));
             impactBurst(this, layer, end.x, end.y, {
               intensity: 0.8,
               lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
@@ -3280,6 +3300,7 @@ export class BoardScene extends Phaser.Scene {
             this.recordPropellerStrike(targets.length);
             impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.9, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
             blastCore(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * PROPELLER_BLOOM_CELLS, durationMs: BLAST_BLOOM_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            this.spillBlast(primaryCenter, SPILL_PROPELLER_RADIUS_CELLS, SPILL_PROPELLER_SHARDS, 0x70f2ea, `propeller:${positionKey(plan.target)}`);
             shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 1.25, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
             heavyDebris(this, layer, primaryCenter.x, primaryCenter.y, {
               count: 5,
@@ -3376,6 +3397,7 @@ export class BoardScene extends Phaser.Scene {
         durationMs: BLAST_BLOOM_MS,
         tint: 0xf15bd7
       }, this.vfxCleanup);
+      this.spillBlast(origin, SPILL_LIGHTBALL_RADIUS_CELLS, SPILL_LIGHTBALL_SHARDS, 0xf15bd7, `lightBall:${positionKey(event.origin)}`);
       shockwave(this, this.fxLayer, origin.x, origin.y, {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
@@ -3652,14 +3674,27 @@ export class BoardScene extends Phaser.Scene {
   private cellClientPoint(row: number, col: number): { x: number; y: number } | null {
     if (!this.snapshot) return null;
     if (row < 0 || row >= this.snapshot.grid.rows || col < 0 || col >= this.snapshot.grid.cols) return null;
-    const center = this.cellCenter({ row, col });
+    return this.scenePointOnPage(this.cellCenter({ row, col }));
+  }
+
+  private scenePointOnPage(point: { x: number; y: number }): { x: number; y: number } {
     const rect = this.game.canvas.getBoundingClientRect();
     const sceneWidth = Math.max(1, this.scale.width);
     const sceneHeight = Math.max(1, this.scale.height);
     return {
-      x: rect.left + (center.x / sceneWidth) * rect.width,
-      y: rect.top + (center.y / sceneHeight) * rect.height
+      x: rect.left + (point.x / sceneWidth) * rect.width,
+      y: rect.top + (point.y / sceneHeight) * rect.height
     };
+  }
+
+  /** The part of a blast that escapes the canvas (src/game/blastSpill.ts). Dark board only. */
+  private spillBlast(at: { x: number; y: number }, radiusCells: number, shards: number, tint: number, seed: string, headingDeg?: number): void {
+    if (this.boardTheme !== "darkRealism" || this.reducedMotion) return;
+    const page = this.scenePointOnPage(at);
+    const cssTile = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    const flown = this.blastSpill.burst(page.x, page.y, { radiusPx: cssTile * radiusCells, shards, tint, seed,
+      ...(headingDeg === undefined ? {} : { headingDeg, spreadDeg: SPILL_ROCKET_SPREAD_DEG }) });
+    if (flown > 0) this.recordPresentation("blast-spill", `${seed}:${flown}`);
   }
 
   private setDomPointerCapture(canvas: HTMLCanvasElement, pointerId: number): void {
