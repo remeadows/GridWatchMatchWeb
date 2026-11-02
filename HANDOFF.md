@@ -37,8 +37,11 @@ gameplay onto one screen." He also asked what coins do.
   restocks them; the store is a disabled stub. A Play On press without 500 coins ends the mission.
 - **Verified:** unit 622/622. The 14 new and banner e2e pass on Chromium and WebKit at phone size,
   including no page scroll at all three sizes. Result panel, banner and level read by eye at 440x748.
-- **Not done / open.** Full e2e on both themes: see the note below this list when it lands. No real
-  phone has seen `331b3cb-dev`, so `100dvh` under Chrome's bars on iOS is unmeasured.
+  Full e2e at `331b3cb`: dark 262 passed; classic 232 passed, 30 skipped (dark-only tests). This is
+  the first full dark pass since the swap-to-impact limits moved, so that open item is closed.
+- **Not done / open.** No real phone has seen `331b3cb-dev`, so `100dvh` under Chrome's bars on iOS
+  is unmeasured. His call: whether coins should buy power-ups. Still open: the arrival tick, bloom
+  strength, iOS timings, seven dependency PRs.
 
 ## 🟡 2026-11-02: Royal Match feel, part 3: the end of a level, and blasts past the board. On the dev site as `1c07acc-dev`; NOT pushed, NOT in production
 
