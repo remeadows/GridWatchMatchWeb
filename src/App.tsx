@@ -5,10 +5,12 @@ import { heroes } from "./data/heroes";
 import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
-import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
+import { clearancePass, coinPacks, coinsPerLeftoverMove, playOnCost, playOnExtraMoves } from "./data/store";
+import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_SEQUENCE_LEAD_IN_MS } from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
 import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
+import { winSequenceDurationMs } from "./game/motion";
 import { landPiece, launchPiece, objectiveCountShown, skipPiece, type ObjectiveFlightCounts } from "./game/objectiveFlight";
 import { PieceFlights } from "./game/pieceFlights";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
@@ -38,6 +40,8 @@ import {
   isAreaUnlocked,
   isHeroUnlocked,
   isLevelUnlocked,
+  levelCoinReward,
+  type LevelCoinReward,
   levelSeed,
   starsForLevel
 } from "./state/progress";
@@ -499,7 +503,7 @@ function TopBar({ save, screen, navigate }: { save: SaveState; screen: Screen; n
         <button className={active === "settings" ? "active" : ""} onClick={() => navigate({ name: "settings" })}>Settings</button>
       </nav>
       <div className="currency" aria-label={`${save.coins} coins`}>
-        <span>Credits</span>
+        <span>Coins</span>
         <strong>{save.coins.toLocaleString()}</strong>
       </div>
     </header>
@@ -683,6 +687,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
   const [winBanner, setWinBanner] = useState(false);
+  const [winReward, setWinReward] = useState<LevelCoinReward | null>(null);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
   const [status, setStatus] = useState<"loading" | "running" | "resolving" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
@@ -784,6 +789,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
     setSubmitState({ kind: "idle" });
     setWinBanner(false);
+    setWinReward(null);
     void loadLevel(levelId).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
@@ -866,7 +872,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     tickBossClock(false);
     const currentSnapshot = engine.snapshot;
     const stars = starsEarned(currentSnapshot);
-    const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed);
+    const leftoverMoves = Math.max(0, currentSnapshot.moveLimit - currentSnapshot.moveCount);
+    setWinReward(levelCoinReward(saveRef.current, currentLevel.id, stars, leftoverMoves, playOnUsed));
+    const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed, leftoverMoves);
     commitSave(next);
     saveRef.current = next;
 
@@ -1236,6 +1244,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         })}
       </div>
 
+      <div className="game-board-slot">
       <div className="game-board-panel">
         <GameCanvas
           key={`${levelId}:${runId}`}
@@ -1250,6 +1259,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           onAnimationError={handleBoardAnimationError}
           onPieceCollected={handlePieceCollected}
         />
+      </div>
       </div>
 
       <div className="booster-tray">
@@ -1282,13 +1292,17 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           );
         })}
         <div className="queue-meter">Queue {queueDepth}/3</div>
-        {isTestMode && <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>}
-        {isTestMode && <button data-testid="qa-win" onClick={qaWin}>QA Win</button>}
-        {isTestMode && <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>}
-        {isTestMode && <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>}
-        {isTestMode && <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>}
-        {isTestMode && <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>}
-        {isTestMode && <button data-testid="qa-boss-timeout" onClick={requestBossExpiry}>QA Boss Timeout</button>}
+        {isTestMode && (
+          <div className="qa-tools">
+            <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>
+            <button data-testid="qa-win" onClick={qaWin}>QA Win</button>
+            <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>
+            <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>
+            <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>
+            <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>
+            <button data-testid="qa-boss-timeout" onClick={requestBossExpiry}>QA Boss Timeout</button>
+          </div>
+        )}
       </div>
 
       {boosterDrag && (
@@ -1334,7 +1348,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       {status === "playOn" && (
         <ResultModal
           title="Mission at risk"
-          message={`Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves.`}
+          message={`Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves. You have ${save.coins.toLocaleString()}.`}
           primary="Play On"
           secondary="End Mission"
           onPrimary={acceptPlayOn}
@@ -1344,7 +1358,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           }}
         />
       )}
-      {winBanner && <WinBanner levelId={levelId} />}
+      {winBanner && <WinBanner levelId={levelId} rows={snapshot?.grid.rows ?? 0} reward={winReward} />}
       {status === "won" && snapshot && (
         <ResultModal
           title="Grid secured"
@@ -1353,6 +1367,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           message={activeBoardTheme() === "darkRealism"
             ? `Score ${score.toLocaleString()}.`
             : `${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
+          coins={winReward && winReward.total > 0 ? <ResultCoins reward={winReward} balance={save.coins} /> : undefined}
           note={submitStatusLine(submitState)}
           primary={levelId < 100 ? "Next Level" : "Operations"}
           secondary="Level Select"
@@ -1604,7 +1619,30 @@ const WIN_BANNER_SPARKS = Array.from({ length: 18 }, (_, index) => ({
   delay: 120 + ((index * 53) % 240)
 }));
 
-function WinBanner({ levelId }: { levelId: number }) {
+// Leftover moves turn into coins while the board's rows blow away.
+function WinPayout({ moves, rows }: { moves: number; rows: number }) {
+  const [turned, setTurned] = useState(0);
+  useEffect(() => {
+    const spanMs = winSequenceDurationMs(rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS);
+    const startedAt = performance.now() + WIN_SEQUENCE_LEAD_IN_MS;
+    let frame = 0;
+    const tick = (now: number) => {
+      const next = Math.max(0, Math.min(moves, Math.ceil(moves * (now - startedAt) / spanMs)));
+      setTurned(next);
+      if (next < moves) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [moves, rows]);
+  return (
+    <div className="dr-win-payout" data-testid="win-payout">
+      <span>{moves - turned} moves left</span>
+      <strong><i className="coin-mark" />+{(turned * coinsPerLeftoverMove).toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function WinBanner({ levelId, rows, reward }: { levelId: number; rows: number; reward: LevelCoinReward | null }) {
   return (
     <div className="dr-win-banner" data-testid="win-banner" aria-hidden="true">
       <div className="dr-win-sparks">
@@ -1616,6 +1654,7 @@ function WinBanner({ levelId }: { levelId: number }) {
         <span className="dr-win-kicker">Level {levelId}</span>
         <span className="dr-win-word">Grid</span>
         <span className="dr-win-word">Secured</span>
+        {reward && reward.moveCoins > 0 && <WinPayout moves={reward.leftoverMoves} rows={rows} />}
       </div>
     </div>
   );
@@ -1633,11 +1672,23 @@ function ResultStars({ earned, still }: { earned: number; still: boolean }) {
   );
 }
 
-function ResultModal({ title, stars, still = false, message, note, primary, secondary, onPrimary, onSecondary }: {
+function ResultCoins({ reward, balance }: { reward: LevelCoinReward; balance: number }) {
+  return (
+    <div className="result-coins" data-testid="result-coins">
+      <strong><i className="coin-mark" />+{reward.total.toLocaleString()} coins</strong>
+      <span>Stars +{reward.starCoins}</span>
+      {reward.moveCoins > 0 && <span>{reward.leftoverMoves} moves left +{reward.moveCoins.toLocaleString()}</span>}
+      <small>You now have {balance.toLocaleString()}</small>
+    </div>
+  );
+}
+
+function ResultModal({ title, stars, still = false, message, coins, note, primary, secondary, onPrimary, onSecondary }: {
   title: string;
   stars?: number;
   still?: boolean;
   message: string;
+  coins?: React.ReactNode;
   note?: React.ReactNode;
   primary: string;
   secondary: string;
@@ -1650,6 +1701,7 @@ function ResultModal({ title, stars, still = false, message, note, primary, seco
         <h2>{title}</h2>
         {stars !== undefined && <ResultStars earned={stars} still={still} />}
         <p>{message}</p>
+        {coins}
         {note}
         <div className="modal-actions">
           <button onClick={onSecondary}>{secondary}</button>

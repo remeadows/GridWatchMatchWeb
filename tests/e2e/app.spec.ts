@@ -113,6 +113,68 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
   await expect(page.getByText("Level 2")).toBeVisible();
 });
 
+test("the coins for a first win are counted on the banner and itemised on the result panel", async ({ page }) => {
+  await page.goto("./?gwTestMode=1&level=1");
+  const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+  test.skip(theme !== "darkRealism", "the banner is the dark board's");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-win-animated").click();
+  await expect(page.getByTestId("win-payout")).toContainText(/moves left/i);
+  await expect(page.getByTestId("win-payout")).toContainText(/\+[1-9]\d*/);
+  const coins = page.getByTestId("result-coins");
+  await expect(coins).toBeVisible({ timeout: 8_000 });
+  await expect(coins).toContainText(/stars \+\d+/i);
+  await expect(coins).toContainText(/\d+ moves left \+\d+/i);
+});
+
+test("a replayed level pays no coins and shows no payout", async ({ page }) => {
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-win").click();
+  await expect(page.getByTestId("result-coins")).toBeVisible();
+  const total = page.locator("header.top-bar .currency strong");
+  const after = await total.textContent();
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-win-animated").click();
+  await expect(page.getByText("Grid secured", { exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByTestId("win-payout")).toHaveCount(0);
+  await expect(page.getByTestId("result-coins")).toHaveCount(0);
+  await expect(total).toHaveText(after!);
+});
+
+for (const [width, height] of [[440, 748], [393, 652], [375, 550]] as const) {
+  test(`at ${width}x${height} the whole game fits one screen, with the power-ups in reach`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.goto("./?gwTestMode=1&level=1");
+    const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+    test.skip(theme !== "darkRealism", "the archived classic board keeps its scrolling page");
+    await waitForBoardReady(page);
+    // The test-only tools sit below the fold on purpose; a player has none of them.
+    await page.addStyleTag({ content: ".qa-tools, .delta-line { display: none !important; }" });
+
+    await expect(page.locator("header.top-bar")).toBeHidden();
+    await expect(page.locator(".game-hud").getByRole("button", { name: "Back" })).toBeVisible();
+    const box = await page.locator(".game-board-panel").boundingBox();
+    const tray = await page.locator(".booster-tray").boundingBox();
+    expect(box!.width).toBeCloseTo(box!.height, 0);
+    expect(box!.width).toBeGreaterThanOrEqual(240);
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(tray!.y);
+    expect(tray!.y + tray!.height).toBeLessThanOrEqual(height);
+    const overflow = await page.evaluate(() => document.documentElement.scrollHeight - window.innerHeight);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}
+
+test("a wide screen keeps its top bar in a level", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await expect(page.locator("header.top-bar")).toBeVisible();
+});
+
 test("a won level plays the banner over the board, then lands its stars on the result panel", async ({ page }) => {
   await page.goto("./?gwTestMode=1&level=1");
   const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);

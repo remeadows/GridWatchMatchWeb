@@ -23,3 +23,4 @@ export const clearancePass: StoreItem = {
 
 export const playOnCost = 500;
 export const playOnExtraMoves = 5;
+export const coinsPerLeftoverMove = 5;

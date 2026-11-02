@@ -1,4 +1,5 @@
 import { areaForLevel, areas, type AreaInfo } from "../data/areas";
+import { coinsPerLeftoverMove } from "../data/store";
 import type { SaveState } from "./save";
 
 export function starsForLevel(save: SaveState, levelId: number): number {
@@ -43,14 +44,39 @@ export function isHeroUnlocked(save: SaveState, unlockAreaId: number | null): bo
   return area ? isAreaComplete(save, area) : false;
 }
 
+export interface LevelCoinReward {
+  starCoins: number;
+  leftoverMoves: number;
+  moveCoins: number;
+  total: number;
+}
+
+// Coins are paid once per level, so replaying an easy one cannot farm them, and not after Play On,
+// whose moves were bought.
+export function levelCoinReward(
+  save: SaveState,
+  levelId: number,
+  stars: number,
+  leftoverMoves: number,
+  playOnUsed: boolean
+): LevelCoinReward {
+  const firstWin = stars > 0 && (save.levels[String(levelId)]?.stars ?? 0) === 0;
+  if (playOnUsed || !firstWin) return { starCoins: 0, leftoverMoves, moveCoins: 0, total: 0 };
+  const starCoins = stars * 10;
+  const moveCoins = leftoverMoves * coinsPerLeftoverMove;
+  return { starCoins, leftoverMoves, moveCoins, total: starCoins + moveCoins };
+}
+
 export function awardLevelCompletion(
   save: SaveState,
   levelId: number,
   stars: number,
   score: number,
-  playOnUsed: boolean
+  playOnUsed: boolean,
+  leftoverMoves: number
 ): SaveState {
   const next = cloneSave(save);
+  next.coins += levelCoinReward(save, levelId, stars, leftoverMoves, playOnUsed).total;
   const current = next.levels[String(levelId)];
   const bestStars = Math.max(current?.stars ?? 0, stars);
   const bestScore = Math.max(current?.score ?? 0, score);
@@ -59,9 +85,6 @@ export function awardLevelCompletion(
     score: bestScore,
     completedAt: current?.completedAt ?? new Date().toISOString()
   };
-  if (!playOnUsed && stars > 0 && (current?.stars ?? 0) === 0) {
-    next.coins += stars * 10;
-  }
   next.completedTutorial = true;
   next.tutorialReplayRequested = false;
   return next;

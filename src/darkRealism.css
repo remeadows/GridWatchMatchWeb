@@ -1033,6 +1033,26 @@
   text-shadow: 0 0 22px rgba(112, 242, 234, 0.42);
 }
 
+.dr-win-payout {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.dr-win-payout strong {
+  color: var(--gold);
+  font-size: 1.3rem;
+  letter-spacing: 0.04em;
+}
+
 .dr-win-sparks {
   position: absolute;
   top: 50%;
@@ -1135,8 +1155,8 @@
 
 /* ---- Phone: the navigation is a tab bar at the foot of the screen ------------------------- */
 /* The same five buttons, in the same element; only where they sit changes. The icons are
-   masks, so each takes its button's colour. Not on the game screen: there the board and the
-   equipment dock need the height, so the navigation stays a compact row under the brand. */
+   masks, so each takes its button's colour. Not on the game screen: a level gives the whole top
+   bar up to the board (the end of this file), and only a screen too short for that keeps it. */
 @media (max-width: 760px) {
   :root[data-board-theme="darkRealism"] .app-shell:not(:has(.game-layout)) {
     padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px));
@@ -1254,4 +1274,104 @@
     font-size: 0.56rem;
     letter-spacing: 0.12em;
   }
+}
+
+/* ---- Phone: a level fits one screen -------------------------------------------------------- */
+/* Russ, 2026-11-02: reaching the power-ups meant scrolling, and a touch in the wrong place costs a
+   move. The top bar stands aside for the length of a level (Back is in the HUD) and the board
+   takes whatever the HUD, objective and equipment dock leave, so a shorter phone fits too. A
+   screen too short for that, such as a phone on its side, keeps the scrolling page. */
+@media (max-width: 760px) and (min-height: 480px) {
+  html:has(.game-layout),
+  body:has(.game-layout) {
+    overscroll-behavior: none;
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:has(.game-layout) {
+    min-height: 0;
+  }
+
+  :root[data-board-theme="darkRealism"] .app-shell:has(.game-layout) .top-bar {
+    display: none;
+  }
+
+  :root[data-board-theme="darkRealism"] .game-layout {
+    position: relative;
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    gap: 6px;
+    width: calc(100vw - 16px);
+    height: calc(100dvh - var(--gw-account-bar-height, 0px));
+    padding: 6px 0 calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+
+  :root[data-board-theme="darkRealism"] .game-board-slot {
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    container-type: size;
+  }
+
+  :root[data-board-theme="darkRealism"] .game-board-panel {
+    width: min(100cqw, 100cqh);
+  }
+
+  /* Messages lie over the top of the board for a moment instead of taking its height. */
+  :root[data-board-theme="darkRealism"] .game-layout > .toast {
+    position: absolute;
+    top: 96px;
+    left: 50%;
+    z-index: 15;
+    width: max-content;
+    max-width: 100%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    animation: dr-toast-leave 300ms ease-out 3s both;
+  }
+
+  /* The clear count is a test signal: a player has no use for it on a phone. */
+  :root[data-board-theme="darkRealism"] .game-layout:not(:has(.qa-tools)) > .delta-line {
+    display: none;
+  }
+
+  /* Test mode only: its tools wait below the fold, so the level above them keeps a player's size. */
+  :root[data-board-theme="darkRealism"] .game-layout > .delta-line {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    left: 0;
+    pointer-events: none;
+  }
+
+  :root[data-board-theme="darkRealism"] .booster-tray .qa-tools {
+    position: absolute;
+    top: calc(100% + 48px);
+    right: 0;
+    left: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  /* The build badge would sit on the dock: it moves up into the account bar. */
+  :root[data-board-theme="darkRealism"] .app-shell:has(.game-layout) .dev-build-badge {
+    top: 11px;
+    bottom: auto;
+    left: 50%;
+    z-index: 1001;
+    transform: translateX(-50%);
+  }
+}
+
+@media (max-width: 760px) and (min-height: 480px) and (max-height: 700px) {
+  :root[data-board-theme="darkRealism"] .booster-tray {
+    padding-block: 4px;
+  }
+
+  :root[data-board-theme="darkRealism"] .booster-tray .queue-meter {
+    display: none;
+  }
+}
+
+@keyframes dr-toast-leave {
+  to { opacity: 0; }
 }
