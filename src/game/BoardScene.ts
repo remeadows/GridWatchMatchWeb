@@ -1742,6 +1742,7 @@ export class BoardScene extends Phaser.Scene {
       const event = delta.powerUpEvents[0];
       if (combo) this.cueReducedMotionAudio("comboImpact");
       else if (event) this.cueReducedMotionAudio(reducedMotionPowerUpCue(event));
+      onComplete?.();
       return;
     }
 
@@ -2852,7 +2853,8 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPowerUpEffect(event: PowerUpEvent, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer) return;
+    // An effect with nothing to do still reports back: the step after it is waiting on this call.
+    if (!this.fxLayer) { onImpact?.(); return; }
     this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
     if (event.powerUpType.kind === "tnt") {
@@ -2889,7 +2891,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playTntPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer) return;
+    if (!this.fxLayer) { onImpact?.(); return; }
     const plan = tntDetonationPlan(event.origin, event.affectedPositions);
     this.recordPresentation("tnt-arm");
     this.recordPresentation("powerup-charge", "tnt");
@@ -3024,7 +3026,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
+    if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") { onImpact?.(); return; }
     const layer = this.fxLayer;
     const texture = event.powerUpType.orientation === "horizontal"
       ? powerUpTextures.rocket_horizontal
@@ -3197,12 +3199,14 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot) return;
+    if (!this.fxLayer || !this.snapshot) { onImpact?.(); return; }
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
-    if (targets.length === 0) return;
+    // A blast that emptied the board leaves a chained propeller nothing to fly at.
+    if (targets.length === 0) { onImpact?.(); return; }
     if (this.reducedMotion) {
       this.recordPropellerStrike(targets.length);
+      onImpact?.();
       return;
     }
 
@@ -3308,12 +3312,13 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot) return;
+    if (!this.fxLayer || !this.snapshot) { onImpact?.(); return; }
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
-    if (targets.length === 0) return;
+    if (targets.length === 0) { onImpact?.(); return; }
     if (this.reducedMotion) {
       this.recordLightBallZap(targets.length);
+      onImpact?.();
       return;
     }
 

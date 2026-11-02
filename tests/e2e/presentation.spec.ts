@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { BoardEngine, type BoardAction, type LevelDefinition } from "../../src/engine";
+import { BoardEngine, type BoardAction, type LevelDefinition, type TileType } from "../../src/engine";
 import { levelSeed } from "../../src/state/progress";
 import type { CanonicalComboKey, PresentationTraceEntry } from "../../src/game/presentation";
 import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
@@ -665,6 +665,25 @@ test.describe("engine-driven power-up chains", () => {
     expect(traceEntry(trace, "lightBall-dim").atMs).toBeGreaterThan(traceEntry(trace, "combo-impact").atMs);
     expect(traceEntry(trace, "lightBall-undim").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
   });
+
+  // Russ's phone recording of 2026-11-02: Light Ball + rocket cleared all 49 cells at once, so the
+  // chained propellers woke up with nothing left to hit and the refill never came.
+  for (const chained of ["propeller", "lightBall"] as const) {
+    test(`refills an emptied board when a chained ${chained} finds no target`, async ({ page }) => {
+      test.setTimeout(60_000);
+      const level = structuredClone(resolutionSpecimens.find(item => item.name === "combo-rocket_h-lightBall")!.level);
+      const tiles: Record<string, TileType> = { K: "key", P: "packet", R: "threat", S: "firewall" };
+      const powerUps: Record<string, string> = { B: "lightBall", C: chained, N: "rocket_v", T: "tnt" };
+      level.cellMap = ["KPRPRKP", "PKTPRSK", "SKSKCRP", "SRCSKKS", "RKKSPRS", "BNSPSKP", "KPPSSKR"].map(row => [...row].map(cell => ({
+        generator: null, locked: false, overlay: null, underlay: null, tile: tiles[cell] ?? null, powerUp: powerUps[cell] ?? null
+      })));
+      const { trace, resolution } = await playRecordedPowerUpAction(page, level, { kind: "swap", from: { row: 5, col: 0 }, to: { row: 5, col: 1 } });
+      const stranded = resolution.steps.flatMap(step => step.activations).filter(record => !record.isRepeat && record.event.powerUpType.kind === chained);
+      expect(stranded.length).toBeGreaterThan(0);
+      expect(stranded.every(record => record.event.affectedPositions.length === 0)).toBe(true);
+      expect(trace.some(entry => entry.kind === "cascade-start")).toBe(true);
+    });
+  }
 
   test("waits for both secondary effects when their durations differ", async ({ page }) => {
     test.setTimeout(60_000);
