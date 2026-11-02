@@ -2,6 +2,38 @@
 
 Last updated: 2026-11-02
 
+## 🟡 2026-11-02: Empty-board hang fixed, first real-phone measurement. On the dev site as `341f830-dev`; NOT pushed; **the hang is still in production**
+
+**Russ's words, 2026-11-02.** He asked "How do we measure a real phone?", recorded `02d99b0-dev` on
+his iPhone (Drive, `GridWatchArt / 4 - GridWatch Match`, `ScreenRecording_11-02-2026 07-02-48_1.mp4`)
+and said "Screen capture is in the folder. It catches a big bug towards the end."
+
+- **The bug.** Level 4, 25/29 moves, Light Ball swapped with Rocket V. All 49 cells cleared in one
+  step; the chained TNT and two propellers then ran with the board already empty. The engine gave
+  those propellers no targets (correct), and `playPropellerPowerUpEffect` returned without calling
+  back, so the step never finished and the refill never came. `playLightBallPowerUpEffect` had the
+  same hole. The recording's score proves the stopping point: 1,441 is 510 plus 49/61 of 1,160.
+- **Not caused by the feel work.** The same two lines are on `main`, so **production has this hang**
+  whenever a blast empties the board before a propeller or Light Ball fires.
+- **Fix (`341f830`).** Every early return in the power-up effects now reports back. New e2e case
+  rebuilds his exact board and move, for a chained propeller and a chained Light Ball; it failed
+  before the fix and passes on both devices. Refill frames read by eye on the replay.
+- **Recovery is harsh and left as it was.** The watchdog budget doubles every step's worst case, so
+  this resolution would have sat for about 80 s (measured 81.5 s in Chrome) and then failed the
+  mission with "Board playback was interrupted. Retry the mission." Not changed.
+- **Verified at `341f830`:** unit 613/613; e2e dark 244 passed; classic fallback 224 passed, 20
+  skipped. The upload to the dev site answered 200; Russ has not replayed it.
+- **Phone measured, one recording, his iPhone (1320×2868), Chrome.** The recorder runs at 60 fps.
+  Frame interval during play: median 16.67 ms, worst 18 ms, none over 30 ms, including the 49-tile
+  blast (1.32% of its active frames stuck). During movement 3.6% of frames were stuck against 0.48%
+  and 0.16% on his two Royal Match recordings, measured the same way. The longest stuck runs are 3
+  frames at the end of a swap: that is `MATCH_RECOGNITION_HOLD_MS` (30 ms), a deliberate hold, not a
+  dropped frame; Royal Match pops on the next frame. So the 3× canvas shows no cost on this phone
+  and a `?hidpi=0` recording was not needed. Limits: the recorder itself takes some power and caps
+  at 60, this is one phone, and Android and Safari proper are unmeasured. Scripts stayed in the
+  session scratch folder: raw frames from ffmpeg, frame differences over the board, stuck means
+  under 12% of the motion around it.
+
 ## 🟡 2026-11-02: Royal Match feel, part 2: pieces move as one train. Local on `dev/feel-pieces-effects`; NOT pushed, NOT in production
 
 **Russ's words, 2026-11-02.** After playing part 1 on the dev site: "I'm happy with effects so far",

@@ -278,7 +278,9 @@ What this does and does not show: the dark board is lighter to download and hold
 memory, and on this Mac both themes sit on the 60 Hz frame cap at every size, with the CPU slowed
 four times as well. Load times are over loopback, so they compare the two themes and say nothing
 about a network. The dark canvas has four times the pixels on the desktop and nine times on the
-phone; a slowed CPU does not model a phone's GPU, so **a real phone's frame rate is unmeasured.**
+phone; a slowed CPU does not model a phone's GPU, so that said nothing about a phone. **Measured on
+Russ's iPhone on 2026-11-02 (one screen recording, 60 fps):** no frame over 18 ms in play, including
+a 49-tile blast. Android and Safari proper are unmeasured; see the top `HANDOFF.md` entry.
 
 ### Acceptance list (brief §8)
 
