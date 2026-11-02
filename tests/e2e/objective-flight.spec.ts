@@ -35,13 +35,27 @@ const finished = (page: Page) => page.waitForFunction(() =>
 test("each piece that counts flies up to its objective, and the count rises only as they land", async ({ page }) => {
   await openLevel(page);
   await expect(chip(page)).toContainText("0/20");
+  // One flight, watched every frame from inside the page: the pop follows the swap so closely that
+  // a flight can be most of the way there by the time a query from out here reaches it.
+  const track = page.evaluate(() => new Promise<{ y: number; count: string }[]>((resolve) => {
+    const seen: { y: number; count: string }[] = [];
+    let flight: Element | null = null;
+    const look = () => {
+      flight ??= document.querySelector(".piece-flight");
+      if (flight && !flight.isConnected) { resolve(seen); return; }
+      if (flight) {
+        const box = flight.getBoundingClientRect();
+        seen.push({ y: box.top + box.height / 2, count: document.querySelector('[data-objective-id="collect"]')?.textContent ?? "" });
+      }
+      requestAnimationFrame(look);
+    };
+    look();
+  }));
   await swap(page);
-  await expect(flights(page).first()).toBeVisible();
-  await expect(chip(page)).toContainText("0/20");
-  const first = await flights(page).first().boundingBox();
-  await page.waitForTimeout(120);
-  const later = await flights(page).first().boundingBox();
-  expect(later!.y).toBeLessThan(first!.y);
+  const path = await track;
+  expect(path.length).toBeGreaterThan(5);
+  expect(path.at(-1)!.y).toBeLessThan(path[0].y);
+  expect(path[0].count).toContain("0/20");
 
   await expect(flights(page)).toHaveCount(0);
   await finished(page);

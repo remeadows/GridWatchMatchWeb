@@ -196,6 +196,8 @@ Not done, or done only in part. None of it blocks playing the dev build.
 - **Effects are the classic effects with bigger blasts on top** (2026-11-01, `HANDOFF.md`). Sizes
   now follow the tile on a 3× canvas, and blasts gained blooms, beams and metal debris. Match
   bursts, rocket trails and the rest keep their shapes and timing, and nothing passes the canvas.
+- **Pieces follow Royal Match's measured motion** (2026-11-02, `HANDOFF.md`), except that the next
+  match still waits for the last landing, where Royal Match starts it while pieces are landing.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were
   checked for layout at both sizes, not designed screen by screen against a concept.
 - **Heap after repeated level entry** climbs about 0.16 MB per entry over thirty entries, by the

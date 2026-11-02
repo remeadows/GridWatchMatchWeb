@@ -1,6 +1,42 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-11-01
+Last updated: 2026-11-02
+
+## 🟡 2026-11-02: Royal Match feel, part 2: pieces move as one train. Local on `dev/feel-pieces-effects`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** After playing part 1 on the dev site: "I'm happy with effects so far",
+then "One item I would address is the smoothness animation of pieces moving like you saw in royal
+match game." Rules as before; numbers are measured from his recordings, nothing else is taken.
+
+- **Measured (60 fps, `03-20-53` recording, around 40.9 s and 57.6 s).** Every piece at every distance
+  sits on one curve: it leaves already moving at 3.6 cells/s and gains 29 cells/s². Each piece in a
+  column leaves 3 frames (50 ms) after the one below it. Refills are the tail of the same train,
+  spaced a cell apart. A landing stops dead with no squash or stretch (piece height stays constant)
+  and bobs up 0.02 cell after a two-cell drop, 0.06 after five, over about 250 ms. A swap takes 10
+  frames, full speed then slowing (fits Cubic.easeOut), and the pop starts on the next frame.
+- **What was wrong here.** Gravity and refill were two separate steps: everything fell, landed,
+  hopped and settled, and only then did new pieces start. Every refilling piece also started on one
+  spot above the board, stacked on the others. Falls started from rest (250 ms for one cell against
+  166), and a 140 ms hold sat between the swap and the pop.
+- **What changed.** The gravity step plays its refill too (`playResolutionSteps`), so a column comes
+  down once. `refillStartRows` spaces refills above the board, `fallOrderInColumn` staggers them,
+  `cascadeFallDurationMs` and `cascadeFallEase` are the measured curve, `cascadeReboundPx` the bob.
+  `clipToBoardTop` cuts entering pieces along the board's top edge by cropping their images: a mask
+  on the layer would add a full-canvas pass per frame on a phone. Swap 165 ms Cubic.easeOut with no
+  lift or set-down (was 175 + 60). Holds 30 and 20 ms (were 140 and 100). Shuffles keep their 235 ms.
+  **His October "more weight" squash, hop and stretch are gone from falls and swaps**; the rebound,
+  landing sound and board jolt carry the weight now. Creation landings keep theirs.
+- **Not copied:** Royal Match starts the next match while pieces are still landing. Here the next
+  step waits for the last landing and its bob. The bob is 160 ms, not 250, so a chain does not wait
+  on it. That concurrency would be an engine-order change, not a timing change.
+- **Verified at `7e8a016`:** unit 613/613; e2e on the dark default 238 passed, 2 failed; on a
+  classic-default build 220 passed, 20 skipped. Both failures were one test in
+  `objective-flight.spec.ts`, which sampled a flight from outside the page twice: with the pop this
+  close behind the swap the flight was late in its path by then. It now watches one flight every
+  frame in the page, and that spec passed 24/24 (three repeats, both devices); nothing else was
+  rerun after that test-only change. Frames read by eye for a TNT refill and an ordinary match
+  (`motion-probe.mjs`): columns come down spaced, refills are cut at the board's top edge. Not
+  measured: a real phone, and the frame rate of this change, which adds no drawing of note.
 
 ## 🟡 2026-11-01: Royal Match feel, part 1: flying pieces and bigger effects. On the dev site; NOT pushed, NOT in production (branch `dev/feel-pieces-effects`)
 
