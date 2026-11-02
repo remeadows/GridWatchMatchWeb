@@ -116,6 +116,27 @@ test.describe("ordered cascade playback", () => {
     expect(trace.filter(entry => entry.kind === "cascade-land")).toHaveLength(1);
   });
 
+  test("brings a column's drop and its refill down as one train", async ({ page }) => {
+    await page.goto("./?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    // One fall for each drop and refill pair, not one each.
+    expect(trace.filter(entry => entry.kind === "cascade-start")).toHaveLength(frames.filter(frame => frame.kind === "gravity").length);
+    const plans = trace.filter(entry => entry.kind === "cascade-fall-plan").map(entry => parseCascadeFallPlan(entry.detail));
+    const entering = plans.filter(plan => plan.entering);
+    expect(entering.length).toBeGreaterThan(0);
+    expect(plans.some(plan => !plan.entering)).toBe(true);
+    // A refill waits in whole cells above the board, not stacked on one spot, and leaves in turn.
+    expect(entering.every(plan => Number.isInteger(plan.distanceCells) && plan.distanceCells >= 1)).toBe(true);
+    expect(plans.every(plan => plan.delayMs % 50 === 0)).toBe(true);
+    expect(entering.some(plan => plan.delayMs > 0)).toBe(true);
+    expect(trace.filter(entry => entry.kind === "cascade-start").length).toBeLessThan(plans.length);
+  });
+
   test("reveals a created rocket before the same occupant falls and is tapped", async ({ page }) => {
     await page.goto("./?gwTestMode=1&level=1");
     await waitForBoardReady(page);
@@ -206,14 +227,14 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(230);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(250);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(120);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(140);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(220);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(260);
-    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(250);
+    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(150);
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(1_080);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_300);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(600);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_000);
     expect(cascadeStart.detail).toBe("occupants-unique");
     // Three pieces dropping one cell is an ordinary landing: nothing knocks the board.
     expect(trace.some((entry) => entry.kind === "cascade-jolt" || entry.kind === "powerup-knock")).toBe(false);
@@ -1074,10 +1095,10 @@ function traceEntry(trace: PresentationTraceEntry[], kind: string): Presentation
   return entry;
 }
 
-function parseCascadeFallPlan(detail: string | undefined): { distanceCells: number; durationMs: number } {
-  const match = detail?.match(/^distanceCells=([\d.]+);durationMs=(\d+)$/);
+function parseCascadeFallPlan(detail: string | undefined): { distanceCells: number; durationMs: number; delayMs: number; entering: boolean } {
+  const match = detail?.match(/^distanceCells=([\d.]+);durationMs=(\d+);delayMs=(\d+);entering=(true|false)$/);
   if (!match) throw new Error(`Invalid cascade fall plan: ${detail ?? "missing"}`);
-  return { distanceCells: Number(match[1]), durationMs: Number(match[2]) };
+  return { distanceCells: Number(match[1]), durationMs: Number(match[2]), delayMs: Number(match[3]), entering: match[4] === "true" };
 }
 
 async function comboPreviewState(page: Page): Promise<{

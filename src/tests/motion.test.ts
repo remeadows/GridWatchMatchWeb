@@ -6,9 +6,11 @@ import { cascadePresentationPlan } from "../game/motion";
 import { cascadeHiddenDestinations } from "../game/motion";
 import { clearedKeysFromDelta } from "../game/motion";
 import { computeCentroidStagger } from "../game/motion";
+import { fallOrderInColumn } from "../game/motion";
 import { orderCascadeMoves } from "../game/motion";
 import { quadraticFlightPath } from "../game/motion";
 import { radialStagger } from "../game/motion";
+import { refillStartRows } from "../game/motion";
 import { resolvedPopKeys } from "../game/motion";
 import { rowDestructionOrder } from "../game/motion";
 import { seededAngleJitter } from "../game/motion";
@@ -350,6 +352,36 @@ function simulateRemap(moves: ReadonlyArray<MoveEvent>): Map<string, string> {
   }
   return occupants;
 }
+
+describe("refillStartRows", () => {
+  it("stacks a column's refill above the board, the deepest piece nearest", () => {
+    const rows = refillStartRows([
+      { position: { row: 0, col: 2 } },
+      { position: { row: 2, col: 2 } },
+      { position: { row: 1, col: 2 } },
+      { position: { row: 0, col: 5 } }
+    ]);
+    expect(rows.get("2,2")).toBe(-1);
+    expect(rows.get("1,2")).toBe(-2);
+    expect(rows.get("0,2")).toBe(-3);
+    expect(rows.get("0,5")).toBe(-1);
+  });
+
+  it("drops every piece of a refilled hole the same distance", () => {
+    const rows = refillStartRows([{ position: { row: 0, col: 0 } }, { position: { row: 1, col: 0 } }, { position: { row: 2, col: 0 } }]);
+    expect([0, 1, 2].map((row) => row - rows.get(`${row},0`)!)).toEqual([3, 3, 3]);
+  });
+});
+
+describe("fallOrderInColumn", () => {
+  it("counts up from the lowest landing, one column at a time", () => {
+    const order = fallOrderInColumn([{ row: 3, col: 1 }, { row: 7, col: 1 }, { row: 5, col: 1 }, { row: 2, col: 4 }]);
+    expect(order.get("7,1")).toBe(0);
+    expect(order.get("5,1")).toBe(1);
+    expect(order.get("3,1")).toBe(2);
+    expect(order.get("2,4")).toBe(0);
+  });
+});
 
 describe("orderCascadeMoves", () => {
   it("keeps a remap correct even when moves arrive destination-top-first", () => {

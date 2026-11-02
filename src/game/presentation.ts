@@ -1,9 +1,11 @@
 import type { BoardSnapshot, GridPosition, PowerUpEvent, PowerUpType, SpawnEvent, TileType } from "../engine";
 import { computeCentroidStagger } from "./motion";
 import {
+  CASCADE_FALL_ACCEL_CELLS_PER_S2,
   CASCADE_FALL_MAX_MS,
-  CASCADE_FALL_MIN_MS,
-  CASCADE_FALL_ONE_CELL_MS,
+  CASCADE_FALL_START_CELLS_PER_S,
+  CASCADE_REBOUND_CELLS_PER_CELL,
+  CASCADE_REBOUND_MAX_CELLS,
   CASCADE_JOLT_MIN_CELLS,
   CASCADE_JOLT_MIN_PIECES,
   CASCADE_JOLT_TILE_FRACTION,
@@ -738,8 +740,26 @@ export function matchTimeline(maxStaggerMs: number): MatchTimeline {
 
 export function cascadeFallDurationMs(distanceCells: number): number {
   const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
-  // Constant acceleration from rest: time grows with the square root of the distance.
-  return Math.round(Math.min(CASCADE_FALL_MAX_MS, Math.max(CASCADE_FALL_MIN_MS, CASCADE_FALL_ONE_CELL_MS * Math.sqrt(distance))));
+  const speed = CASCADE_FALL_START_CELLS_PER_S;
+  const accel = CASCADE_FALL_ACCEL_CELLS_PER_S2;
+  return Math.round(1000 * (Math.sqrt(speed * speed + 2 * accel * distance) - speed) / accel);
+}
+
+/** The share of a fall of `distanceCells` covered at `progress` (0 to 1) of its time. */
+export function cascadeFallEase(distanceCells: number): (progress: number) => number {
+  const seconds = cascadeFallDurationMs(distanceCells) / 1000;
+  const distance = CASCADE_FALL_START_CELLS_PER_S * seconds + CASCADE_FALL_ACCEL_CELLS_PER_S2 * seconds * seconds / 2;
+  return (progress) => {
+    if (distance <= 0) return progress;
+    const at = progress * seconds;
+    return (CASCADE_FALL_START_CELLS_PER_S * at + CASCADE_FALL_ACCEL_CELLS_PER_S2 * at * at / 2) / distance;
+  };
+}
+
+/** How far a landed piece bobs up, in pixels: a little further after a longer drop. */
+export function cascadeReboundPx(distanceCells: number, tileSize: number): number {
+  const distance = Math.max(0, Number.isFinite(distanceCells) ? distanceCells : 0);
+  return tileSize * Math.min(CASCADE_REBOUND_MAX_CELLS, distance * CASCADE_REBOUND_CELLS_PER_CELL);
 }
 
 /** How a piece that fell `distanceCells` meets the floor of its cell: squash, one hop, settle. */

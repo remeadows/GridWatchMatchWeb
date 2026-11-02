@@ -151,6 +151,37 @@ export function orderCascadeMoves<T extends Pick<MoveEvent, "from" | "to">>(move
 }
 
 /**
+ * Where each refilling piece waits before it falls, as a row above the board: the piece going
+ * deepest in a column waits at row -1, the next at row -2, so a refill arrives spaced like the
+ * column it joins. Keyed `row,col` of the destination.
+ */
+export function refillStartRows(spawns: ReadonlyArray<Pick<CascadePresentationSpawn, "position">>): Map<string, number> {
+  const taken = new Map<number, number>();
+  const rows = new Map<string, number>();
+  for (const { position } of [...spawns].sort((a, b) => b.position.row - a.position.row)) {
+    const above = (taken.get(position.col) ?? 0) + 1;
+    taken.set(position.col, above);
+    rows.set(`${position.row},${position.col}`, -above);
+  }
+  return rows;
+}
+
+/**
+ * Each falling piece's place in its column, counting up from the lowest landing: the order in which
+ * a column lets go. Keyed `row,col` of the destination.
+ */
+export function fallOrderInColumn(destinations: ReadonlyArray<GridPosition>): Map<string, number> {
+  const placed = new Map<number, number>();
+  const order = new Map<string, number>();
+  for (const { row, col } of [...destinations].sort((a, b) => b.row - a.row)) {
+    const place = placed.get(col) ?? 0;
+    placed.set(col, place + 1);
+    order.set(`${row},${col}`, place);
+  }
+  return order;
+}
+
+/**
  * Cells to hide (`${row},${col}`) when rendering the post-clear snapshot before
  * a cascade animates. A cell is hidden so the animating sprite can settle into
  * an empty cell instead of overlapping a statically-drawn occupant.

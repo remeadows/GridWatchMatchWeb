@@ -11,11 +11,19 @@
 //     POWERUP_JOLT_*, TNT_SHOVE_* and SWAP_LIFT/SET_DOWN values further down, and in BoardScene
 //     the falls, rocket heads and propeller flights easing in (constant acceleration) where iOS
 //     and the earlier web build moved at an even speed.
+// Smoother (Russ, 2026-11-02, after playing the bigger effects: "the smoothness animation of pieces
+//   moving like you saw in royal match game"). Measured frame by frame from his two recordings:
+//   SWAP_*, *_RECOGNITION_HOLD_MS and the CASCADE_FALL_* and CASCADE_REBOUND_* values below. Falls
+//   and refills are now one movement (BoardScene.playCascadeAndSpawn), and a piece no longer
+//   squashes or stretches on the way. The October weight survives in the rebound, sound and jolts.
 export const DRAG_LIFT_MS = 65;
-export const SWAP_TRAVEL_MS = 175;
-export const SWAP_SETTLE_MS = 60;
-export const MATCH_RECOGNITION_HOLD_MS = 140;
-export const CASCADE_RECOGNITION_HOLD_MS = 100;
+// A swap leaves at full speed and slows into its cell (measured 10 frames), with nothing after it.
+export const SWAP_TRAVEL_MS = 165;
+export const SWAP_SETTLE_MS = 0;
+// A shuffle crosses the whole board, so it keeps the time the eye needs to follow it.
+export const SHUFFLE_TRAVEL_MS = 235;
+export const MATCH_RECOGNITION_HOLD_MS = 30;
+export const CASCADE_RECOGNITION_HOLD_MS = 20;
 export const MATCH_POP_COMPRESSION_MS = 100;
 export const MATCH_IMPACT_MS = 180;
 export const MATCH_AFTERIMAGE_MS = 130;
@@ -77,12 +85,21 @@ export const MATCH_WAVE_PER_GRID_MS = 25;
 export const MATCH_WAVE_MAX_MS = 80;
 export const CASCADE_START_AFTER_IMPACT_MS = 230;
 // Web-only (see the note at the top of this file).
-// A piece falls under constant acceleration, so its fall time grows with the square root of the
-// distance: CASCADE_FALL_ONE_CELL_MS for one cell, capped at CASCADE_FALL_MAX_MS.
-export const CASCADE_FALL_ONE_CELL_MS = 250;
-export const CASCADE_FALL_MIN_MS = 250;
-export const CASCADE_FALL_MAX_MS = 540;
-// Landing: squash against the floor of the cell, one small hop, settle. 190 ms in all.
+// A piece leaves already moving and gains speed all the way down (measured: every piece, at every
+// distance, on one curve). Each piece in a column leaves this long after the one below it, so a
+// column comes down as a train and the refill arrives as its tail.
+export const CASCADE_FALL_START_CELLS_PER_S = 3.6;
+export const CASCADE_FALL_ACCEL_CELLS_PER_S2 = 29;
+export const CASCADE_FALL_STAGGER_MS = 50;
+export const CASCADE_FALL_STAGGER_MAX_RANK = 7;
+// The longest a column can take: twelve rows falling, plus the longest wait at the top.
+export const CASCADE_FALL_MAX_MS = 800 + CASCADE_FALL_STAGGER_MS * CASCADE_FALL_STAGGER_MAX_RANK;
+// A landing piece stops dead and bobs up a touch, more after a longer drop (measured 0.02 of a cell
+// after two cells, 0.06 after five, and a slower 250 ms: shorter here so a chain does not wait on it).
+export const CASCADE_REBOUND_MS = 160;
+export const CASCADE_REBOUND_CELLS_PER_CELL = 0.012;
+export const CASCADE_REBOUND_MAX_CELLS = 0.06;
+// A created power-up's landing: squash against the floor of the cell, one small hop, settle.
 export const CASCADE_LANDING_SQUASH_MS = 55;
 export const CASCADE_LANDING_HOP_MS = 70;
 export const CASCADE_LANDING_SETTLE_MS = 65;
@@ -106,9 +123,6 @@ export const TNT_SHOVE_REACH_CELLS = 3.6;
 export const TNT_SHOVE_TILE_FRACTION = 0.12;
 export const TNT_SHOVE_OUT_MS = 60;
 export const TNT_SHOVE_BACK_MS = 110;
-// A swapped piece is lifted off the board while it travels, and set down as it stops.
-export const SWAP_LIFT_SCALE = 1.08;
-export const SWAP_SET_DOWN_SQUASH = 0.05;
 export const CHAIN_PLAYBACK_RATE_STEP = 0.035;
 export const CHAIN_PLAYBACK_RATE_MAX_DEPTH = 5;
 export const TILE_POP_PLAYBACK_RATE_MIN = 0.94;

@@ -3,9 +3,11 @@ import { Grid2D, emptyCell, type BoardSnapshot, type PowerUpEvent, type PowerUpT
 import {
   canonicalComboKey,
   cascadeFallDurationMs,
+  cascadeFallEase,
   cascadeJoltPx,
   blastCuePlayback,
   cascadeLandingPlan,
+  cascadeReboundPx,
   clearCuePlayback,
   landingCuePlayback,
   mergeSources,
@@ -462,12 +464,10 @@ describe("matchTimeline", () => {
   it("uses named phases and gives an ordinary match readable impact and settle time", () => {
     const timeline = matchTimeline(200);
 
-    expect(timeline.swapTravelMs).toBeGreaterThanOrEqual(170);
+    expect(timeline.swapTravelMs).toBeGreaterThanOrEqual(150);
     expect(timeline.swapTravelMs).toBeLessThanOrEqual(180);
-    expect(timeline.swapSettleMs).toBeGreaterThanOrEqual(55);
-    expect(timeline.swapSettleMs).toBeLessThanOrEqual(65);
-    expect(timeline.recognitionHoldMs).toBeGreaterThanOrEqual(130);
-    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(145);
+    expect(timeline.swapSettleMs).toBe(0);
+    expect(timeline.recognitionHoldMs).toBeLessThanOrEqual(40);
     expect(timeline.popCompressionMs).toBeGreaterThanOrEqual(95);
     expect(timeline.popCompressionMs).toBeLessThanOrEqual(105);
     expect(timeline.impactMs).toBeGreaterThanOrEqual(175);
@@ -475,27 +475,58 @@ describe("matchTimeline", () => {
     expect(timeline.maxStaggerMs).toBe(80);
     expect(timeline.cascadeStartAfterImpactMs).toBeGreaterThanOrEqual(225);
     expect(timeline.cascadeStartAfterImpactMs).toBeLessThanOrEqual(240);
-    expect(timeline.totalMs).toBeGreaterThanOrEqual(1_425);
-    expect(timeline.totalMs).toBeLessThanOrEqual(1_475);
+    // The worst case: a full column of twelve, the last piece leaving after the wait at the top.
+    expect(timeline.totalMs).toBeGreaterThanOrEqual(1_800);
+    expect(timeline.totalMs).toBeLessThanOrEqual(1_900);
   });
 });
 
 describe("cascadeFallDurationMs", () => {
-  it("falls under constant acceleration: time goes with the square root of the distance", () => {
-    expect(cascadeFallDurationMs(1)).toBe(250);
-    expect(cascadeFallDurationMs(4)).toBe(500);
-    expect(cascadeFallDurationMs(2)).toBe(Math.round(250 * Math.SQRT2));
-    // Each further cell costs less time than the one before it.
+  it("follows the curve measured from the Royal Match recordings", () => {
+    // Frames at 60 Hz for a piece to fall that far, read off the recordings, within a frame.
+    expect(Math.abs(cascadeFallDurationMs(1) - (10 * 1000) / 60)).toBeLessThan(17);
+    expect(Math.abs(cascadeFallDurationMs(2.81) - (20 * 1000) / 60)).toBeLessThan(17);
+    expect(Math.abs(cascadeFallDurationMs(4.83) - (28 * 1000) / 60)).toBeLessThan(17);
+  });
+
+  it("gains speed all the way down", () => {
     const step = (cells: number) => cascadeFallDurationMs(cells + 1) - cascadeFallDurationMs(cells);
     expect(step(1)).toBeGreaterThan(step(2));
     expect(step(2)).toBeGreaterThan(step(3));
   });
 
-  it("keeps the old floor and cap, so no fall is longer than before", () => {
-    expect(cascadeFallDurationMs(0)).toBe(250);
-    expect(cascadeFallDurationMs(0.4)).toBe(250);
-    expect(cascadeFallDurationMs(7)).toBe(540);
-    expect(cascadeFallDurationMs(Number.NaN)).toBe(250);
+  it("treats a missing distance as no fall", () => {
+    expect(cascadeFallDurationMs(0)).toBe(0);
+    expect(cascadeFallDurationMs(Number.NaN)).toBe(0);
+  });
+});
+
+describe("cascadeFallEase", () => {
+  it("starts moving at once and ends exactly at the landing", () => {
+    const ease = cascadeFallEase(4);
+    expect(ease(0)).toBe(0);
+    expect(ease(1)).toBeCloseTo(1, 6);
+    // From rest the first tenth of the time would cover a hundredth of the way.
+    expect(ease(0.1)).toBeGreaterThan(0.03);
+  });
+
+  it("is moving fastest at the end", () => {
+    const ease = cascadeFallEase(4);
+    expect(ease(1) - ease(0.9)).toBeGreaterThan(ease(0.1) - ease(0));
+  });
+
+  it("covers the same ground in the same time, whatever the drop", () => {
+    const seconds = (cells: number, at: number) => cascadeFallEase(cells)(at / cascadeFallDurationMs(cells)) * cells;
+    expect(seconds(3, 200)).toBeCloseTo(seconds(6, 200), 1);
+  });
+});
+
+describe("cascadeReboundPx", () => {
+  it("bobs further after a longer drop, up to a limit", () => {
+    expect(cascadeReboundPx(2, 100)).toBeLessThan(cascadeReboundPx(4, 100));
+    expect(cascadeReboundPx(5, 100)).toBeCloseTo(6);
+    expect(cascadeReboundPx(9, 100)).toBeCloseTo(6);
+    expect(cascadeReboundPx(Number.NaN, 100)).toBe(0);
   });
 });
 
