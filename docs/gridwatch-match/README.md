@@ -195,7 +195,8 @@ Not done, or done only in part. None of it blocks playing the dev build.
   is verified as a render and a mapping test only.
 - **Effects are the classic effects with bigger blasts on top** (2026-11-01, `HANDOFF.md`). Sizes
   now follow the tile on a 3× canvas, and blasts gained blooms, beams and metal debris. Match
-  bursts, rocket trails and the rest keep their shapes and timing, and nothing passes the canvas.
+  bursts, rocket trails and the rest keep their shapes and timing. Only a blast's glow and shards
+  pass the canvas, as page elements (`src/game/blastSpill.ts`, 2026-11-02).
 - **Pieces follow Royal Match's measured motion** (2026-11-02, `HANDOFF.md`), except that the next
   match still waits for the last landing, where Royal Match starts it while pieces are landing.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were

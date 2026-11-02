@@ -2,6 +2,38 @@
 
 Last updated: 2026-11-02
 
+## 🟡 2026-11-02: Royal Match feel, part 3: the end of a level, and blasts past the board. On the dev site as `1c07acc-dev`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** "Let's finish the feel work and then we will update production when
+we're done". So the empty-board fix below goes out with this work, not on its own. The order was
+the one given to him earlier: win banner, then effects past the board.
+
+- **No pause after a swap.** `MATCH_RECOGNITION_HOLD_MS` is 0, from his phone recording. Later waves
+  keep their 20 ms beat, because their pieces have only just landed.
+- **Win banner (`WinBanner` in `App.tsx`, `.dr-win-*`).** A steel plate with the level number and
+  GRID / SECURED stamps in over the board while its rows blow away, with gold and teal sparks. It
+  lasts as long as the row destruction, so no win timing changed. Dark board only; not under
+  either reduced-motion setting.
+- **Three stars (`ResultStars`).** The result panel lands one to three gold stars left to right;
+  the unearned stay as dull steel. Dark board only; the classic panel keeps its "3 star(s)" line.
+- **Blasts past the board (`src/game/blastSpill.ts`, `spillBlast` in `BoardScene`).** The canvas
+  stays board-sized: growing it would lay it over the objective and tray. What escapes is page
+  elements in a fixed layer, like the flying pieces: a soft glow and tumbling metal shards. TNT,
+  rockets, propellers, light balls, combos and the win's last burst use it; a rocket's shards carry
+  on in the way it was going. At most 40 elements, nothing per frame, and the glow is 220 px scaled
+  up so a 3× phone never rasters a board-sized gradient. Dark board only.
+- **Verified:** unit 617/617. e2e dark at `1c07acc`: 248 passed, 2 failed, both one test pinning the
+  swap-to-impact window at the old 120-140 ms; it read 100 ms, the intended result of removing the
+  pause. Limits moved to 90-110 at `470d48a`, then that test passed 6/6 (three repeats, both
+  devices); the full dark suite was not rerun after that test-only change. e2e classic at `470d48a`:
+  228 passed, 22 skipped. Frames read by eye at phone size: banner, stars, and a TNT blast whose
+  shards cross the board's left and bottom edges.
+- **Not done / open.** The next full e2e on both themes comes before any push. No real phone has
+  seen part 3, so the banner and shards' cost and look there are unmeasured. His calls: the
+  leftover-moves payout (coin economy) and starting the next match while pieces land (engine
+  order). Also still open: the arrival tick unheard, bloom strength, iOS timings, seven dependency
+  PRs. Light ball stages and level-start power-ups were not touched.
+
 ## 🟡 2026-11-02: Empty-board hang fixed, first real-phone measurement. On the dev site as `341f830-dev`; NOT pushed; **the hang is still in production**
 
 **Russ's words, 2026-11-02.** He asked "How do we measure a real phone?", recorded `02d99b0-dev` on
