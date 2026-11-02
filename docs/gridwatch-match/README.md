@@ -197,6 +197,11 @@ Not done, or done only in part. None of it blocks playing the dev build.
   now follow the tile on a 3× canvas, and blasts gained blooms, beams and metal debris. Match
   bursts, rocket trails and the rest keep their shapes and timing. Only a blast's glow and shards
   pass the canvas, as page elements (`src/game/blastSpill.ts`, 2026-11-02).
+- **On a phone a level fits one screen** (2026-11-02). The top bar stands aside, the board takes the
+  height the HUD, objective and dock leave (`.game-board-slot`), and nothing scrolls. A screen under
+  480 px tall keeps the scrolling page.
+- **A first win pays coins:** 10 per star and 5 per unused move, not on a replay and not after Play
+  On (`levelCoinReward`, `src/state/progress.ts`). Web-only so far.
 - **Pieces follow Royal Match's measured motion** (2026-11-02, `HANDOFF.md`), except that the next
   match still waits for the last landing, where Royal Match starts it while pieces are landing.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were

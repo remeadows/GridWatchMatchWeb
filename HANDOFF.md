@@ -2,6 +2,44 @@
 
 Last updated: 2026-11-02
 
+## 🟡 2026-11-02: Leftover moves pay coins, and a level fits one phone screen. On the dev site as `331b3cb-dev`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** He played `1c07acc-dev` on his iPhone: "The gameplay is getting really
+good." Leftover-moves payout: "yes they should." Next match during landing: "I would leave it out.
+The game doesnt feel slow". Layout: "For mobile, scrolling is annoying because touching the screen
+during gameplay comes with consequence. Perhaps shrinking the header to allow more room to fit the
+gameplay onto one screen." He also asked what coins do.
+
+- **Payout (`levelCoinReward` in `state/progress.ts`, `coinsPerLeftoverMove` in `data/store.ts`).**
+  5 coins per unused move on top of 10 per star. My calls, not his: the rate, and paying under the
+  old rule (a level's first win only, never after Play On), so an easy level cannot be farmed and
+  bought moves do not pay. A 3-star first win with 18 moves left pays 120; Play On costs 500.
+  Web-only: iOS has not been changed.
+- **Presentation.** No new effects. `WinPayout` on the banner counts the moves down and the coins
+  up across the row destruction; `ResultCoins` itemises the reward and the new total. Not each
+  leftover move as its own blast, as Royal Match does: the rows already blow up.
+- **One screen (end of `darkRealism.css`, portrait phones, dark board).** On his phone the page was
+  889 px in a 748 px view: 141 px over. `.top-bar` is hidden during a level (Back is in the HUD; the
+  40 px Nexus account bar stays, it is shared), the gaps go from 12-24 to 6, and the new
+  `.game-board-slot` is a size container, so the board is `min(100cqw, 100cqh)` and a level with
+  three objectives or a shorter phone shrinks it rather than scrolling. Board width, then and now:
+  440x748 412 to 424; 393x652 322 to 376; 375x550 280 to 277. "Last clear" is hidden on a phone
+  outside test mode, messages lie over the board and fade, and the Queue line goes below 700 px.
+  Test mode's tools sit below the fold in `.qa-tools`, so e2e sees a player's layout.
+- **Words.** The top bar said "Credits" and everything else "coins": it now says Coins. The Play On
+  dialog shows the balance, since the top bar is gone on a phone.
+- **The recording (`ScreenRecording_11-02-2026 11-39-17_1.mp4`, 3:08, `1c07acc-dev`).** Banner,
+  stars and shards all played. Frames: median 16.67 ms; to 176 s, 3.5% stuck during movement, 177
+  gaps over 25 ms against 13 on the last clip. Nearly all are single 33 ms frames, 9 over 40 ms, the
+  longest 67 ms once. They fall at 1.3-3% whether the screen is still or mid-blast (1.6% on the
+  biggest motion), so the shards are not the cause; the cause is unknown.
+- **Coins, as built:** the one thing they buy is Play On. Power-ups start at 3 each and nothing
+  restocks them; the store is a disabled stub. A Play On press without 500 coins ends the mission.
+- **Verified:** unit 622/622. The 14 new and banner e2e pass on Chromium and WebKit at phone size,
+  including no page scroll at all three sizes. Result panel, banner and level read by eye at 440x748.
+- **Not done / open.** Full e2e on both themes: see the note below this list when it lands. No real
+  phone has seen `331b3cb-dev`, so `100dvh` under Chrome's bars on iOS is unmeasured.
+
 ## 🟡 2026-11-02: Royal Match feel, part 3: the end of a level, and blasts past the board. On the dev site as `1c07acc-dev`; NOT pushed, NOT in production
 
 **Russ's words, 2026-11-02.** "Let's finish the feel work and then we will update production when
