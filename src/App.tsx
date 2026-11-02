@@ -5,7 +5,7 @@ import { heroes } from "./data/heroes";
 import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
-import { clearancePass, coinPacks, coinsPerLeftoverMove, playOnCost, playOnExtraMoves } from "./data/store";
+import { clearancePass, coinPacks, coinsPerLeftoverMove, playOnCost, playOnExtraMoves, powerUpPrices } from "./data/store";
 import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_SEQUENCE_LEAD_IN_MS } from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
 import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
@@ -32,6 +32,7 @@ import {
   areaProgressLabel,
   awardLevelCompletion,
   bestScoreForLevel,
+  buyPowerUp,
   cloneSave,
   collectAreaReward,
   completedLevelsInArea,
@@ -60,6 +61,15 @@ type Screen =
   | { name: "store" };
 
 const boosterTypes: BoosterType[] = ["rocket", "rocketVertical", "tnt", "propeller", "lightBall"];
+
+function boosterImageFor(booster: BoosterType): string {
+  const classicBoosterImage = booster === "rocket"
+    ? assetManifest.images.boosters.rocketH
+    : booster === "rocketVertical"
+      ? assetManifest.images.boosters.rocketV
+      : assetManifest.images.boosters[booster];
+  return (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
+}
 
 interface BoosterDragState {
   booster: BoosterType;
@@ -479,7 +489,7 @@ export default function App() {
       {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} />}
       {screen.name === "rules" && <RulesScreen save={save} commitSave={commitSave} />}
       {screen.name === "intel" && <IntelScreen save={save} commitSave={commitSave} />}
-      {screen.name === "store" && <StoreScreen />}
+      {screen.name === "store" && <StoreScreen save={save} commitSave={commitSave} />}
     </main>
   );
 }
@@ -688,6 +698,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
   const [winBanner, setWinBanner] = useState(false);
   const [winReward, setWinReward] = useState<LevelCoinReward | null>(null);
+  const [powerUpOffer, setPowerUpOffer] = useState<BoosterType | null>(null);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
   const [status, setStatus] = useState<"loading" | "running" | "resolving" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
@@ -790,6 +801,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setSubmitState({ kind: "idle" });
     setWinBanner(false);
     setWinReward(null);
+    setPowerUpOffer(null);
     void loadLevel(levelId).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
@@ -858,11 +870,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [requestBossExpiry]);
 
   useEffect(() => {
-    tutorialVisibleRef.current = showTutorial;
+    tutorialVisibleRef.current = showTutorial || powerUpOffer !== null;
     tickBossClock();
     const timer = window.setInterval(() => tickBossClock(), 100);
     return () => window.clearInterval(timer);
-  }, [showTutorial, status, level?.id, tickBossClock]);
+  }, [showTutorial, powerUpOffer, status, level?.id, tickBossClock]);
 
   const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition, options: { animate?: boolean } = {}) => {
     if (finalRef.current || engineRef.current !== engine) return;
@@ -1082,12 +1094,28 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       suppressNextBoosterClickRef.current = false;
       return;
     }
+    if (statusRef.current === "running" && (saveRef.current.boosters[booster] ?? 0) <= 0) {
+      setSelectedBooster(null);
+      setPowerUpOffer(booster);
+      return;
+    }
     if (!isBoosterPlayable(booster)) return;
     setSelectedBooster((current) => {
       const next = current === booster ? null : booster;
       setMessage(next ? "Choose a grid tile." : "");
       return next;
     });
+  };
+
+  const acceptPowerUpOffer = () => {
+    if (!powerUpOffer) return;
+    const next = buyPowerUp(saveRef.current, powerUpOffer);
+    if (!next) return;
+    commitSave(next);
+    saveRef.current = next;
+    setSelectedBooster(powerUpOffer);
+    setMessage("Choose a grid tile.");
+    setPowerUpOffer(null);
   };
 
   const handleBoosterPointerDown = (event: React.PointerEvent<HTMLButtonElement>, booster: BoosterType) => {
@@ -1266,28 +1294,22 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         {boosterTypes.map((booster) => {
           const available = save.boosters[booster] ?? 0;
           const selected = selectedBooster === booster;
-          const classicBoosterImage = booster === "rocket"
-            ? assetManifest.images.boosters.rocketH
-            : booster === "rocketVertical"
-              ? assetManifest.images.boosters.rocketV
-              : assetManifest.images.boosters[booster];
-          const boosterImage = (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
           return (
             <button
               key={booster}
-              className={selected ? "selected" : ""}
+              className={`${selected ? "selected" : ""}${available <= 0 ? " is-empty" : ""}`}
               aria-pressed={selected}
               data-testid={`booster-${booster}`}
-              disabled={status !== "running" || available <= 0}
+              disabled={status !== "running"}
               onClick={() => handleBoosterClick(booster)}
               onPointerDown={(event) => handleBoosterPointerDown(event, booster)}
               onPointerMove={handleBoosterPointerMove}
               onPointerUp={handleBoosterPointerUp}
               onPointerCancel={handleBoosterPointerCancel}
             >
-              <img src={assetUrl(boosterImage)} alt="" />
+              <img src={assetUrl(boosterImageFor(booster))} alt="" />
               <span className="booster-label">{boosterLabel(booster)}</span>
-              <strong aria-label={`${available} available`}>{available}</strong>
+              <strong aria-label={`${available} available`}>{available > 0 ? available : "+"}</strong>
             </button>
           );
         })}
@@ -1345,6 +1367,18 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         </div>
       )}
 
+      {powerUpOffer && status === "running" && (
+        <ResultModal
+          title={`Buy ${boosterLabel(powerUpOffer)}`}
+          coins={<img className="power-up-offer" src={assetUrl(boosterImageFor(powerUpOffer))} alt="" />}
+          message={`Spend ${powerUpPrices[powerUpOffer]} coins for one. You have ${save.coins.toLocaleString()}.`}
+          primary="Buy"
+          primaryDisabled={save.coins < powerUpPrices[powerUpOffer]}
+          secondary="Not now"
+          onPrimary={acceptPowerUpOffer}
+          onSecondary={() => setPowerUpOffer(null)}
+        />
+      )}
       {status === "playOn" && (
         <ResultModal
           title="Mission at risk"
@@ -1590,11 +1624,27 @@ function IntelScreen({ save, commitSave }: { save: SaveState; commitSave: (save:
   );
 }
 
-function StoreScreen() {
-  const [message, setMessage] = useState("Purchases are disabled in the public web beta.");
+function StoreScreen({ save, commitSave }: { save: SaveState; commitSave: (next: SaveState) => void }) {
+  const [message, setMessage] = useState("Coin packs are disabled in the public web beta.");
+  const buy = (booster: BoosterType) => {
+    const next = buyPowerUp(save, booster);
+    if (!next) return;
+    commitSave(next);
+    setMessage(`Bought ${boosterLabel(booster)}.`);
+  };
   return (
     <section className="content-column">
-      <PageHeader title="Store" subtitle="Playable storefront stub. No real purchase fulfillment runs on web." />
+      <PageHeader title="Store" subtitle="Spend coins on power-ups. Real-money purchases do not run on web." />
+      <div className="store-grid power-up-shop">
+        {boosterTypes.map((booster) => (
+          <article className="store-card" key={booster} data-testid={`buy-${booster}`}>
+            <img src={assetUrl(boosterImageFor(booster))} alt="" />
+            <h2>{boosterLabel(booster)}</h2>
+            <p>You have {save.boosters[booster] ?? 0}</p>
+            <button disabled={save.coins < powerUpPrices[booster]} onClick={() => buy(booster)}>{powerUpPrices[booster]} coins</button>
+          </article>
+        ))}
+      </div>
       <div className="store-grid">
         {[...coinPacks, clearancePass].map((item) => (
           <article className="store-card" key={item.id}>
@@ -1683,7 +1733,7 @@ function ResultCoins({ reward, balance }: { reward: LevelCoinReward; balance: nu
   );
 }
 
-function ResultModal({ title, stars, still = false, message, coins, note, primary, secondary, onPrimary, onSecondary }: {
+function ResultModal({ title, stars, still = false, message, coins, note, primary, primaryDisabled = false, secondary, onPrimary, onSecondary }: {
   title: string;
   stars?: number;
   still?: boolean;
@@ -1691,6 +1741,7 @@ function ResultModal({ title, stars, still = false, message, coins, note, primar
   coins?: React.ReactNode;
   note?: React.ReactNode;
   primary: string;
+  primaryDisabled?: boolean;
   secondary: string;
   onPrimary: () => void;
   onSecondary: () => void;
@@ -1705,7 +1756,7 @@ function ResultModal({ title, stars, still = false, message, coins, note, primar
         {note}
         <div className="modal-actions">
           <button onClick={onSecondary}>{secondary}</button>
-          <button className="primary-action" onClick={onPrimary}>{primary}</button>
+          <button className="primary-action" disabled={primaryDisabled} onClick={onPrimary}>{primary}</button>
         </div>
       </div>
     </div>

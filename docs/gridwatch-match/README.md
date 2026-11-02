@@ -202,6 +202,8 @@ Not done, or done only in part. None of it blocks playing the dev build.
   480 px tall keeps the scrolling page.
 - **A first win pays coins:** 10 per star and 5 per unused move, not on a replay and not after Play
   On (`levelCoinReward`, `src/state/progress.ts`). Web-only so far.
+- **Coins buy power-ups** (`powerUpPrices`, `buyPowerUp`): in the Store, or by tapping an empty
+  power-up during a level. Play On is still 500 coins for 5 moves.
 - **Pieces follow Royal Match's measured motion** (2026-11-02, `HANDOFF.md`), except that the next
   match still waits for the last landing, where Royal Match starts it while pieces are landing.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were

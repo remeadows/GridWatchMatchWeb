@@ -1,5 +1,6 @@
 import { areaForLevel, areas, type AreaInfo } from "../data/areas";
-import { coinsPerLeftoverMove } from "../data/store";
+import { coinsPerLeftoverMove, powerUpPrices } from "../data/store";
+import type { BoosterType } from "../engine";
 import type { SaveState } from "./save";
 
 export function starsForLevel(save: SaveState, levelId: number): number {
@@ -87,6 +88,15 @@ export function awardLevelCompletion(
   };
   next.completedTutorial = true;
   next.tutorialReplayRequested = false;
+  return next;
+}
+
+export function buyPowerUp(save: SaveState, booster: BoosterType): SaveState | null {
+  const price = powerUpPrices[booster];
+  if (save.coins < price) return null;
+  const next = cloneSave(save);
+  next.coins -= price;
+  next.boosters[booster] = (next.boosters[booster] ?? 0) + 1;
   return next;
 }
 

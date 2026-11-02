@@ -2,6 +2,26 @@
 
 Last updated: 2026-11-02
 
+## 🟡 2026-11-02: Coins buy power-ups. On the dev site; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** "Coins should be able to buy power-ups. what is the total coin
+potential add per level?"
+
+- **Built.** `powerUpPrices` (`data/store.ts`) and `buyPowerUp` (`state/progress.ts`). The Store has
+  a power-ups section with pictures and owned counts; a price button greys out when the coins fall
+  short. In a level, an empty power-up shows a gold + and tapping it offers one for coins; buying
+  arms it, ready for a tile. The breach timer stops while the offer is open.
+- **Prices are my call, not his:** Rocket H and V 100, Propeller 150, TNT 200, Light Ball 300,
+  about one to three levels of earnings. One table.
+- **Coins per level, from `public/levels` and a random-tap bot (30 runs a level, engine only, level
+  seeds):** ceiling 30 + 5 x (moves - 1): 110 at 17 moves, 265 at 48; 24,450 for the campaign with
+  5,500 of sector rewards, and not reachable. The bot left 15, 10, 12, 9, 9, 23, 24, 22, 21, 20
+  moves per sector, so with 3 stars about 73-105 a level in sectors 1-5, 129-152 in 6-10, 113
+  overall, roughly 16,800 for a campaign. Russ left 17 of 29 and 19 of 29 where the bot left 15 and
+  11, so a real player earns somewhat more.
+- **Finding, not acted on:** the random bot wins 92-100% per sector, and sectors 6-10 have 34-48
+  moves where 1-5 have 17-29. Coins and Play On matter little unless levels get harder.
+
 ## 🟡 2026-11-02: Leftover moves pay coins, and a level fits one phone screen. On the dev site as `331b3cb-dev`; NOT pushed, NOT in production
 
 **Russ's words, 2026-11-02.** He played `1c07acc-dev` on his iPhone: "The gameplay is getting really

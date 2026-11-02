@@ -1055,6 +1055,31 @@ a.primary-action:focus-visible {
   color: var(--gold);
 }
 
+.power-up-shop {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 14px;
+}
+
+.power-up-shop img,
+.power-up-offer {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.power-up-offer {
+  margin: 6px auto;
+}
+
+.booster-tray button.is-empty img {
+  opacity: 0.32;
+}
+
+.booster-tray button.is-empty strong {
+  color: var(--gold);
+}
+
 .overlay {
   position: fixed;
   inset: 0;

@@ -168,6 +168,41 @@ for (const [width, height] of [[440, 748], [393, 652], [375, 550]] as const) {
   });
 }
 
+test("the store sells power-ups for coins, and greys out what the coins cannot reach", async ({ page }) => {
+  await seedSave(page, { coins: 250 });
+  await page.goto("./?gwTestMode=1");
+  await page.getByRole("button", { name: "Store", exact: true }).click();
+  const tnt = page.getByTestId("buy-tnt");
+  await expect(tnt).toContainText("You have 3");
+  await tnt.getByRole("button", { name: "200 coins" }).click();
+  await expect(tnt).toContainText("You have 4");
+  await expect(page.getByLabel("50 coins")).toBeVisible();
+  await expect(page.getByTestId("buy-rocket").getByRole("button", { name: "100 coins" })).toBeDisabled();
+});
+
+test("an empty power-up offers itself for coins mid-level, and comes back armed", async ({ page }) => {
+  await seedSave(page, { coins: 250, boosters: { tnt: 0 } });
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("booster-tnt").click();
+  await expect(page.getByText("Spend 200 coins for one. You have 250.")).toBeVisible();
+  await page.getByRole("button", { name: "Buy", exact: true }).click();
+  await expect(page.getByTestId("booster-tnt")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("booster-tnt").getByLabel("1 available")).toBeVisible();
+  await expect(page.getByText("Choose a grid tile.")).toBeVisible();
+});
+
+test("an empty power-up the coins cannot reach cannot be bought, and costs nothing to dismiss", async ({ page }) => {
+  await seedSave(page, { coins: 50, boosters: { lightBall: 0 } });
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("booster-lightBall").click();
+  await expect(page.getByRole("button", { name: "Buy", exact: true })).toBeDisabled();
+  await page.getByRole("button", { name: "Not now" }).click();
+  await expect(page.getByRole("button", { name: "Buy", exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("booster-lightBall")).toHaveAttribute("aria-pressed", "false");
+});
+
 test("a wide screen keeps its top bar in a level", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("./?gwTestMode=1&level=1");
@@ -475,6 +510,13 @@ test("board and HUD do not overlap at active viewport", async ({ page }) => {
   expect(board!.y).toBeGreaterThanOrEqual(objectives!.y + objectives!.height);
   expect(objectives!.y).toBeGreaterThanOrEqual(hud!.y + hud!.height);
 });
+
+/** Starts the page on this save, which `loadSaveState` reads while IndexedDB is empty. */
+async function seedSave(page: Page, save: { coins: number; boosters?: Record<string, number> }): Promise<void> {
+  await page.addInitScript((value) => {
+    localStorage.setItem("gridwatch-match-web.save.v1", JSON.stringify({ version: 1, ...value }));
+  }, save);
+}
 
 async function clearStorage(page: Page): Promise<void> {
   await page.goto("./");
