@@ -227,8 +227,8 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(120);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(140);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(90);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(110);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(220);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(260);
     expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(150);
