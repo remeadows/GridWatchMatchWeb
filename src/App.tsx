@@ -682,6 +682,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [level, setLevel] = useState<LevelDefinition | null>(null);
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
+  const [winBanner, setWinBanner] = useState(false);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
   const [status, setStatus] = useState<"loading" | "running" | "resolving" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
@@ -782,6 +783,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setQueueDepth(0);
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
     setSubmitState({ kind: "idle" });
+    setWinBanner(false);
     void loadLevel(levelId).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
@@ -890,6 +892,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setScore(nextScore);
     const completeWin = () => {
       if (engineRef.current !== engine) return;
+      setWinBanner(false);
       statusRef.current = "won";
       setStatus("won");
       audioService.playSfx("sfx_level_complete.mp3");
@@ -912,6 +915,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       completeWin();
     };
     const started = gameCanvasRef.current?.playWinSequence(completeOnce) ?? false;
+    if (started && !completed && activeBoardTheme() === "darkRealism") setWinBanner(true);
     if (!started) {
       setMessage("Board presentation unavailable. Return to level select to continue.");
     }
@@ -1340,10 +1344,15 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           }}
         />
       )}
+      {winBanner && <WinBanner levelId={levelId} />}
       {status === "won" && snapshot && (
         <ResultModal
           title="Grid secured"
-          message={`${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
+          stars={activeBoardTheme() === "darkRealism" ? starsEarned(snapshot) : undefined}
+          still={save.settings.reducedMotion}
+          message={activeBoardTheme() === "darkRealism"
+            ? `Score ${score.toLocaleString()}.`
+            : `${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
           note={submitStatusLine(submitState)}
           primary={levelId < 100 ? "Next Level" : "Operations"}
           secondary="Level Select"
@@ -1587,8 +1596,47 @@ function StoreScreen() {
   );
 }
 
-function ResultModal({ title, message, note, primary, secondary, onPrimary, onSecondary }: {
+// Plays over the board while its rows blow away. The two words are separate elements so that only
+// the result panel reads as the text "Grid secured".
+const WIN_BANNER_SPARKS = Array.from({ length: 18 }, (_, index) => ({
+  angle: index * 20 + (index % 3) * 7,
+  reach: 150 + ((index * 67) % 110),
+  delay: 120 + ((index * 53) % 240)
+}));
+
+function WinBanner({ levelId }: { levelId: number }) {
+  return (
+    <div className="dr-win-banner" data-testid="win-banner" aria-hidden="true">
+      <div className="dr-win-sparks">
+        {WIN_BANNER_SPARKS.map(({ angle, reach, delay }) => (
+          <i key={angle} style={{ "--spark-angle": `${angle}deg`, "--spark-reach": `${reach}px`, "--spark-delay": `${delay}ms` } as React.CSSProperties} />
+        ))}
+      </div>
+      <div className="dr-win-plate">
+        <span className="dr-win-kicker">Level {levelId}</span>
+        <span className="dr-win-word">Grid</span>
+        <span className="dr-win-word">Secured</span>
+      </div>
+    </div>
+  );
+}
+
+function ResultStars({ earned, still }: { earned: number; still: boolean }) {
+  return (
+    <div className={`dr-result-stars${still ? " is-still" : ""}`} role="img" aria-label={`${earned} of 3 stars`} data-testid="result-stars">
+      {[0, 1, 2].map((index) => (
+        <svg key={index} viewBox="0 0 48 48" className={index < earned ? "is-earned" : ""} aria-hidden="true">
+          <path d="M24 3l6.5 13.6 15 2-11 10.4 2.8 14.8L24 35.6l-13.3 7.2 2.8-14.8-11-10.4 15-2z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
+function ResultModal({ title, stars, still = false, message, note, primary, secondary, onPrimary, onSecondary }: {
   title: string;
+  stars?: number;
+  still?: boolean;
   message: string;
   note?: React.ReactNode;
   primary: string;
@@ -1600,6 +1648,7 @@ function ResultModal({ title, message, note, primary, secondary, onPrimary, onSe
     <div className="overlay">
       <div className="modal">
         <h2>{title}</h2>
+        {stars !== undefined && <ResultStars earned={stars} still={still} />}
         <p>{message}</p>
         {note}
         <div className="modal-actions">

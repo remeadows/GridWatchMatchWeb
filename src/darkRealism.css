@@ -944,6 +944,162 @@
   background: #07090b;
 }
 
+/* ---- The end of a won level ---------------------------------------------------------------- */
+/* The banner lasts as long as the board's row destruction (gameplayTiming.ts, about 2.5 s), and
+   the board's own blasts show through it. It sits under the result panel and the flying pieces. */
+.dr-win-banner {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(2, 3, 4, 0.62), rgba(2, 3, 4, 0.34) 70%);
+  animation: dr-win-scrim 260ms ease-out both;
+}
+
+.dr-win-plate {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  min-width: min(82vw, 420px);
+  padding: 16px 26px 20px;
+  border-block: 2px solid var(--gold);
+  background: linear-gradient(180deg, rgba(20, 24, 28, 0.94), rgba(6, 8, 10, 0.96));
+  box-shadow: 0 0 44px rgba(210, 169, 74, 0.26), 0 24px 70px rgba(0, 0, 0, 0.75);
+  animation: dr-win-stamp 320ms cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+
+/* A hard-edged light crosses the plate once, after the stamp lands. */
+.dr-win-plate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 42%, rgba(255, 244, 214, 0.34) 50%, transparent 58%);
+  background-size: 260% 100%;
+  animation: dr-win-sweep 620ms ease-in-out 380ms both;
+}
+
+.dr-win-kicker {
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+.dr-win-word {
+  color: #f4f6f8;
+  font-size: clamp(2.3rem, 11vw, 3.4rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 22px rgba(112, 242, 234, 0.42);
+}
+
+.dr-win-sparks {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+}
+
+.dr-win-sparks i {
+  position: absolute;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 8px var(--gold);
+  opacity: 0;
+  transform: rotate(var(--spark-angle));
+  animation: dr-win-spark 760ms ease-out var(--spark-delay) both;
+}
+
+.dr-win-sparks i:nth-child(3n) {
+  background: #70f2ea;
+  box-shadow: 0 0 8px #70f2ea;
+}
+
+@keyframes dr-win-scrim {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dr-win-stamp {
+  from { opacity: 0; transform: scale(2.1); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes dr-win-sweep {
+  from { background-position: 130% 0; }
+  to { background-position: -30% 0; }
+}
+
+@keyframes dr-win-spark {
+  0% { opacity: 1; transform: rotate(var(--spark-angle)) translateY(-40px); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--spark-angle)) translateY(calc(var(--spark-reach) * -1)) scaleY(0.4); }
+}
+
+/* Earned stars arrive one at a time, left to right; the unearned stay as dull steel. */
+:root[data-board-theme="darkRealism"] .modal:has(.dr-result-stars) > :is(h2, p) {
+  text-align: center;
+}
+
+.dr-result-stars {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+}
+
+.dr-result-stars svg {
+  width: 62px;
+  height: 62px;
+  fill: #1d2228;
+  stroke: var(--dr-steel-light);
+  stroke-width: 1.4;
+}
+
+.dr-result-stars svg:nth-child(2) {
+  width: 76px;
+  height: 76px;
+  margin-top: -8px;
+}
+
+.dr-result-stars svg.is-earned {
+  fill: var(--gold);
+  stroke: #f7e2a6;
+  filter: drop-shadow(0 0 10px rgba(210, 169, 74, 0.5));
+  animation: dr-star-land 380ms cubic-bezier(0.2, 1.5, 0.4, 1) both;
+}
+
+.dr-result-stars svg.is-earned:nth-child(1) { animation-delay: 160ms; }
+.dr-result-stars svg.is-earned:nth-child(2) { animation-delay: 340ms; }
+.dr-result-stars svg.is-earned:nth-child(3) { animation-delay: 520ms; }
+
+.dr-result-stars.is-still svg.is-earned {
+  animation: none;
+}
+
+@keyframes dr-star-land {
+  from { opacity: 0; transform: scale(2.2) rotate(-18deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dr-win-banner {
+    display: none;
+  }
+
+  .dr-result-stars svg.is-earned {
+    animation: none;
+  }
+}
+
 /* ---- Phone: the navigation is a tab bar at the foot of the screen ------------------------- */
 /* The same five buttons, in the same element; only where they sit changes. The icons are
    masks, so each takes its button's colour. Not on the game screen: there the board and the

@@ -113,6 +113,32 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
   await expect(page.getByText("Level 2")).toBeVisible();
 });
 
+test("a won level plays the banner over the board, then lands its stars on the result panel", async ({ page }) => {
+  await page.goto("./?gwTestMode=1&level=1");
+  const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+  test.skip(theme !== "darkRealism", "the archived classic board keeps its plain result panel");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-win-animated").click();
+  await expect(page.getByTestId("win-banner")).toBeVisible();
+  await expect(page.getByTestId("win-banner")).toContainText(/Level\s*1/i);
+  await expect(page.getByText("Grid secured", { exact: true })).not.toBeVisible();
+  await expect(page.getByText("Grid secured", { exact: true })).toBeVisible({ timeout: 8_000 });
+  await expect(page.getByTestId("win-banner")).toHaveCount(0);
+  const stars = page.getByTestId("result-stars");
+  await expect(stars).toHaveAttribute("aria-label", /^[1-3] of 3 stars$/);
+  const earned = Number((await stars.getAttribute("aria-label"))![0]);
+  await expect(stars.locator("svg.is-earned")).toHaveCount(earned);
+  await expect(stars.locator("svg")).toHaveCount(3);
+});
+
+test("a level won without animation shows no banner", async ({ page }) => {
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-win").click();
+  await expect(page.getByText("Grid secured", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("win-banner")).toHaveCount(0);
+});
+
 test("animated win destroys the board before showing the result modal", async ({ page }) => {
   await page.goto("./?gwTestMode=1&level=1");
   await expect(page.getByTestId("board-canvas")).toBeVisible();

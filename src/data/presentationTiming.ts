@@ -22,7 +22,9 @@ export const SWAP_TRAVEL_MS = 165;
 export const SWAP_SETTLE_MS = 0;
 // A shuffle crosses the whole board, so it keeps the time the eye needs to follow it.
 export const SHUFFLE_TRAVEL_MS = 235;
-export const MATCH_RECOGNITION_HOLD_MS = 30;
+// His phone recording of 2026-11-02 showed 30 ms here as three still frames after every swap; Royal
+// Match pops on the next frame.
+export const MATCH_RECOGNITION_HOLD_MS = 0;
 export const CASCADE_RECOGNITION_HOLD_MS = 20;
 export const MATCH_POP_COMPRESSION_MS = 100;
 export const MATCH_IMPACT_MS = 180;
