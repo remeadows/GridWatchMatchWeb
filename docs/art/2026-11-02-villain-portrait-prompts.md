@@ -4,10 +4,13 @@ Prompts for ChatGPT. Roster confirmed by Russ on 2026-11-02. DREAD replaces AX-1
 
 ## How to use these
 
+All paths below are inside the Google Drive folder `GridWatchArt`. A copy of this file sits in `GridWatchArt/4 - GridWatch Match/`.
+
 1. Open one ChatGPT conversation and give it the five style images from `GridWatchArt/4 - GridWatch Match/`: `Vexis.png`, `Kron.png`, `Zero.png`, `AX10M.png`, `Aurora.png`.
-2. For each villain, also give it the character reference listed above that prompt.
+2. For each villain, also give it the character reference listed under that villain's heading.
 3. Paste the prompt. Keep all five in the same conversation so they match.
-4. Save each result to `GridWatchArt/4 - GridWatch Match/` under the file name shown.
+4. Each result must be a square PNG, 1024 × 1024 pixels, the same size as the five existing portraits.
+5. Save each result to `GridWatchArt/4 - GridWatch Match/` under the file name shown.
 
 ## What makes the five existing portraits a set
 
@@ -23,9 +26,9 @@ The game adds each villain's name, so the pictures carry no text. Each glow colo
 
 ## 1. VYRUS (Sector 7, Firmware Purge, ember orange)
 
-Character reference: `7 - GridWatch Citadel/Characters/04 - VYRUS/Citadel_VYRUS_01_Full-Body-Studio_v1.png`
+Character reference: `GridWatchArt/7 - GridWatch Citadel/Characters/04 - VYRUS/Citadel_VYRUS_01_Full-Body-Studio_v1.png`
 
-File name: `Vyrus.png`
+File name: `Vyrus.png`, saved in `GridWatchArt/4 - GridWatch Match/`
 
 ```text
 Create a square 1:1 villain portrait for a dark cyberpunk game. Match the attached Vexis, Kron, Zero, AX10M and Aurora images so this reads as part of the same set. Take this character's features from the attached VYRUS reference, but render it in the style of the set, not as a photo.
@@ -41,9 +44,9 @@ Do not include text, names, numbers, logos, watermarks, a city, rain, or a full 
 
 ## 2. SHARD (Sector 8, Protocol Override, electric violet)
 
-Character reference: `7 - GridWatch Citadel/Characters/03 - SHARD/Citadel_SHARD_01_Full-Body-Studio_v1.png`
+Character reference: `GridWatchArt/7 - GridWatch Citadel/Characters/03 - SHARD/Citadel_SHARD_01_Full-Body-Studio_v1.png`
 
-File name: `Shard.png`
+File name: `Shard.png`, saved in `GridWatchArt/4 - GridWatch Match/`
 
 ```text
 Create a square 1:1 villain portrait for a dark cyberpunk game. Match the attached Vexis, Kron, Zero, AX10M and Aurora images so this reads as part of the same set. Take this character's features from the attached SHARD reference, but render it in the style of the set, not as a photo.
@@ -59,9 +62,9 @@ Do not include text, names, numbers, logos, watermarks, a city, rain, or a full 
 
 ## 3. LOTUS (Sector 9, Deep Net Sweep, cold teal)
 
-Character reference: `0 - Gridwatch-Assets/18 - Lotus/Lotus - HD Head and Shoulders - Realism v1.png`
+Character reference: `GridWatchArt/0 - Gridwatch-Assets/18 - Lotus/Lotus - HD Head and Shoulders - Realism v1.png`
 
-File name: `Lotus.png`
+File name: `Lotus.png`, saved in `GridWatchArt/4 - GridWatch Match/`
 
 ```text
 Create a square 1:1 villain portrait for a dark cyberpunk game. Match the attached Vexis, Kron, Zero, AX10M and Aurora images so this reads as part of the same set. Take this character's features from the attached Lotus reference, but render it in the style of the set, not as a photo.
@@ -77,9 +80,9 @@ Do not include text, names, numbers, logos, watermarks, a city, rain, or a full 
 
 ## 4. MALUS (Sector 10, Final Breach, hot magenta)
 
-Character reference: `0 - Gridwatch-Assets/7 - Malus/Malus - HD Head and Shoulders - Realism v1.png`
+Character reference: `GridWatchArt/0 - Gridwatch-Assets/7 - Malus/Malus - HD Head and Shoulders - Realism v1.png`
 
-File name: `Malus.png`
+File name: `Malus.png`, saved in `GridWatchArt/4 - GridWatch Match/`
 
 ```text
 Create a square 1:1 villain portrait for a dark cyberpunk game. Match the attached Vexis, Kron, Zero, AX10M and Aurora images so this reads as part of the same set. Take this character's features from the attached Malus reference, but render it in the style of the set, not as a photo. This is the final villain, so make it the most imposing of the set.
@@ -95,9 +98,9 @@ Do not include text, names, numbers, logos, watermarks, a city, rain, or a full 
 
 ## 5. DREAD (Sector 5, Zero-Day Defense, acid green)
 
-Character reference: `7 - GridWatch Citadel/Characters/02 - DREAD/Citadel_DREAD_01_Full-Body-Studio_v1.png`
+Character reference: `GridWatchArt/7 - GridWatch Citadel/Characters/02 - DREAD/Citadel_DREAD_01_Full-Body-Studio_v1.png`
 
-File name: `Dread.png`
+File name: `Dread.png`, saved in `GridWatchArt/4 - GridWatch Match/`
 
 ```text
 Create a square 1:1 villain portrait for a dark cyberpunk game. Match the attached Vexis, Kron, Zero, AX10M and Aurora images so this reads as part of the same set. Take this character's features from the attached DREAD reference, but render it in the style of the set, not as a photo.
