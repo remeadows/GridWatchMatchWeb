@@ -104,6 +104,7 @@ function snapshotOf(grid: Grid2D<CellState>): BoardSnapshot {
     moveLimit: 30,
     objectiveProgress: {},
     objectiveTargets: {},
+    malwareLeft: 0,
     spawnWeights: { packet: 1, firewall: 1, key: 1, threat: 1, zeroDay: 1 },
     rngSeed: "1",
     chainDepth: 0

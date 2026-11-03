@@ -21,7 +21,9 @@ export function normalizeLevel(level: LevelDefinition): LevelDefinition {
   };
 }
 
+/** For the malware goal the caller passes the number of cells left, not progress. */
 export function objectiveLabel(objective: ObjectiveDefinition, progress: number): string {
+  if (objective.id === "malware") return `Malware left: ${progress}`;
   const current = Math.min(progress, objective.target);
   return `${objective.displayName}: ${current}/${objective.target}`;
 }

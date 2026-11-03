@@ -306,3 +306,82 @@ describe("panes really block", () => {
     expect(after.powerUp).toBeNull();
   });
 });
+
+// Swapping (4,2)-(4,3) makes z z z along the bottom row, which touches (3,0), (3,1), (3,2) and (4,3).
+function malwareBoard(top: string, row3 = "z t k f z"): string[] {
+  return [top, "k f z p t", "p p t z f", row3, "z z k z t"];
+}
+const MALWARE_SWAP = swap({ row: 4, col: 2 }, { row: 4, col: 3 });
+const MALWARE_GOAL = [{ id: "malware", target: 1, displayName: "Remove all malware", tileType: null }];
+
+function malwareCount(engine: BoardEngine): number {
+  const { grid } = engine.snapshot;
+  return grid.allPositions.filter((position) => grid.get(position).underlay !== null).length;
+}
+
+describe("remove all malware", () => {
+  it("malware spreads by one cell after a move that removes none", () => {
+    for (const top of ["z~1 t k z f", "z~1 t k z f~1"]) {
+      const engine = engineFor(malwareBoard(top));
+      const before = malwareCount(engine);
+      const delta = engine.apply(MALWARE_SWAP);
+      expect(delta.clears.length).toBeGreaterThanOrEqual(3);
+      expect(malwareCount(engine)).toBe(before + 1);
+    }
+  });
+
+  it("a move that removes malware stops the spread", () => {
+    const engine = engineFor(malwareBoard("z t k z f~1", "z~1 t k f z"));
+    expect(malwareCount(engine)).toBe(2);
+    engine.apply(MALWARE_SWAP);
+    expect(engine.snapshot.grid.get({ row: 3, col: 0 }).underlay).toBeNull();
+    expect(malwareCount(engine)).toBe(1);
+  });
+
+  it("a move that only damages 2-layer malware still spreads", () => {
+    const engine = engineFor(malwareBoard("z t k z f", "z~2 t k f z"));
+    engine.apply(MALWARE_SWAP);
+    expect(engine.snapshot.grid.get({ row: 3, col: 0 }).underlay?.hp).toBe(1);
+    expect(malwareCount(engine)).toBe(2);
+  });
+
+  it("a booster does not trigger a spread", () => {
+    const engine = engineFor(malwareBoard("z~1 t k z f"));
+    const delta = engine.apply({ kind: "activateBooster", booster: "rocket", at: { row: 4, col: 4 } });
+    expect(delta.powerUpEvents.length).toBeGreaterThan(0);
+    expect(malwareCount(engine)).toBe(1);
+  });
+
+  it("a board with no malware draws no random number for spreading", () => {
+    const engine = engineFor(malwareBoard("z t k z f"));
+    const { steps } = engine.applyWithResolution(MALWARE_SWAP);
+    const step = steps.find((candidate) => candidate.kind === "malware");
+    expect(step).toBeDefined();
+    expect(step!.after.rngSeed).toBe(step!.before.rngSeed);
+  });
+
+  it("removing the last malware wins a malware goal", () => {
+    const engine = new BoardEngine(testLevel(malwareBoard("z t k z f", "z~1 t k f z"), { objectives: MALWARE_GOAL }), 7);
+    expect(malwareCount(engine)).toBe(1);
+    const delta = engine.apply(MALWARE_SWAP);
+    expect(delta.isWin).toBe(true);
+    expect(engine.snapshot.malwareLeft).toBe(0);
+  });
+
+  it("a malware goal cannot be finished while any remains", () => {
+    const engine = new BoardEngine(testLevel(malwareBoard("z t k z f~1", "z~1 t k f z"), { objectives: MALWARE_GOAL }), 7);
+    expect(engine.snapshot.malwareLeft).toBe(2);
+    const delta = engine.apply(MALWARE_SWAP);
+    expect(delta.isWin).toBe(false);
+    expect(engine.snapshot.malwareLeft).toBe(1);
+  });
+
+  it("the malware goal wins on the last move instead of failing", () => {
+    const level = testLevel(malwareBoard("z t k z f", "z~1 t k f z"), { objectives: MALWARE_GOAL, moveLimit: 1 });
+    const engine = new BoardEngine(level, 7);
+    const delta = engine.apply(MALWARE_SWAP);
+    expect(engine.snapshot.moveCount).toBe(engine.snapshot.moveLimit);
+    expect(delta.isWin).toBe(true);
+    expect(delta.isFail).toBe(false);
+  });
+});

@@ -72,6 +72,8 @@ export class BoardEngine {
   private moveLimitBonus = 0;
   /** Panes already hit in the move being resolved: a pane loses at most one layer per move. */
   private panesHitThisMove = new Set<string>();
+  /** True once the move being resolved has destroyed a malware cell; a move that removes none lets it spread. */
+  private malwareRemovedThisMove = false;
 
   constructor(level: LevelDefinition, rngSeed: bigint | number | string) {
     validateLevel(level);
@@ -124,6 +126,7 @@ export class BoardEngine {
       moveLimit: this.level.moveLimit + this.moveLimitBonus,
       objectiveProgress: { ...this.objectiveProgressValue },
       objectiveTargets: { ...this.objectiveTargetsValue },
+      malwareLeft: grid.allPositions.filter((position) => grid.get(position).underlay !== null).length,
       spawnWeights: { ...this.spawnRule.weights },
       rngSeed,
       chainDepth: this.chainDepthValue
@@ -143,6 +146,7 @@ export class BoardEngine {
   private applyInternal(action: BoardAction, capture?: ResolutionCapture): BoardDelta {
     const accumulator = emptyAccumulator();
     this.panesHitThisMove.clear();
+    this.malwareRemovedThisMove = false;
     let initialResolution = emptyPowerUpResolution();
     let preferredPowerUpCreationPositions: GridPosition[] = [];
 
@@ -167,10 +171,18 @@ export class BoardEngine {
     }
     this.resolveBoard(initialResolution, preferredPowerUpCreationPositions, accumulator, capture);
 
+    // Malware spreads only when the player ignored it: not after a booster, not after a move that destroyed any.
+    if (action.kind !== "activateBooster" && !this.malwareRemovedThisMove) this.spreadMalwareOneCell();
+    if (capture) capture.record("malware", this.snapshot, accumulator);
+
     let shuffleAttempts = 0;
     if (this.validMovesForGrid(this.grid).length === 0) {
       shuffleAttempts = this.shuffleUntilPlayable();
       if (capture) capture.record("shuffle", this.snapshot, accumulator);
+    }
+
+    if (this.objectiveTargetsValue.malware !== undefined) {
+      this.objectiveProgressValue.malware = this.snapshot.malwareLeft === 0 ? 1 : 0;
     }
 
     const isWin = Object.entries(this.objectiveTargetsValue).every(([key, target]) => (this.objectiveProgressValue[key] ?? 0) >= target);
@@ -356,6 +368,7 @@ export class BoardEngine {
         }
 
         const underlayDestroyedAtCell = decrementUnderlayIfPresent(cell);
+        if (underlayDestroyedAtCell) this.malwareRemovedThisMove = true;
 
         if (cell.powerUp && sourcePowerUp) {
           chainedPowerUps.push({ origin: position, powerUp: clonePowerUp(cell.powerUp)!, source: sourcePowerUp });
@@ -368,7 +381,6 @@ export class BoardEngine {
           const contributions = objectiveContributions(
             eventTileType,
             position,
-            underlayDestroyedAtCell,
             this.level.objectives,
             this.objectiveProgressValue,
             this.grid.rows - 1
@@ -435,8 +447,6 @@ export class BoardEngine {
       if (capture) capture.record("gravity", this.snapshotAt(gravity.afterGravityGrid, beforeSpawnRng), accumulator);
       accumulator.spawns.push(...gravity.spawns);
       if (capture) capture.record("refill", this.snapshot, accumulator);
-      this.spreadMalwareOneStep();
-      if (capture) capture.record("malware", this.snapshot, accumulator);
       cascadeDepth += 1;
     }
 
@@ -478,10 +488,7 @@ export class BoardEngine {
         if (!cell.underlay) continue;
         if (cell.underlay.hp <= 1) {
           cell.underlay = null;
-          if (this.objectiveTargetsValue.spread !== undefined) {
-            this.objectiveProgressValue.spread = (this.objectiveProgressValue.spread ?? 0) + 1;
-            accumulator.objectiveDeltas.spread = (accumulator.objectiveDeltas.spread ?? 0) + 1;
-          }
+          this.malwareRemovedThisMove = true;
         } else {
           cell.underlay = { kind: "malwarePropagation", hp: cell.underlay.hp - 1 };
         }
@@ -497,33 +504,31 @@ export class BoardEngine {
     }
   }
 
-  private spreadMalwareOneStep(): void {
+  /** Malware grows into one empty neighbouring cell, chosen from a sorted list so the draw is deterministic. */
+  private spreadMalwareOneCell(): void {
     const offsets = [
       { row: -1, col: 0 },
       { row: 1, col: 0 },
       { row: 0, col: -1 },
       { row: 0, col: 1 }
     ];
-    const placements: GridPosition[] = [];
+    const candidates = new Map<string, GridPosition>();
     for (const source of this.grid.allPositions) {
       const cell = this.grid.get(source);
       if (!cell.underlay || cell.underlay.hp <= 0) continue;
-      const neighbors: GridPosition[] = [];
       for (const offset of offsets) {
         const candidate = { row: source.row + offset.row, col: source.col + offset.col };
         if (!this.grid.isValid(candidate)) continue;
         const candidateCell = this.grid.get(candidate);
-        if (candidateCell.underlay === null && candidateCell.generator === null) neighbors.push(candidate);
-      }
-      if (neighbors.length > 0) placements.push(neighbors[this.rng.nextInt(neighbors.length)]);
-    }
-    for (const position of placements) {
-      const cell = this.grid.get(position);
-      if (cell.underlay === null) {
-        cell.underlay = { kind: "malwarePropagation", hp: 1 };
-        this.grid.set(position, cell);
+        if (candidateCell.underlay === null && candidateCell.generator === null) candidates.set(positionKey(candidate), candidate);
       }
     }
+    if (candidates.size === 0) return;
+    const sorted = sortedPositions(new Set(candidates.keys()));
+    const chosen = sorted[this.rng.nextInt(sorted.length)];
+    const target = this.grid.get(chosen);
+    target.underlay = { kind: "malwarePropagation", hp: 1 };
+    this.grid.set(chosen, target);
   }
 
   private validMovesForGrid(board: Grid2D<CellState>): BoardAction[] {
@@ -922,7 +927,6 @@ function fallbackTileType(cell: CellState, grid: Grid2D<CellState>, position: Gr
 function objectiveContributions(
   tileType: TileType,
   position: GridPosition,
-  underlayDestroyed: boolean,
   objectives: ObjectiveDefinition[],
   progress: Record<string, number>,
   bottomRow: number
@@ -933,8 +937,6 @@ function objectiveContributions(
     if ((objective.id === "collect" || objective.id.startsWith("collect_")) && objective.tileType === tileType) {
       contributions.push(objective.id);
     } else if (objective.id === "clear") {
-      contributions.push(objective.id);
-    } else if (objective.id === "spread" && underlayDestroyed) {
       contributions.push(objective.id);
     } else if (objective.id === "guide" && position.row === bottomRow) {
       contributions.push(objective.id);

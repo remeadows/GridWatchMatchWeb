@@ -119,6 +119,8 @@ export interface BoardSnapshot {
   moveLimit: number;
   objectiveProgress: Record<string, number>;
   objectiveTargets: Record<string, number>;
+  /** Malware cells still on the board. */
+  malwareLeft: number;
   spawnWeights: Record<TileType, number>;
   rngSeed: string;
   chainDepth: number;

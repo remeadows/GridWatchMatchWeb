@@ -40,7 +40,7 @@ const lightBall: PowerUpType = { kind: "lightBall" };
 describe("single power-up contact contract", () => {
   const snapshot: BoardSnapshot = {
     grid: new Grid2D(7, 7, ({ row, col }) => ({ ...emptyCell(), baseTile: "packet", debugTileId: row * 7 + col + 1 })),
-    moveCount: 0, moveLimit: 20, objectiveProgress: {}, objectiveTargets: {},
+    moveCount: 0, moveLimit: 20, objectiveProgress: {}, objectiveTargets: {}, malwareLeft: 0,
     spawnWeights: { packet: 1, firewall: 0, key: 0, threat: 0, zeroDay: 0 }, rngSeed: "41", chainDepth: 0
   };
   const origin = { row: 3, col: 3 };

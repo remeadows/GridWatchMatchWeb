@@ -385,7 +385,7 @@ function weightForObjectivePriority(
       weight += 3.0;
     } else if (objective.id === "clear") {
       weight += 1.5;
-    } else if (objective.id === "spread" && cell.underlay !== null) {
+    } else if (objective.id === "malware" && cell.underlay !== null) {
       weight += 2.5;
     } else if (objective.id === "guide" && position.row === bottomRow) {
       weight += 2.0;

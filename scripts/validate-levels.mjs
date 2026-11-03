@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
 const levelsDir = path.join(repoRoot, "public/levels");
-const allowedObjectiveIds = new Set(["collect", "clear", "multi", "spread", "guide"]);
+const allowedObjectiveIds = new Set(["collect", "clear", "multi", "malware", "guide"]);
 const tileTypes = new Set(["packet", "firewall", "key", "threat", "zeroDay"]);
 const powerUps = new Set(["rocket_h", "rocket_v", "propeller", "tnt", "lightBall"]);
 const overlays = new Set(["encryptedVolume_1", "encryptedVolume_2", "encryptedVolume_3"]);
@@ -91,6 +91,10 @@ async function main() {
         }
       }
     }
+
+    const hasMalwareGoal = (level.objectives ?? []).some((objective) => objective.id === "malware");
+    const hasMalware = Array.isArray(level.cellMap) && level.cellMap.some((cells) => Array.isArray(cells) && cells.some((cell) => cell.underlay != null));
+    if (hasMalwareGoal && !hasMalware) fail(report, "MALWARE_GOAL_WITHOUT_MALWARE");
 
     const weights = level.spawnWeights ?? {};
     const weightSum = Object.values(weights).reduce((sum, value) => sum + Number(value), 0);
