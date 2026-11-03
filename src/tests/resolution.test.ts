@@ -213,7 +213,7 @@ for (const method of ["apply", "applyWithResolution"] as const) {
       expect(canonical(outcome(engine, fixture.actions.at(-1)!))).toEqual(fixture.expected);
     });
 
-    it("matches all 33,885 frozen actions over 100 levels and 20 sensitivity seeds", () => {
+    it("matches all 34,164 frozen actions over 100 levels and 20 sensitivity seeds", () => {
       const runs = read<CorpusRun[]>("src/tests/fixtures/resolution/corpus.json");
       const levels = new Map<number, LevelDefinition>();
       let actions = 0;
@@ -226,7 +226,7 @@ for (const method of ["apply", "applyWithResolution"] as const) {
           actions++;
         });
       }
-      expect(actions).toBe(33885);
+      expect(actions).toBe(34164);
       expect(runs).toHaveLength(2000);
     }, 120000);
   });

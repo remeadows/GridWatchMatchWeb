@@ -3,7 +3,7 @@
 ## Frozen Implementation Baseline
 
 Task 0 fixtures live in `src/tests/fixtures/resolution/`. `manifest.json` contains
-SHA-256 source hashes; `corpus.json` stores 2,000 runs / 33,885 actions, action
+SHA-256 source hashes; `corpus.json` stores 2,000 runs / 34,164 actions, action
 tuples, and complete canonical outcome hashes. Arrays preserve order; object keys
 sort recursively. Each outcome includes delta, error, complete row-major snapshot,
 and cumulative action log. `specimens.json` retains full authored input, initial
