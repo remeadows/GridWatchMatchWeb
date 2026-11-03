@@ -121,8 +121,10 @@ export class BoardEngine {
   /**
    * An independent copy that plays exactly like this engine from here on: same board, goals, move limit, rng and
    * history. It skips level setup. Every field must be listed: a field added to the class needs a line here.
+   * With `rngSeed`, the fork draws its refills from a fresh generator in that state instead (zero allowed): a
+   * lookahead that cannot see which pieces will really drop next.
    */
-  fork(): BoardEngine {
+  fork(options: { rngSeed?: bigint } = {}): BoardEngine {
     const fields = {
       level: this.level,
       grid: this.grid.clone(cloneCell),
@@ -130,7 +132,7 @@ export class BoardEngine {
       objectiveProgressValue: { ...this.objectiveProgressValue },
       objectiveTargetsValue: { ...this.objectiveTargetsValue },
       spawnRule: this.spawnRule,
-      rng: SeededRNG.fromState(this.rng.state),
+      rng: SeededRNG.fromState(options.rngSeed ?? this.rng.state),
       nextDebugTileId: this.nextDebugTileId,
       chainDepthValue: this.chainDepthValue,
       actionHistory: this.actionHistory.map(cloneAction),

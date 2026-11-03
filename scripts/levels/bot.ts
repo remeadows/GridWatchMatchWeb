@@ -1,6 +1,8 @@
 // A test bot for tuning level difficulty. It plays the real engine from the real starting seed, buys nothing and
 // never takes Play On. Each turn it looks one move ahead: it plays every legal move on a fork of the game and keeps
 // the best, except that with chance `mistakeRate` it plays a random legal move instead, like a person not looking.
+// The lookahead forks draw their refills from the bot's own random numbers, not the game's, so the bot cannot see
+// which pieces will really drop next. The real game still follows levelSeed.
 import { BoardEngine, BoardEngineError, SeededRNG, type BoardAction, type BoardDelta, type LevelDefinition, type PowerUpType } from "../../src/engine";
 import { levelSeed } from "../../src/state/progress";
 
@@ -39,10 +41,12 @@ export function chooseMove(engine: BoardEngine, rng: SeededRNG, options: BotOpti
 
   const snapshot = engine.snapshot;
   const goals: GoalState = { progress: snapshot.objectiveProgress, targets: snapshot.objectiveTargets, malwareLeft: snapshot.malwareLeft };
+  // One guessed refill stream per turn, shared by every candidate so they are compared on the same guess.
+  const lookaheadSeed = rng.nextUInt64();
   let best: BoardAction[] = [];
   let bestScore = -Infinity;
   for (const move of moves) {
-    const score = scoreMove(engine, move, goals);
+    const score = scoreMove(engine, move, goals, lookaheadSeed);
     if (score > bestScore + tieEpsilon) {
       bestScore = score;
       best = [move];
@@ -80,12 +84,12 @@ export function gameSeed(levelId: number, index: number): bigint {
   return seed === 0n ? 1n : seed;
 }
 
-function scoreMove(engine: BoardEngine, move: BoardAction, goals: GoalState): number {
+function scoreMove(engine: BoardEngine, move: BoardAction, goals: GoalState, lookaheadSeed: bigint): number {
   let delta: BoardDelta;
   try {
-    delta = engine.fork().apply(move);
+    delta = engine.fork({ rngSeed: lookaheadSeed }).apply(move);
   } catch (error) {
-    // The engine could not shuffle the board after this move: a dead board, the worst outcome.
+    // The engine could not shuffle the guessed board after this move: score it as a dead board, the worst outcome.
     if (error instanceof BoardEngineError && error.code === "noMovesAvailable") return -winScore;
     throw error;
   }

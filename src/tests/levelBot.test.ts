@@ -104,6 +104,27 @@ describe("BoardEngine.fork", () => {
     expect(played).toBeGreaterThan(5);
   }
 
+  it("fork() with no option still matches the original exactly", () => {
+    const engine = new BoardEngine(readLevel(60), levelSeed(60));
+    expect(engine.fork().snapshot.rngSeed).toBe(engine.snapshot.rngSeed);
+    expect(engine.fork({}).snapshot.rngSeed).toBe(engine.snapshot.rngSeed);
+    playInLockstep(engine, engine.fork(), new SeededRNG(11n), 60);
+    playInLockstep(engine, engine.fork({}), new SeededRNG(12n), 60);
+  });
+
+  it("two lookahead forks with different seeds can produce different refills from the same move", () => {
+    const engine = new BoardEngine(readLevel(41), levelSeed(41));
+    const before = engineKey(engine);
+    const move = engine.validMoves()[0];
+    const refills = (rngSeed: bigint) => JSON.stringify(engine.fork({ rngSeed }).apply(move).spawns);
+    expect(refills(1n)).not.toBe(refills(2n));
+    // A seeded fork is repeatable, does not follow the real game, and leaves the original alone.
+    expect(refills(1n)).toBe(refills(1n));
+    expect(refills(1n)).not.toBe(JSON.stringify(engine.fork().apply(move).spawns));
+    expect(engine.fork({ rngSeed: 0n }).snapshot.rngSeed).toBe("0");
+    expect(engineKey(engine)).toBe(before);
+  });
+
   it("a fork of a fork keeps agreeing", () => {
     const engine = new BoardEngine(readLevel(78), levelSeed(78));
     const rng = new SeededRNG(3n);
@@ -147,6 +168,35 @@ describe("level bot", () => {
     expect(bot.failRate).toBeLessThanOrEqual(random.failRate);
     // A margin, so a bot no better than random cannot pass on fail rate alone.
     expect(bot.avgMovesLeft).toBeGreaterThanOrEqual(random.avgMovesLeft + 3);
+  });
+
+  it("a game's real refills are unaffected by the lookahead seeds", () => {
+    for (const id of [41, 90]) {
+      const level = readLevel(id);
+      const played = new BoardEngine(level, levelSeed(id));
+      const result = playGame(played, new SeededRNG(7n), DEFAULT_BOT);
+      // Replaying the bot's moves on a fresh game from levelSeed, with no lookahead at all, lands on the same board:
+      // every real refill came from the game's own generator.
+      const replay = new BoardEngine(level, levelSeed(id));
+      for (const action of played.actionLog()) replay.apply(action);
+      expect(engineKey(replay)).toBe(engineKey(played));
+      expect(playLevel(level, 7n)).toEqual(result);
+    }
+  });
+
+  it("the lookahead never sees the game's own refills", () => {
+    const engine = new BoardEngine(readLevel(41), levelSeed(41));
+    const forkSpy = vi.spyOn(BoardEngine.prototype, "fork");
+    try {
+      chooseMove(engine, new SeededRNG(4n), { mistakeRate: 0 });
+      expect(forkSpy).toHaveBeenCalledTimes(engine.validMoves().length);
+      const seeds = forkSpy.mock.calls.map(([options]) => options?.rngSeed);
+      expect(seeds.every((seed) => typeof seed === "bigint")).toBe(true);
+      // One guess per turn, shared by every candidate.
+      expect(new Set(seeds).size).toBe(1);
+    } finally {
+      forkSpy.mockRestore();
+    }
   });
 
   it("playing a level is repeatable", () => {
