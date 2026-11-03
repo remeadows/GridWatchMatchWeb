@@ -8,6 +8,8 @@ import {
   WIN_SEQUENCE_LEAD_IN_MS
 } from "../../src/data/gameplayTiming";
 import { winSequenceDurationMs } from "../../src/game/motion";
+import type { PresentationTraceEntry } from "../../src/game/presentation";
+import { testLevel } from "../../src/tests/helpers/testBoard";
 import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
 
 test.beforeEach(async ({ page }) => {
@@ -724,3 +726,158 @@ async function lightBallZapCount(page: Page): Promise<number> {
     return w.__gwLightBallZapCount ?? 0;
   });
 }
+
+
+// --- Blocker goals: panes, locks and malware (goal chips, flights, frozen panes) -------------------------------------
+
+/** No matches anywhere; swapping (4,2)-(4,3) makes p p p along the bottom row, under the pane at (3,2). */
+const PANE_BOARD = (pane: string) => [
+  "z t k z f#2",
+  "k f z p t",
+  "p k t z f",
+  `z t ${pane} f z`,
+  "p p k p f"
+];
+const PANES_GOAL = [{ id: "panes", target: 2, displayName: "Panes", tileType: null }];
+
+async function openBlockerLevel(page: Page, rows: string[], objectives = PANES_GOAL, query = ""): Promise<void> {
+  const level = testLevel(rows, { moveLimit: 20, objectives });
+  await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
+  await page.goto(`./?gwTestMode=1&level=1${query}`);
+  await waitForBoardReady(page);
+}
+
+function watchForErrors(page: Page): string[] {
+  const errors: string[] = [];
+  // WebKit refuses the voice clips before the first tap; that is the audio unlock, not the board.
+  const note = (text: string) => { if (!text.includes("/assets/audio/")) errors.push(text); };
+  page.on("pageerror", error => note(error.message));
+  page.on("console", message => { if (message.type() === "error") note(message.text()); });
+  return errors;
+}
+
+const movesShown = (page: Page) => page.locator(".game-hud div", { hasText: "Moves" }).locator("strong");
+const paneStrength = (page: Page, key: string) => page.evaluate(
+  (cell) => (window as Window & { __gwPaneStrengths?: Record<string, number> }).__gwPaneStrengths?.[cell] ?? null, key);
+const objectiveFlights = (page: Page) => page.evaluate(() =>
+  ((window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace ?? [])
+    .filter(entry => entry.kind === "objective-fly").map(entry => entry.detail));
+
+async function darkOnly(page: Page): Promise<void> {
+  const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+  test.skip(theme !== "darkRealism", "the archived classic board has no flights");
+}
+
+test("a broken pane flies to its goal and the count waits for it", async ({ page }) => {
+  await openBlockerLevel(page, PANE_BOARD("k#1"));
+  await darkOnly(page);
+  const chip = page.locator('[data-objective-id="panes"]');
+  await expect(chip).toContainText("Panes: 0/2");
+  await expect(chip.locator(".objective-picture")).toBeVisible();
+  const track = page.evaluate(() => new Promise<string[]>((resolve) => {
+    const seen: string[] = [];
+    let started = false;
+    const look = () => {
+      const flying = document.querySelector(".piece-flight") !== null;
+      if (flying) { started = true; seen.push(document.querySelector('[data-objective-id="panes"]')?.textContent ?? ""); }
+      else if (started) { resolve(seen); return; }
+      requestAnimationFrame(look);
+    };
+    look();
+  }));
+  await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
+  const whileFlying = await track;
+  expect(whileFlying.length).toBeGreaterThan(3);
+  for (const text of whileFlying) expect(text).toContain("Panes: 0/2");
+  expect((await objectiveFlights(page)).some(detail => detail?.startsWith("panes:3,2"))).toBe(true);
+  await expect(chip).toContainText("Panes: 1/2");
+});
+
+test("a pane's strength number drops when a match beside it removes a layer", async ({ page }) => {
+  await openBlockerLevel(page, PANE_BOARD("k#2"));
+  expect(await paneStrength(page, "3,2")).toBe(2);
+  await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
+  await waitForResolutionComplete(page);
+  expect(await paneStrength(page, "3,2")).toBe(1);
+  await expect(page.locator('[data-objective-id="panes"]')).toContainText("Panes: 0/2");
+});
+
+test("swapping into a frozen pane is refused cleanly", async ({ page }) => {
+  const errors = watchForErrors(page);
+  await openBlockerLevel(page, PANE_BOARD("k#2"));
+  await expect(movesShown(page)).toHaveText("20/20");
+  await dragBoardCells(page, { row: 3, col: 3 }, { row: 3, col: 2 });
+  // Nothing resolves: the board declines the gesture, so there is no trace to wait for.
+  await page.waitForTimeout(800);
+  expect(await page.evaluate(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete") ?? false)).toBe(false);
+  await expect(movesShown(page)).toHaveText("20/20");
+  expect(await paneStrength(page, "3,2")).toBe(2);
+  // The board plays on.
+  await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
+  await expect(movesShown(page)).toHaveText("19/20");
+  expect(errors).toEqual([]);
+});
+
+test("a booster dropped on a pane fires", async ({ page }) => {
+  const errors = watchForErrors(page);
+  await openBlockerLevel(page, PANE_BOARD("k#2"));
+  const booster = page.getByTestId("booster-tnt");
+  await expect(booster.locator("strong")).toHaveText("3");
+  await booster.click();
+  await clickBoardPoint(page, await boardCellPoint(page, { row: 3, col: 2 }));
+  await expect(booster.locator("strong")).toHaveText("2");
+  await waitForResolutionComplete(page);
+  expect(await paneStrength(page, "3,2")).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("reduced motion and classic count blockers at once", async ({ page }) => {
+  for (const mode of ["reduced", "classic"] as const) {
+    await page.unroute("**/levels/level_001.json");
+    if (mode === "reduced") await page.emulateMedia({ reducedMotion: "reduce" });
+    await openBlockerLevel(page, PANE_BOARD("k#1"), PANES_GOAL, mode === "classic" ? "&theme=classic" : "");
+    await expect(page.locator('[data-objective-id="panes"]')).toContainText("Panes: 0/2");
+    await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
+    await waitForResolutionComplete(page);
+    await expect(page.locator('[data-objective-id="panes"]')).toContainText("Panes: 1/2");
+    await expect(page.locator(".piece-flight")).toHaveCount(0);
+    // Reduced motion is the player's setting and the flight itself declines it; the classic board never plans one.
+    if (mode === "classic") expect(await objectiveFlights(page)).toEqual([]);
+  }
+});
+
+test("blocker goals fit one phone screen", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 550 });
+  const rows = [
+    "z t k z f#2",
+    "k f z p t~1",
+    "p k t z f",
+    "z t k#1 f z",
+    "p p! k p f"
+  ];
+  const goals = [
+    { id: "panes", target: 2, displayName: "Panes", tileType: null },
+    { id: "locks", target: 1, displayName: "Locks", tileType: null },
+    { id: "malware", target: 1, displayName: "Malware", tileType: null }
+  ];
+  await openBlockerLevel(page, rows, goals);
+  await page.addStyleTag({ content: ".qa-tools, .delta-line { display: none !important; }" });
+  await expect(page.locator('[data-objective-id="malware"]')).toContainText("Malware left: 1");
+  const fit = await page.evaluate(() => ({
+    chips: [...document.querySelectorAll<HTMLElement>(".objective-chip")].map(chip => ({
+      clipped: chip.scrollWidth > chip.clientWidth + 1 || chip.scrollHeight > chip.clientHeight + 1,
+      right: chip.getBoundingClientRect().right
+    })),
+    scrollX: document.documentElement.scrollWidth - window.innerWidth,
+    scrollY: document.documentElement.scrollHeight - window.innerHeight,
+    width: window.innerWidth
+  }));
+  expect(fit.chips).toHaveLength(3);
+  for (const chip of fit.chips) {
+    expect(chip.clipped).toBe(false);
+    expect(chip.right).toBeLessThanOrEqual(fit.width);
+  }
+  expect(fit.scrollX).toBeLessThanOrEqual(0);
+  expect(fit.scrollY).toBeLessThanOrEqual(0);
+  await page.screenshot({ path: "test-results/blocker-goals-375x550.png" });
+});

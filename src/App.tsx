@@ -11,14 +11,14 @@ import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionSte
 import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { winSequenceDurationMs } from "./game/motion";
-import { landPiece, launchPiece, objectiveCountShown, skipPiece, type ObjectiveFlightCounts } from "./game/objectiveFlight";
+import { landPiece, launchPiece, malwareCountShown, objectiveCountShown, skipPiece, type ObjectiveFlightCounts } from "./game/objectiveFlight";
 import { PieceFlights } from "./game/pieceFlights";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { DarkHomeScreen } from "./components/DarkHomeScreen";
-import { activeBoardTheme, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
+import { activeBoardTheme, matchV2BlockerAsset, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
@@ -725,7 +725,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     };
   }, [levelId, runId]);
   const handlePieceCollected = useCallback((piece: CollectedPiece) => {
-    const progress = hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
+    const progress = piece.objectiveId === "malware" ? 0 : hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
     const flew = pieceFlightsRef.current?.launch(piece) ?? false;
     setFlightCounts((counts) => (flew ? launchPiece(counts, piece.objectiveId, progress) : skipPiece(counts, piece.objectiveId)));
   }, []);
@@ -1262,11 +1262,17 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       <div className="objective-row">
         {objectives.map((objective) => {
           // Dark realism: a "collect" objective shows the piece it names, so the word has a face.
-          const picture = activeBoardTheme() === "darkRealism" && objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          const dark = activeBoardTheme() === "darkRealism";
+          const blocker = objective.id === "panes" ? "pane" : objective.id === "locks" ? "lock" : objective.id === "malware" ? "malware" : null;
+          const picture = !dark ? undefined : blocker ? matchV2BlockerAsset(blocker) : objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          // Malware is shown as cells left, not progress: a cell still in the air has not gone yet.
+          const shown = objective.id === "malware"
+            ? malwareCountShown(flightCounts, hud?.malwareLeft ?? 0)
+            : objectiveCountShown(flightCounts, objective.id, hud?.objectiveProgress[objective.id] ?? 0);
           return (
             <div className="objective-chip" data-objective-id={objective.id} key={objective.id}>
               {picture && <img className="objective-picture" src={assetUrl(picture.path)} alt="" />}
-              {objectiveLabel(objective, objectiveCountShown(flightCounts, objective.id, hud?.objectiveProgress[objective.id] ?? 0))}
+              {objectiveLabel(objective, shown)}
             </div>
           );
         })}

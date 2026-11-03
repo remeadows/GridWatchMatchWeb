@@ -1,7 +1,7 @@
 import { assetUrl } from "../data/assets";
 import { audioService } from "../services/audio";
 import type { CollectedPiece } from "./BoardScene";
-import { matchV2TileAsset } from "./boardTheme";
+import { matchV2BlockerAsset, matchV2TileAsset } from "./boardTheme";
 import { OBJECTIVE_FLIGHT_CAP, OBJECTIVE_FLIGHT_MS, OBJECTIVE_FLIGHT_STAGGER_MS, flightKeyframes } from "./objectiveFlight";
 
 // Draws the flights src/game/objectiveFlight.ts plans. They cross from the board's canvas to the
@@ -25,7 +25,7 @@ export class PieceFlights {
   launch(piece: CollectedPiece): boolean {
     if (this.flights.size >= OBJECTIVE_FLIGHT_CAP) return false;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return false;
-    const asset = matchV2TileAsset(piece.tileType);
+    const asset = piece.blocker ? matchV2BlockerAsset(piece.blocker) : piece.tileType ? matchV2TileAsset(piece.tileType) : undefined;
     const chip = document.querySelector<HTMLElement>(`[data-objective-id="${CSS.escape(piece.objectiveId)}"]`);
     if (!asset || !chip) return false;
     const target = (chip.querySelector(".objective-picture") ?? chip).getBoundingClientRect();

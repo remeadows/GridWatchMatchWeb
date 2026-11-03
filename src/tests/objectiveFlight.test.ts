@@ -5,6 +5,7 @@ import {
   flightKeyframes,
   landPiece,
   launchPiece,
+  malwareCountShown,
   objectiveCountShown,
   skipPiece,
   type ObjectiveFlightCounts
@@ -96,5 +97,13 @@ describe("a piece's flight to the objective", () => {
 
   it("offers evenly spaced keyframes in order", () => {
     frames.forEach((frame, index) => expect(frame.offset).toBeCloseTo(index / (frames.length - 1), 5));
+  });
+});
+
+describe("the malware count while pieces are in the air", () => {
+  it("shows malware still in the air as not yet removed", () => {
+    const counts = launchPiece({}, "malware", 0);
+    expect(malwareCountShown(counts, 4)).toBe(5);
+    expect(malwareCountShown({}, 4)).toBe(4);
   });
 });

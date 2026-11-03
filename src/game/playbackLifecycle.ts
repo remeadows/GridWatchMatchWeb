@@ -118,7 +118,7 @@ export function advancePlayClock(clock: PlayClock, now: number, running: boolean
   return { remainingMs, lastAtMs: at, running: running && remainingMs > 0 };
 }
 
-export type PlaybackHud = Pick<BoardSnapshot, "moveCount" | "moveLimit" | "objectiveProgress"> & { score: number };
+export type PlaybackHud = Pick<BoardSnapshot, "moveCount" | "moveLimit" | "objectiveProgress" | "malwareLeft"> & { score: number };
 
 export function playbackHudAtStep(
   steps: readonly BoardResolutionStep[], ordinal: number, initialScore: number, finalScore: number
@@ -133,6 +133,7 @@ export function playbackHudAtStep(
   return {
     moveCount: step.after.moveCount,
     moveLimit: step.after.moveLimit,
+    malwareLeft: step.after.malwareLeft,
     objectiveProgress: Object.fromEntries(Object.entries(step.after.objectiveProgress)
       .map(([key, value]) => [key, Math.max(0, Math.min(value, final.after.objectiveProgress[key] ?? 0))])),
     score: Math.min(finalScore, initialScore + Math.floor(Math.max(0, finalScore - initialScore) * fraction))

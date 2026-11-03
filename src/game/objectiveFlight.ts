@@ -44,6 +44,14 @@ export function objectiveCountShown(counts: ObjectiveFlightCounts, objectiveId: 
   return current ? Math.min(progress, current.shown) : progress;
 }
 
+/**
+ * Malware is a count of cells left, not progress toward a target, so a piece in the air has not
+ * been removed yet: it still counts among those left until it lands.
+ */
+export function malwareCountShown(counts: ObjectiveFlightCounts, left: number): number {
+  return left + (counts.malware?.inAir ?? 0);
+}
+
 export interface FlightKeyframe {
   offset: number;
   x: number;

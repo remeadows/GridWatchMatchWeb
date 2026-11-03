@@ -79,6 +79,8 @@ import {
   detectMatches,
   powerUpKey,
   serializePowerUp,
+  type BlockerClear,
+  type BlockerKind,
   type BoardAction,
   type BoardDelta,
   type BoardResolutionStep,
@@ -103,7 +105,10 @@ import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle"
 /** A piece that counts for an objective has just broken: where it is on the page, for its flight. */
 export interface CollectedPiece {
   objectiveId: string;
-  tileType: TileType;
+  /** The piece's kind, or null when a blocker (see `blocker`) is what broke. */
+  tileType: TileType | null;
+  /** Set when a pane, lock or malware cell broke rather than a piece. */
+  blocker: BlockerKind | null;
   x: number;
   y: number;
   size: number;
@@ -1084,6 +1089,8 @@ export class BoardScene extends Phaser.Scene {
     const topLeft = this.cellTopLeft(position);
     const radius = Math.max(6, this.tileSize * 0.1);
     const isDesignLocked = cell.debugDesignLocked && !cell.generator;
+    // A pane freezes a piece that is still playable: its cell is an ordinary one under glass, not a hole.
+    const isPane = cell.overlay !== null && !cell.generator;
     const cellFill = cell.generator
       ? boardChrome.generatorCell
       : cell.isMovable || isDesignLocked
@@ -1108,7 +1115,7 @@ export class BoardScene extends Phaser.Scene {
       ? this.v2Texture(matchV2BoardPartAsset("generator:honeypot"))
       : cell.underlay
         ? this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation")) ?? this.v2Texture(matchV2CellAsset("movable"))
-        : this.v2Texture(matchV2CellAsset(cell.isMovable || isDesignLocked ? "movable" : "blocked"));
+        : this.v2Texture(matchV2CellAsset(cell.isMovable || isDesignLocked || isPane ? "movable" : "blocked"));
     const underlayInSocket = Boolean(cell.underlay) && socketKey === this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation"));
     if (socketKey) {
       const socket = this.add.image(topLeft.x + this.tileSize / 2, topLeft.y + this.tileSize / 2, socketKey);
@@ -1117,7 +1124,7 @@ export class BoardScene extends Phaser.Scene {
       this.layer.add(socket);
       if (!cell.generator) this.cellSocketNodes.set(positionId, socket);
     } else {
-      const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked;
+      const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked && !isPane;
       graphics.fillStyle(blocked ? darkRealismChrome.blockedCell : cellFill, blocked ? darkRealismChrome.blockedCellAlpha : cellAlpha);
       graphics.fillRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
       graphics.lineStyle(1, blocked ? darkRealismChrome.blockedStroke : cellStroke, blocked ? darkRealismChrome.blockedStrokeAlpha : cellStrokeAlpha);
@@ -1149,6 +1156,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const center = this.cellCenter(position);
+    this.recordStrengthPlate(positionId, cell.overlay?.hp ?? null);
     if (cell.overlay) {
       const overlayKey = this.v2Texture(matchV2BoardPartAsset("overlay:encryptedVolume"));
       if (overlayKey) {
@@ -1259,6 +1267,15 @@ export class BoardScene extends Phaser.Scene {
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
     const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }> };
     target.__gwLockedCellVisuals = [];
+  }
+
+  /** Test mode only: the pane strength number each cell is showing, for tests of the display. */
+  private recordStrengthPlate(positionId: string, hp: number | null): void {
+    if (!this.isPresentationTestMode()) return;
+    const target = window as Window & { __gwPaneStrengths?: Record<string, number> };
+    target.__gwPaneStrengths ??= {};
+    if (hp === null) delete target.__gwPaneStrengths[positionId];
+    else target.__gwPaneStrengths[positionId] = hp;
   }
 
   private recordLockedCellVisual(position: GridPosition): void {
@@ -1491,6 +1508,7 @@ export class BoardScene extends Phaser.Scene {
     this.objectiveClears = new Map(step.clears
       .filter(clear => clear.contributedToObjective && clear.objectiveId !== null)
       .map(clear => [positionKey(clear.position), clear]));
+    for (const blocker of step.blockerClears) this.collectBlocker(blocker);
     let popsDone = keys.size === 0;
     let effectsDone = events.length === 0;
     let finished = false;
@@ -2357,7 +2375,17 @@ export class BoardScene extends Phaser.Scene {
     if (!point) return;
     this.recordPresentation("objective-fly", `${clear.objectiveId}:${key}`);
     const size = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
-    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: clear.tileType, x: point.x, y: point.y, size });
+    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: clear.tileType, blocker: null, x: point.x, y: point.y, size });
+  }
+
+  // A pane, lock or malware cell that counts for a goal leaves the board for it, like a piece.
+  private collectBlocker(clear: BlockerClear): void {
+    if (!clear.objectiveId || this.reducedMotion || this.boardTheme !== "darkRealism") return;
+    const point = this.cellClientPoint(clear.position.row, clear.position.col);
+    if (!point) return;
+    this.recordPresentation("objective-fly", `${clear.objectiveId}:${positionKey(clear.position)}`);
+    const size = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: null, blocker: clear.kind, x: point.x, y: point.y, size });
   }
 
   // A piece of the match that makes a power-up does not just break: what is left of it is pulled
@@ -2566,7 +2594,7 @@ export class BoardScene extends Phaser.Scene {
     const destinationKeys = cascadeHiddenDestinations(cascadePlan.moves, cascadePlan.spawns);
     this.renderSnapshot(destinationKeys, false);
 
-    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; destination: GridPosition; distanceCells: number; entering: boolean }[] = [];
+    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; destination: GridPosition; distanceCells: number; entering: boolean; clipEdge: number }[] = [];
     const missingMoveIds: number[] = [];
     // Remap occupant sprites in place: read the source key, then reattach under
     // the destination key. In a collapsing column one move's source cell is
@@ -2585,7 +2613,8 @@ export class BoardScene extends Phaser.Scene {
         to: this.cellCenter(move.to),
         destination: move.to,
         distanceCells: Math.abs(move.to.row - move.from.row),
-        entering: false
+        entering: false,
+        clipEdge: this.boardBounds.y
       });
       // Reattach under the destination key so subsequent renders find it.
       this.occupantNodes.delete(positionKey(move.from));
@@ -2593,7 +2622,16 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const spawnTweens: typeof moveTweens = [];
-    const startRows = refillStartRows(cascadePlan.spawns);
+    const runTop = (position: GridPosition): number => {
+      let row = position.row;
+      while (row > 0) {
+        const above = nextSnapshot.grid.get({ row: row - 1, col: position.col });
+        if (!above.isMovable || above.generator) break;
+        row -= 1;
+      }
+      return row;
+    };
+    const startRows = refillStartRows(cascadePlan.spawns, runTop);
     for (const spawn of cascadePlan.spawns) {
       if (!this.layer) continue;
       const targetCell = nextSnapshot.grid.get(spawn.position);
@@ -2602,13 +2640,16 @@ export class BoardScene extends Phaser.Scene {
       const startY = this.cellCenter({ row: startRow, col: spawn.position.col }).y;
       const sprite = this.addOccupantAt(destination.x, startY, targetCell, this.layer, 1);
       if (!sprite) continue;
-      this.clipToBoardTop(sprite);
+      const top = runTop(spawn.position);
+      const clipEdge = top === 0 ? this.boardBounds.y : this.cellTopLeft({ row: top, col: spawn.position.col }).y;
+      this.clipToBoardTop(sprite, clipEdge);
       spawnTweens.push({
         sprite,
         to: destination,
         destination: spawn.position,
         distanceCells: spawn.position.row - startRow,
-        entering: true
+        entering: true,
+        clipEdge
       });
       this.occupantNodes.set(positionKey(spawn.position), sprite);
     }
@@ -2687,9 +2728,9 @@ export class BoardScene extends Phaser.Scene {
         delay: delayMs,
         duration: fallDuration,
         ease: cascadeFallEase(entry.distanceCells),
-        onUpdate: entry.entering ? () => this.clipToBoardTop(entry.sprite) : undefined,
+        onUpdate: entry.entering ? () => this.clipToBoardTop(entry.sprite, entry.clipEdge) : undefined,
         onComplete: () => {
-          if (entry.entering) this.clipToBoardTop(entry.sprite);
+          if (entry.entering) this.clipToBoardTop(entry.sprite, entry.clipEdge);
           if (!firstLandingRecorded) {
             firstLandingRecorded = true;
             this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
@@ -2719,8 +2760,8 @@ export class BoardScene extends Phaser.Scene {
 
   // A refilling piece waits above the board and is cut off along the board's top edge until it has
   // come in. Cutting its images, rather than masking the layer, costs a phone nothing per frame.
-  private clipToBoardTop(sprite: Phaser.GameObjects.Container): void {
-    const edge = this.boardBounds.y;
+  /** Hides what is above `edge`: the board's top, or the top of an open run below a pane. */
+  private clipToBoardTop(sprite: Phaser.GameObjects.Container, edge: number = this.boardBounds.y): void {
     for (const child of sprite.list as Phaser.GameObjects.GameObject[]) {
       if (!(child instanceof Phaser.GameObjects.Image)) {
         (child as unknown as Phaser.GameObjects.Components.Visible).setVisible?.(sprite.y - this.tileSize / 2 >= edge);
