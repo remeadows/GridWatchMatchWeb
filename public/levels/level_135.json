@@ -3,19 +3,19 @@
   "name": "Ticket Flood",
   "gridRows": 7,
   "gridCols": 7,
-  "moveLimit": 20,
+  "moveLimit": 18,
   "objectives": [
     {
       "id": "locks",
-      "target": 27,
-      "displayName": "Free 27 locked cells",
+      "target": 26,
+      "displayName": "Free 26 locked cells",
       "tileType": null
     },
     {
       "id": "collect",
-      "target": 25,
-      "displayName": "Collect 25 Zero-Days",
-      "tileType": "zeroDay"
+      "target": 22,
+      "displayName": "Collect 22 Keys",
+      "tileType": "key"
     }
   ],
   "cellMap": [
@@ -26,6 +26,14 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
         "locked": false
       },
       {
@@ -50,7 +58,7 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": true
+        "locked": false
       },
       {
         "tile": null,
@@ -67,14 +75,6 @@
         "underlay": null,
         "generator": null,
         "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
       }
     ],
     [
@@ -84,6 +84,38 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
         "locked": false
       },
       {
@@ -101,38 +133,6 @@
         "underlay": null,
         "generator": null,
         "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
       }
     ],
     [
@@ -142,6 +142,38 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
         "locked": false
       },
       {
@@ -159,38 +191,6 @@
         "underlay": null,
         "generator": null,
         "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
       }
     ],
     [
@@ -200,6 +200,38 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
         "locked": false
       },
       {
@@ -217,38 +249,6 @@
         "underlay": null,
         "generator": null,
         "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
       }
     ],
     [
@@ -258,46 +258,6 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
         "locked": true
       },
       {
@@ -307,6 +267,46 @@
         "underlay": null,
         "generator": null,
         "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
       }
     ],
     [
@@ -316,46 +316,6 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
         "locked": true
       },
       {
@@ -365,6 +325,46 @@
         "underlay": null,
         "generator": null,
         "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
       }
     ],
     [
@@ -374,46 +374,6 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": true
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
         "locked": true
       },
       {
@@ -423,6 +383,46 @@
         "underlay": null,
         "generator": null,
         "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": true
       }
     ]
   ],
@@ -437,6 +437,6 @@
   "bonusLevel": false,
   "starMoves": {
     "two": 4,
-    "three": 6
+    "three": 7
   }
 }

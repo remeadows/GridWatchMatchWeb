@@ -3,19 +3,19 @@
   "name": "Machine Uprising",
   "gridRows": 7,
   "gridCols": 7,
-  "moveLimit": 24,
+  "moveLimit": 25,
   "objectives": [
     {
       "id": "panes",
-      "target": 16,
-      "displayName": "Clear 16 encrypted panes",
+      "target": 14,
+      "displayName": "Clear 14 encrypted panes",
       "tileType": null
     },
     {
       "id": "collect",
-      "target": 33,
-      "displayName": "Collect 33 Firewalls",
-      "tileType": "firewall"
+      "target": 26,
+      "displayName": "Collect 26 Packets",
+      "tileType": "packet"
     }
   ],
   "cellMap": [
@@ -97,7 +97,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -113,7 +113,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": null,
         "underlay": null,
         "generator": null,
         "locked": false
@@ -136,6 +136,154 @@
       }
     ],
     [
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      }
+    ],
+    [
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      }
+    ],
+    [
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
       {
         "tile": null,
         "powerUp": null,
@@ -159,38 +307,6 @@
         "underlay": null,
         "generator": null,
         "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
       }
     ],
     [
@@ -213,7 +329,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -221,7 +337,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -229,123 +345,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      }
-    ],
-    [
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      }
-    ],
-    [
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": null,
-        "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -435,9 +435,9 @@
   },
   "bossLevel": true,
   "bonusLevel": false,
-  "bossTimerSeconds": 96,
+  "bossTimerSeconds": 100,
   "starMoves": {
-    "two": 3,
-    "three": 6
+    "two": 10,
+    "three": 12
   }
 }

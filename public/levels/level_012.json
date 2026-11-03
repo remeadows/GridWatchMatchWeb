@@ -7,14 +7,14 @@
   "objectives": [
     {
       "id": "panes",
-      "target": 13,
-      "displayName": "Clear 13 encrypted panes",
+      "target": 12,
+      "displayName": "Clear 12 encrypted panes",
       "tileType": null
     },
     {
       "id": "collect",
-      "target": 23,
-      "displayName": "Collect 23 Keys",
+      "target": 20,
+      "displayName": "Collect 20 Keys",
       "tileType": "key"
     }
   ],
@@ -139,7 +139,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": null,
         "underlay": null,
         "generator": null,
         "locked": false
@@ -435,7 +435,7 @@
   "bossLevel": false,
   "bonusLevel": false,
   "starMoves": {
-    "two": 4,
-    "three": 6
+    "two": 5,
+    "three": 7
   }
 }

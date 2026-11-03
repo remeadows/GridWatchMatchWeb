@@ -7,15 +7,15 @@
   "objectives": [
     {
       "id": "locks",
-      "target": 22,
-      "displayName": "Free 22 locked cells",
+      "target": 24,
+      "displayName": "Free 24 locked cells",
       "tileType": null
     },
     {
       "id": "collect",
-      "target": 15,
-      "displayName": "Collect 15 Packets",
-      "tileType": "packet"
+      "target": 17,
+      "displayName": "Collect 17 Threats",
+      "tileType": "threat"
     }
   ],
   "cellMap": [
@@ -348,7 +348,7 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": false
+        "locked": true
       },
       {
         "tile": null,
@@ -406,7 +406,7 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": false
+        "locked": true
       },
       {
         "tile": null,
@@ -435,7 +435,7 @@
   "bossLevel": false,
   "bonusLevel": false,
   "starMoves": {
-    "two": 6,
-    "three": 7
+    "two": 4,
+    "three": 6
   }
 }

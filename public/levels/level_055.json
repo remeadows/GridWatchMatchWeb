@@ -13,8 +13,8 @@
     },
     {
       "id": "collect",
-      "target": 27,
-      "displayName": "Collect 27 Threats",
+      "target": 25,
+      "displayName": "Collect 25 Threats",
       "tileType": "threat"
     }
   ],
@@ -147,7 +147,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -263,7 +263,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
@@ -321,7 +321,7 @@
       {
         "tile": null,
         "powerUp": null,
-        "overlay": "encryptedVolume_2",
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false

@@ -3,19 +3,19 @@
   "name": "Correlation Rule",
   "gridRows": 7,
   "gridCols": 7,
-  "moveLimit": 19,
+  "moveLimit": 21,
   "objectives": [
     {
       "id": "locks",
-      "target": 26,
-      "displayName": "Free 26 locked cells",
+      "target": 25,
+      "displayName": "Free 25 locked cells",
       "tileType": null
     },
     {
       "id": "collect",
-      "target": 22,
-      "displayName": "Collect 22 Zero-Days",
-      "tileType": "zeroDay"
+      "target": 30,
+      "displayName": "Collect 30 Packets",
+      "tileType": "packet"
     }
   ],
   "cellMap": [
@@ -266,7 +266,7 @@
         "overlay": null,
         "underlay": null,
         "generator": null,
-        "locked": true
+        "locked": false
       },
       {
         "tile": null,
@@ -436,7 +436,7 @@
   "bossLevel": false,
   "bonusLevel": false,
   "starMoves": {
-    "two": 4,
-    "three": 7
+    "two": 3,
+    "three": 6
   }
 }
