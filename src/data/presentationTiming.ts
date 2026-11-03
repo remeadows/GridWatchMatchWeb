@@ -52,9 +52,11 @@ export const ROCKET_EFFECT_TAIL_MS = 280;
 export const ROCKET_TRAIL_LIFESPAN_MS = 180;
 export const ROCKET_TRAIL_CLEANUP_MS = 80;
 export const ROCKET_EDGE_BURST_LIFESPAN_MS = 190;
-export const PROPELLER_LIFT_MS = 105;
-export const PROPELLER_FLIGHT_MS = 340;
-export const PROPELLER_RETICLE_DELAY_MS = 70;
+// Russ, 2026-11-03: "drone - slow the animation down when first launched, then quickly targets a
+// tile". It climbs off its cell slowly (was 105 ms), then strikes fast (was 340 ms).
+export const PROPELLER_LIFT_MS = 340;
+export const PROPELLER_FLIGHT_MS = 210;
+export const PROPELLER_RETICLE_DELAY_MS = 30;
 export const PROPELLER_SECONDARY_STAGGER_MS = 32;
 export const PROPELLER_SEQUENCE_BUDGET_MS = 780;
 export const LIGHTBALL_WAVE_CONCURRENCY_CAP = 3;

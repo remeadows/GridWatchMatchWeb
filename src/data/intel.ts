@@ -110,11 +110,11 @@ export const intelFiles: IntelFile[] = [
   {
     id: "file_ax10m2",
     codename: "AX-10M²",
-    classification: "THREAT LEVEL: EXISTENTIAL - CORRUPTED COUNTERAGENT",
+    classification: "THREAT LEVEL: CRITICAL - CORRUPTED OPERATIVE",
     faction: "THREAT",
     background: [
-      "AX-10M² is not AX-10M. GRIDWATCH files them separately.",
-      "It creates strategies that appear random but converge on breach conditions."
+      "AX-10M² is a Project Plague augmented operative, corrupted and evolved.",
+      "GRIDWATCH files it separately from AX-10M. How the two are related is unknown."
     ],
     threatAssessment: "Exploit the gap between prediction horizon and execution speed.",
     classified: "Its corruption has no recorded origin.",

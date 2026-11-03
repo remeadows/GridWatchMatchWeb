@@ -92,6 +92,26 @@ test.describe("locked cell readability", () => {
       { row: 3, col: 4, kind: "containment-lock" }
     ]);
   });
+
+  test("on the dark board every lock glows, and the glow pulses", async ({ page }) => {
+    // Russ, 2026-11-03: "I can hardly see it. Maybe something that glows".
+    await page.goto("./?gwTestMode=1&level=7");
+    await waitForBoardReady(page);
+    test.skip(await page.evaluate(() => document.documentElement.dataset.boardTheme !== "darkRealism"), "the glow is drawn on the dark board");
+
+    const glows = await page.evaluate(() => (window as Window & { __gwLockGlows?: Array<{ row: number; col: number }> }).__gwLockGlows ?? []);
+    expect(glows).toEqual([{ row: 3, col: 3 }, { row: 3, col: 4 }]);
+
+    const alpha = () => page.evaluate(() => (window as Window & { __gwLockGlowAlpha?: number }).__gwLockGlowAlpha ?? null);
+    const samples: number[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const value = await alpha();
+      if (value !== null) samples.push(value);
+      await page.waitForTimeout(150);
+    }
+    expect(samples.length).toBeGreaterThan(3);
+    expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(0.05);
+  });
 });
 
 test.describe("ordered cascade playback", () => {

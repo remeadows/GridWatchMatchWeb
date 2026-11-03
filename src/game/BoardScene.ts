@@ -338,6 +338,7 @@ const PROPELLER_IMPACT_SHOCKWAVE_MS = 220;
 // Web-only tuning: Phaser impact spark burst lifespan.
 const PROPELLER_IMPACT_BURST_LIFESPAN_MS = 260;
 // Web-only tuning: Phaser propeller choreography budget, including impact particle cleanup tail.
+const LOCK_GLOW_PULSE_MS = 900;
 const PROPELLER_FX_BUDGET_MS = PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + Math.max(
   PROPELLER_IMPACT_SHOCKWAVE_MS,
   PROPELLER_IMPACT_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
@@ -466,6 +467,10 @@ export class BoardScene extends Phaser.Scene {
   private lastScaleHeight = 0;
   private lastAnimationId = 0;
   private reducedMotion = false;
+  // Russ, 2026-11-03, on locked cells: "I can hardly see it. Maybe something that glows". Every lock
+  // glow on the board breathes together from one pulse, so a redraw never strands a tween.
+  private lockGlows: Phaser.GameObjects.Graphics[] = [];
+  private lockGlowPulse: Phaser.Tweens.Tween | null = null;
   private boardJolt: { startMs: number; x: number; y: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
@@ -994,6 +999,7 @@ export class BoardScene extends Phaser.Scene {
       }
     }
     this.layer.removeAll(true);
+    this.lockGlows = [];
     this.occupantNodes.clear();
     this.cellSocketNodes.clear();
     this.heldCellKey = null;
@@ -1182,6 +1188,7 @@ export class BoardScene extends Phaser.Scene {
       const lockKey = this.v2Texture(matchV2BoardPartAsset("cell:locked"));
       if (lockKey) {
         this.layer.add(this.add.image(center.x, center.y, lockKey).setDisplaySize(this.tileSize, this.tileSize));
+        this.addLockGlow(position, topLeft, radius);
         this.recordLockedCellVisual(position);
       } else this.renderLockedCellHardware(position, topLeft, radius);
     }
@@ -1201,6 +1208,67 @@ export class BoardScene extends Phaser.Scene {
     plate.strokeRoundedRect(x - size / 2, y - size / 2, size, size, size * 0.18);
     this.layer.add(plate);
     this.addLabel(String(strength), x, y, textColor, Math.floor(size * 0.74), this.layer);
+  }
+
+  /** Dark realism: an amber frame that glows over the locked cell's art, and a lit padlock badge. */
+  private addLockGlow(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
+    if (!this.layer) return;
+    if (this.isPresentationTestMode()) {
+      const target = window as Window & { __gwLockGlows?: Array<{ row: number; col: number }> };
+      (target.__gwLockGlows ??= []).push({ row: position.row, col: position.col });
+    }
+    const glow = this.add.graphics();
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    const inset = this.tileSize * 0.07;
+    const size = this.tileSize - inset * 2;
+    const corner = Math.max(5, radius * 0.8);
+    // A soft halo: wide faint strokes under a bright thin one.
+    for (const [width, alpha] of [[0.14, 0.12], [0.08, 0.22], [0.035, 0.95]] as const) {
+      glow.lineStyle(Math.max(1.5, this.tileSize * width), boardChrome.lockedFrame, alpha);
+      glow.strokeRoundedRect(topLeft.x + inset, topLeft.y + inset, size, size, corner);
+    }
+    const badgeRadius = Math.max(7, this.tileSize * 0.15);
+    const badgeX = topLeft.x + inset + badgeRadius * 0.55;
+    const badgeY = topLeft.y + inset + badgeRadius * 0.55;
+    glow.fillStyle(boardChrome.lockedFrame, 0.3);
+    glow.fillCircle(badgeX, badgeY, badgeRadius * 1.25);
+    this.layer.add(glow);
+    this.lockGlows.push(glow);
+
+    // The padlock itself is drawn normally, so it reads as a solid shape inside the glow.
+    const badge = this.add.graphics();
+    badge.fillStyle(boardChrome.lockedBadgeFill, 0.96);
+    badge.fillCircle(badgeX, badgeY, badgeRadius);
+    badge.lineStyle(Math.max(1.5, this.tileSize * 0.03), boardChrome.lockedFrameHighlight, 1);
+    badge.strokeCircle(badgeX, badgeY, badgeRadius);
+    const bodyWidth = badgeRadius * 1.0;
+    const bodyHeight = badgeRadius * 0.74;
+    const bodyTop = badgeY - badgeRadius * 0.05;
+    badge.beginPath();
+    badge.arc(badgeX, bodyTop, badgeRadius * 0.34, Math.PI, Math.PI * 2, false);
+    badge.strokePath();
+    badge.fillStyle(boardChrome.lockedFrameHighlight, 1);
+    badge.fillRoundedRect(badgeX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight, Math.max(1.5, bodyHeight * 0.18));
+    this.layer.add(badge);
+
+    if (this.reducedMotion) {
+      glow.setAlpha(0.9);
+      return;
+    }
+    this.lockGlowPulse ??= this.tweens.addCounter({
+      from: 0.55,
+      to: 1,
+      duration: LOCK_GLOW_PULSE_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+      onUpdate: (tween) => {
+        const alpha = tween.getValue() ?? 1;
+        for (const node of this.lockGlows) if (node.active) node.setAlpha(alpha);
+        if (this.isPresentationTestMode()) (window as Window & { __gwLockGlowAlpha?: number }).__gwLockGlowAlpha = alpha;
+      }
+    });
+    glow.setAlpha((this.lockGlowPulse.getValue() as number | null) ?? 1);
   }
 
   private renderLockedCellHardware(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
@@ -1265,8 +1333,9 @@ export class BoardScene extends Phaser.Scene {
   private clearLockedCellVisuals(): void {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
-    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }> };
+    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }>; __gwLockGlows?: unknown[] };
     target.__gwLockedCellVisuals = [];
+    target.__gwLockGlows = [];
   }
 
   /** Test mode only: the pane strength number each cell is showing, for tests of the display. */
@@ -3294,10 +3363,11 @@ export class BoardScene extends Phaser.Scene {
 
     this.vfxCleanup.trackTween(this.tweens.add({
       targets: drone,
-      scaleX: 1.16,
-      scaleY: 1.16,
-      y: origin.y - this.tileSize * 0.25,
+      scaleX: 1.22,
+      scaleY: 1.22,
+      y: origin.y - this.tileSize * 0.4,
       duration: PROPELLER_LIFT_MS,
+      // A slow climb that settles into a hover before the strike.
       ease: "Sine.easeOut",
       onComplete: () => {
         this.recordPresentation("propeller-flight");
@@ -3683,6 +3753,9 @@ export class BoardScene extends Phaser.Scene {
       this.clearDragWatchdog();
       this.clearPresentationTrace();
       this.clearLockedCellVisuals();
+      this.lockGlowPulse?.remove();
+      this.lockGlowPulse = null;
+      this.lockGlows = [];
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);

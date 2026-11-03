@@ -2,6 +2,38 @@
 
 Last updated: 2026-11-03
 
+## 🟡 2026-11-03: Drone timing and targets, glowing locks, ally roles. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03,** playing `4204fd9-dev` on PC: "Everything is playing smooth. Two changes
+in animation please 1. drone - slow the animation down when first launched, then quickly targets a
+tile 2. drone - priority targets caged or iced or locked tiles". Then, with a screenshot of a locked
+cell: "The cell lock is great and works well. The issue is I can hardly see it. Maybe something that
+glows". And: "The rosters and info are in GridWatch Art --> GridWatch Assets".
+
+- **Implementation (built).**
+  - **Drone targets (engine):** pieces under a pane and locked pieces now come before every other
+    cell, whatever the goal (`choosePropellerTargets`). Its occasional second choice stays among blocked
+    pieces while any are left. Boards without panes or locks pick exactly as before, random stream
+    included. The frozen replays were re-recorded: 34,164 actions, up from 33,885.
+  - **Drone motion:** it climbs off its cell slowly (340 ms, was 105; rising 0.4 cell, was 0.25),
+    then strikes fast (210 ms, was 340). One drone's sequence is about 100 ms longer in all. Combo
+    drones keep their own timings.
+  - **Locks on the dark board:** an amber frame with a soft halo and a padlock badge in the top-left
+    corner. Every lock on the board pulses together, once every 1.8 s; with reduced motion it holds
+    steady.
+  - **Allies:** the 11 one-liners now follow the character cards and roster in
+    `GridWatchArt / 0 - Gridwatch-Assets` (Helix had been "Grid war veteran", which is wrong: she is
+    The Light). The AX-10M² dossier now uses its card ("Project Plague augmented operative, corrupted
+    and evolved").
+- **Not measured.** Since the drone favours blockers, pane and lock levels should play somewhat
+  easier. Bot fail rates have not been re-run; that belongs with Task 13 calibration.
+- **Verification (automated).** Unit 852/852 (new `droneTargets.test.ts`: a lock across the board
+  beats goal pieces beside the drone on 200 seeds; panes and locks come before any plain piece;
+  honeypots never count; with no blockers it still follows the goal). Dark e2e 304/304, desktop and
+  mobile, including a new test that level 7's two locks glow and the glow changes brightness. Run
+  without `CI=1` against the leftover port-4173 preview. Classic suite not run. Screenshot of level 7
+  checked by eye: both locks clearly lit. Russ has not seen it yet.
+
 ## 🟡 2026-11-03: 11 allies, 11 villains, fresh portraits, no iOS sync. On the dev site as `4204fd9-dev`; NOT pushed, NOT in production
 
 **Russ's words, 2026-11-03.** "I have made image files for every character and created a roster in

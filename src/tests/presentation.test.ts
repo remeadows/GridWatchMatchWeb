@@ -406,8 +406,10 @@ describe("propellerFlightPlan", () => {
     );
 
     expect(plan.target).toEqual({ row: 1, col: 5 });
-    expect(plan.liftAtMs).toBeGreaterThanOrEqual(90);
-    expect(plan.liftAtMs).toBeLessThanOrEqual(120);
+    // Russ, 2026-11-03: a slow launch, then a quick strike, so the climb outlasts the flight.
+    expect(plan.liftAtMs).toBeGreaterThanOrEqual(300);
+    expect(plan.liftAtMs).toBeLessThanOrEqual(400);
+    expect(plan.impactAtMs - plan.flightAtMs).toBeLessThan(plan.liftAtMs);
     expect(plan.flightAtMs).toBeGreaterThan(plan.liftAtMs);
     expect(plan.reticleAtMs).toBeGreaterThanOrEqual(plan.flightAtMs);
     expect(plan.impactAtMs).toBeGreaterThan(plan.reticleAtMs);
