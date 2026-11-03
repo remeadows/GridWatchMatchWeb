@@ -32,12 +32,12 @@ export const assetManifest = {
       "kron": "assets/images/villains/KRON.png",
       "zero": "assets/images/villains/ZERO.png",
       "ax10m": "assets/images/villains/AX10M.png",
-      "ax10m2": "assets/images/villains/AX10M2.png",
       "aurora6": "assets/images/villains/AURORA-6.png",
-      "rusty": "assets/images/villains/Rusty.png",
-      "tee": "assets/images/villains/Tee_v1.png",
-      "tish": "assets/images/villains/Tish3.jpg",
-      "helix": "assets/images/villains/Helix.jpg"
+      "dread": "assets/images/villains/Dread.png",
+      "vyrus": "assets/images/villains/Vyrus.png",
+      "shard": "assets/images/villains/Shard.png",
+      "lotus": "assets/images/villains/Lotus.png",
+      "malus": "assets/images/villains/Malus.png"
     },
     "heroes": {
       "rusty": "assets/images/heroes/Rusty.png",

@@ -31,12 +31,12 @@
       "kron": "assets/images/villains/KRON.png",
       "zero": "assets/images/villains/ZERO.png",
       "ax10m": "assets/images/villains/AX10M.png",
-      "ax10m2": "assets/images/villains/AX10M2.png",
       "aurora6": "assets/images/villains/AURORA-6.png",
-      "rusty": "assets/images/villains/Rusty.png",
-      "tee": "assets/images/villains/Tee_v1.png",
-      "tish": "assets/images/villains/Tish3.jpg",
-      "helix": "assets/images/villains/Helix.jpg"
+      "dread": "assets/images/villains/Dread.png",
+      "vyrus": "assets/images/villains/Vyrus.png",
+      "shard": "assets/images/villains/Shard.png",
+      "lotus": "assets/images/villains/Lotus.png",
+      "malus": "assets/images/villains/Malus.png"
     },
     "heroes": {
       "rusty": "assets/images/heroes/Rusty.png",
@@ -135,29 +135,9 @@
       "source": "Assets.xcassets/Ax10m.imageset/AX10M.png",
       "sha256": "9fa7bbd2ec30d2c776567c200856dbb5d0b393df224fd02a44b4dffcf9d85d33"
     },
-    "assets/images/villains/AX10M2.png": {
-      "source": "Assets.xcassets/Ax10m2.imageset/AX10M2.png",
-      "sha256": "e809418e2a38e2d3d396ca7f82ce11910fdcb82cca7bf804da67ccf54e83c68f"
-    },
     "assets/images/villains/AURORA-6.png": {
       "source": "Assets.xcassets/area6_villain.imageset/AURORA-6.png",
       "sha256": "f57f3ce2a5d1d074c4e329b4b9c4efe23c646ad5529e231f9bcc05600eb4fc12"
-    },
-    "assets/images/villains/Rusty.png": {
-      "source": "Assets.xcassets/Rusty.imageset/Rusty.png",
-      "sha256": "05767267d23de030df365ec9dc45b2377c996f4b3bcab04e56406f702c9390ec"
-    },
-    "assets/images/villains/Tee_v1.png": {
-      "source": "Assets.xcassets/Tee.imageset/Tee_v1.png",
-      "sha256": "5fb48fd0059e9199343c34f4385a0a01d399bec533a4b25974deff4a8ae2fa04"
-    },
-    "assets/images/villains/Tish3.jpg": {
-      "source": "Assets.xcassets/Tish.imageset/Tish3.jpg",
-      "sha256": "7b77562e60ef5c3c921c944edc492f4f9a106e4624aa7c720f034ec60a5da56f"
-    },
-    "assets/images/villains/Helix.jpg": {
-      "source": "Assets.xcassets/Helix.imageset/Helix.jpg",
-      "sha256": "193e826cad9b26290fecad7aa6a8e64b0e2d72360fa09fc10a02ac775de71ab7"
     },
     "assets/images/heroes/Rusty.png": {
       "source": "Assets.xcassets/Rusty.imageset/Rusty.png",
