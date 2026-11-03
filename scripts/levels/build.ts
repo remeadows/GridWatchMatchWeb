@@ -13,7 +13,7 @@ import type { BotOptions } from "./bot";
 import { levelName } from "./levelNames";
 import { recipeForLevel } from "./recipes";
 import { measureLevel, type LevelReport } from "./report";
-import { acceptsCandidate, tuneLevel, type TuneResult } from "./tune";
+import { acceptsCandidate, tuneLevel, type Stretch, type TuneResult } from "./tune";
 
 export interface BuildSettings {
   levelIds: number[];
@@ -55,6 +55,9 @@ export interface BuildRow extends LevelReport {
   candidatesTried?: number;
   /** Dead boards in games played on to the recipe's most moves. */
   deadBoardsToMostMoves?: number;
+  /** Whether the tuner had to stretch the recipe, and the move and blocked-cell ranges it built from. */
+  stretched?: boolean;
+  stretch?: Stretch;
   fingerprint: string;
   fileHash: string;
 }
@@ -111,7 +114,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
     } else {
       const text = readFileSync(file, "utf8");
       const level = normalizeLevel(JSON.parse(text) as LevelDefinition);
-      row = rowFor(level, done.report, acceptsCandidate(done.report, targetFailRate(levelId)), fingerprints.get(levelId)!, hash(text));
+      row = rowFor(level, done.report, acceptsCandidate(done.report, levelId), fingerprints.get(levelId)!, hash(text));
     }
     rows.set(levelId, row);
     writeReport(settings, rows);
@@ -120,6 +123,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
     log(
       `  ${String(finished).padStart(3)}/${jobs.length} level ${levelId}: fail ${row.failRate.toFixed(3)} target ${row.target.toFixed(3)} ` +
         `${row.inBand ? "in band" : "OUT OF BAND"}, ${row.moveLimit} moves, ${row.goals}` +
+        (row.stretched ? `, stretched ${row.stretch!.step} (moves ${row.stretch!.moves.join("-")}, cells ${row.stretch!.blockedCells.join("-")})` : "") +
         (row.candidatesTried === undefined ? " (hand-tuned)" : `, candidate ${row.candidate! + 1} of ${row.candidatesTried} tried`) +
         ` | ${elapsed.toFixed(0)}s, about ${eta.toFixed(0)}s left`
     );
@@ -151,7 +155,14 @@ function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fi
     starMoves: level.starMoves ?? null,
     goals,
     ...(tuned
-      ? { candidate: tuned.details.candidate, pressure: round(tuned.details.pressure), candidatesTried: tuned.details.candidatesTried, deadBoardsToMostMoves: tuned.details.deadBoards }
+      ? {
+          candidate: tuned.details.candidate,
+          pressure: round(tuned.details.pressure),
+          candidatesTried: tuned.details.candidatesTried,
+          deadBoardsToMostMoves: tuned.details.deadBoards,
+          stretched: tuned.details.stretch.step > 0,
+          stretch: tuned.details.stretch
+        }
       : {}),
     games: report.games,
     failRate: report.failRate,
@@ -183,7 +194,8 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
     notes: [
       "Built by `npm run levels -- build`. Engine seed is levelSeed(levelId), as in real play; game i uses bot seed gameSeed(levelId, i).",
       "No bought power-ups, no Play On, boss timers ignored. A board the engine cannot shuffle is a loss (deadBoards).",
-      "inBand: |failRate - target| <= tolerance with no dead board, for tuned levels also none in games played on to the recipe's most moves.",
+      "inBand: failRate inside the level's band (ends included) and within tolerance of target, with no dead board; for tuned levels also none in games played on to the recipe's most moves.",
+      "stretch: step 0 is the recipe as written; each step takes 2 moves off and adds a sixth to the blocked cells, up to 6 moves and 50%.",
       "starMoves: two at the median and three at the 75th percentile of moves left in wins; null means the default 20% / 50% rule.",
       "fingerprint and fileHash let a rerun reuse a row; a hand-tuned level is measured, never rewritten."
     ],
@@ -210,6 +222,7 @@ function sectorSummary(rows: BuildRow[]) {
       failRate: mean((row) => row.failRate),
       avgMovesLeft: mean((row) => row.avgMovesLeft),
       moveLimits: rangeText([...new Set(sectorRows.map((row) => row.moveLimit))].sort((left, right) => left - right)),
+      stretched: sectorRows.filter((row) => row.stretched).map((row) => row.id),
       firstWinCoins: Math.round(sectorRows.reduce((total, row) => total + row.firstWinCoins, 0)),
       deadBoards: sectorRows.reduce((total, row) => total + row.deadBoards, 0)
     };

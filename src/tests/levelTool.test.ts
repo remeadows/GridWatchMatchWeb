@@ -6,11 +6,11 @@ import { describe, expect, it } from "vitest";
 import { BoardEngine, type LevelDefinition } from "../engine";
 import { levelSeed } from "../state/progress";
 import { BAND_TOLERANCE, bandFor, bandFraction, targetFailRate } from "../../scripts/levels/bands";
-import { blockersForLevel, buildLevel, withMoveLimit } from "../../scripts/levels/buildLevel";
+import { MAX_COLLECT_PER_MOVE, blockersForLevel, buildLevel, withMoveLimit } from "../../scripts/levels/buildLevel";
 import { levelName, newLevelNames } from "../../scripts/levels/levelNames";
 import { recipeForLevel, sectorRecipes, type SectorRecipe } from "../../scripts/levels/recipes";
 import { measureLevel } from "../../scripts/levels/report";
-import { acceptsCandidate, reportsByMoveLimit, starMovesFor, tuneLevel } from "../../scripts/levels/tune";
+import { STRETCH_STEPS, acceptsCandidate, reportsByMoveLimit, starMovesFor, stretchRecipe, tuneLevel } from "../../scripts/levels/tune";
 
 const levelsDir = path.resolve(process.cwd(), "public/levels");
 const seeds = [1n, 2n, 3n];
@@ -47,9 +47,19 @@ describe("difficulty bands", () => {
       run = bandFraction(id) >= 0.85 ? run + 1 : 0;
       expect(run, `level ${id}`).toBeLessThanOrEqual(3);
     }
-    // The level after a boss gives relief within its band. In absolute fail rate 31 and 51 still sit above 30 and
-    // 50, because the bands themselves step up there.
-    for (let boss = 20; boss < 200; boss += 10) expect(bandFraction(boss + 1), `after ${boss}`).toBeLessThan(bandFraction(boss));
+  });
+
+  it("the level after a boss is below the boss, or equal at a band boundary, at the bottom of its band", () => {
+    for (let boss = 20; boss < 200; boss += 10) {
+      const after = boss + 1;
+      expect(targetFailRate(after), `after ${boss}`).toBeCloseTo(bandFor(after)[0], 10);
+      const boundary = bandFor(after)[0] !== bandFor(boss)[0];
+      if (boundary && Math.abs(targetFailRate(after) - targetFailRate(boss)) < 1e-12) continue;
+      expect(targetFailRate(after), `after ${boss}`).toBeLessThan(targetFailRate(boss));
+    }
+    expect(targetFailRate(31)).toBeCloseTo(0.15, 10);
+    expect(targetFailRate(51)).toBeCloseTo(0.3, 10);
+    expect(targetFailRate(101)).toBeCloseTo(0.45, 10);
   });
 
   it("every band value is in its band", () => {
@@ -63,7 +73,7 @@ describe("difficulty bands", () => {
       expect(targetFailRate(id)).toBeGreaterThanOrEqual(min - 1e-12);
       expect(targetFailRate(id)).toBeLessThanOrEqual(max + 1e-12);
     }
-    expect(targetFailRate(11)).toBeCloseTo(0.065, 10);
+    expect(targetFailRate(11)).toBeCloseTo(0.05, 10);
     expect(targetFailRate(19)).toBeCloseTo(0.145, 10);
     expect(targetFailRate(200)).toBeCloseTo(0.6, 10);
   });
@@ -223,13 +233,73 @@ describe("tuner", () => {
     expect(starMovesFor([10, 19, 20, 20], 20)).toBeUndefined();
   });
 
-  it("a candidate is accepted only inside the tolerance and with no dead board", () => {
-    const report = { failRate: 0.3, deadBoards: 0 };
-    expect(acceptsCandidate(report, 0.3)).toBe(true);
-    expect(acceptsCandidate(report, 0.3 + BAND_TOLERANCE - 0.001)).toBe(true);
-    expect(acceptsCandidate(report, 0.3 + BAND_TOLERANCE + 0.001)).toBe(false);
-    expect(acceptsCandidate({ failRate: 0.3, deadBoards: 1 }, 0.3)).toBe(false);
+  it("a level is accepted only inside its band, near its target, and with no dead board", () => {
+    const accepted = (failRate: number, levelId: number) => acceptsCandidate({ failRate, deadBoards: 0 }, levelId);
+    // Level 31: band 15-30%, target 15%. Within the tolerance but under the band is refused.
+    expect(accepted(0.15, 31)).toBe(true);
+    expect(accepted(0.149, 31)).toBe(false);
+    expect(accepted(0.15 + BAND_TOLERANCE, 31)).toBe(true);
+    expect(accepted(0.15 + BAND_TOLERANCE + 0.001, 31)).toBe(false);
+    // Level 30, a boss: band 5-15%, target 15%. Within the tolerance but over the band is refused.
+    expect(accepted(0.15, 30)).toBe(true);
+    expect(accepted(0.151, 30)).toBe(false);
+    expect(accepted(0.15 - BAND_TOLERANCE, 30)).toBe(true);
+    expect(accepted(0.15 - BAND_TOLERANCE - 0.001, 30)).toBe(false);
+    // Level 11: band 5-15%, target 5%.
+    expect(accepted(0.05, 11)).toBe(true);
+    expect(accepted(0.01, 11)).toBe(false);
+    expect(accepted(0.17, 120)).toBe(false);
+    expect(accepted(0.6, 200)).toBe(true);
+    expect(accepted(0.61, 200)).toBe(false);
+    expect(acceptsCandidate({ failRate: 0.15, deadBoards: 1 }, 31)).toBe(false);
   });
+
+  it("a collect goal asks for at most 1.5 pieces a move", () => {
+    for (let id = 11; id <= 200; id += 1) {
+      for (const step of [0, STRETCH_STEPS]) {
+        const recipe = stretchRecipe(recipeForLevel(id), step);
+        for (const pressure of [0, 0.5, 1]) {
+          const level = buildLevel(recipe, id, "Test", 1n, { pressure });
+          for (const goal of level.objectives.filter((objective) => objective.id === "collect")) {
+            // Sized from the fewest moves, so it holds at any limit the tuner picks.
+            expect(goal.target, `level ${id} step ${step} pressure ${pressure}`).toBeLessThanOrEqual(MAX_COLLECT_PER_MOVE * recipe.moves[0]);
+          }
+        }
+      }
+    }
+    expect(MAX_COLLECT_PER_MOVE).toBe(1.5);
+  });
+
+  it("a stretched recipe has up to 6 fewer moves and up to 50% more blocked cells", () => {
+    for (const recipe of sectorRecipes) {
+      expect(stretchRecipe(recipe, 0)).toEqual(recipe);
+      const stretched = stretchRecipe(recipe, STRETCH_STEPS);
+      expect(stretched.moves).toEqual([recipe.moves[0] - 6, recipe.moves[1] - 6]);
+      const cap = recipe.pattern === "dividerRow" ? 25 : 29;
+      expect(stretched.blockedCells).toEqual([Math.min(cap, Math.round(recipe.blockedCells[0] * 1.5)), Math.min(cap, Math.round(recipe.blockedCells[1] * 1.5))]);
+      for (let step = 1; step <= STRETCH_STEPS; step += 1) {
+        const at = stretchRecipe(recipe, step);
+        expect(at.moves[0]).toBe(recipe.moves[0] - 2 * step);
+        expect(at.blockedCells[1]).toBeGreaterThanOrEqual(stretchRecipe(recipe, step - 1).blockedCells[1]);
+        expect(at.blockers).toEqual(recipe.blockers);
+        expect(at.pattern).toBe(recipe.pattern);
+      }
+    }
+  });
+
+  it("the tuner stretches a recipe that cannot get hard enough", () => {
+    // Level 17 has three small blocker goals and no collect goal: the bot never fails it as written.
+    const recipe = recipeForLevel(17);
+    const result = tuneLevel(recipe, 17, "Test", { searchGames: 2, games: 2, candidates: 4 });
+    const { stretch } = result.details;
+    expect(stretch.step).toBeGreaterThan(0);
+    expect(stretch.step).toBeLessThanOrEqual(STRETCH_STEPS);
+    const stretched = stretchRecipe(recipe, stretch.step);
+    expect(stretch.moves).toEqual(stretched.moves);
+    expect(stretch.blockedCells).toEqual(stretched.blockedCells);
+    expect(result.level.moveLimit).toBeGreaterThanOrEqual(stretch.moves[0]);
+    expect(result.level.moveLimit).toBeLessThanOrEqual(stretch.moves[1]);
+  }, 60_000);
 
   it("games played at the longest move limit report every shorter limit exactly", () => {
     const recipe = recipeForLevel(35);
@@ -243,10 +313,12 @@ describe("tuner", () => {
   it("tuneLevel returns a level inside its recipe that matches its report", () => {
     const recipe = recipeForLevel(23);
     const result = tuneLevel(recipe, 23, "Test", { searchGames: 2, games: 4, candidates: 2 });
-    expect(result.level.moveLimit).toBeGreaterThanOrEqual(recipe.moves[0]);
+    expect(result.level.moveLimit).toBeGreaterThanOrEqual(recipe.moves[0] - 6);
+    expect(result.level.moveLimit).toBeGreaterThanOrEqual(result.details.stretch.moves[0]);
     expect(result.level.moveLimit).toBeLessThanOrEqual(recipe.moves[1]);
     expect(result.report).toEqual(measureLevel(result.level, 4));
-    expect(result.inBand).toBe(result.details.deadBoards === 0 && acceptsCandidate(result.report, targetFailRate(23)));
+    expect(result.inBand).toBe(result.details.deadBoards === 0 && acceptsCandidate(result.report, 23));
+    for (const goal of result.level.objectives) if (goal.id === "collect") expect(goal.target).toBeLessThanOrEqual(1.5 * result.level.moveLimit);
     const stars = result.level.starMoves;
     if (stars) expect(0 < stars.two && stars.two < stars.three && stars.three < result.level.moveLimit).toBe(true);
     expect(tuneLevel(recipe, 23, "Test", { searchGames: 2, games: 4, candidates: 2 })).toEqual(result);

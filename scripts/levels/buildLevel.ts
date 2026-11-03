@@ -9,9 +9,8 @@ const dividerRow = 3;
 
 export interface BuildOptions {
   /**
-   * 0 to 1: how hard the candidate leans within its recipe. With room for a collect goal it sets the goal's size,
-   * and the seed lays out the blockers anywhere in the recipe's ranges. With three blocker goals and no collect goal
-   * it sets the number of blocked cells and their layers instead. Left out, the candidate seed picks it.
+   * 0 to 1: how hard the candidate leans within its recipe: the number of blocked cells, pane and malware layers,
+   * and the size of any collect goal. Left out, the candidate seed picks it.
    */
   pressure?: number;
 }
@@ -27,7 +26,6 @@ export function buildLevel(recipe: SectorRecipe, levelId: number, name: string, 
   const pressure = clamp01(options.pressure ?? random());
   const blockers = blockersForLevel(recipe, levelId);
   const collectRoom = blockers.length < maxGoals;
-  const blockerPressure = collectRoom ? random() : pressure;
 
   const cellMap: CellDefinition[][] = Array.from({ length: GRID_SIZE }, () => Array.from({ length: GRID_SIZE }, plainCell));
   const taken = new Set<string>();
@@ -38,14 +36,14 @@ export function buildLevel(recipe: SectorRecipe, levelId: number, name: string, 
     }
   }
 
-  const total = recipe.blockedCells[0] + Math.round(blockerPressure * (recipe.blockedCells[1] - recipe.blockedCells[0]));
+  const total = recipe.blockedCells[0] + Math.round(pressure * (recipe.blockedCells[1] - recipe.blockedCells[0]));
   const shares = shareCells(total, blockers.length);
   blockers.forEach((blocker, index) => {
     const pattern = cellPattern(recipe.pattern, blocker, index);
     const order = orderCells(pattern, random).filter((position) => !taken.has(key(position.row, position.col)));
     for (const position of order.slice(0, shares[index])) {
       taken.add(key(position.row, position.col));
-      cellMap[position.row][position.col] = blockerCell(blocker, recipe, blockerPressure, random);
+      cellMap[position.row][position.col] = blockerCell(blocker, recipe, pressure, random);
     }
   });
 
@@ -100,16 +98,18 @@ function blockerGoals(cellMap: CellDefinition[][], blockers: Blocker[]): Objecti
 
 const collectNames: Record<TileType, string> = { packet: "Packets", firewall: "Firewalls", key: "Keys", threat: "Threats", zeroDay: "Zero-Days" };
 
+/** Most pieces of one kind a collect goal asks for, per move of the level's limit. */
+export const MAX_COLLECT_PER_MOVE = 1.5;
+
 /**
- * A collect goal sized from the recipe's moves: 1 to 10 pieces of one kind a move with four kinds of piece, or 0.5
- * to 4 with five, rising with pressure. The test bot collects one kind fast with four kinds; a fifth slows it a lot.
+ * A collect goal of 0.5 to 1.5 pieces of one kind a move, rising with pressure. It is sized from the recipe's fewest
+ * moves, so it stays within 1.5 x moveLimit at any limit the tuner picks. Difficulty comes from blockers and moves.
  */
 function collectGoal(levelId: number, recipe: SectorRecipe, pressure: number, random: () => number): ObjectiveDefinition {
   const tiles = Object.keys(spawnWeightsFor(levelId)) as TileType[];
   const tileType = tiles[Math.min(tiles.length - 1, Math.floor(random() * tiles.length))];
-  const moves = (recipe.moves[0] + recipe.moves[1]) / 2;
-  const perMove = tiles.length > 4 ? 0.5 + pressure * 3.5 : 1 + pressure * 9;
-  const target = Math.max(10, Math.round(moves * perMove));
+  const perMove = 0.5 + pressure * (MAX_COLLECT_PER_MOVE - 0.5);
+  const target = Math.max(10, Math.floor(recipe.moves[0] * perMove));
   return { id: "collect", target, displayName: `Collect ${target} ${collectNames[tileType]}`, tileType };
 }
 

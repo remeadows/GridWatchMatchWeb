@@ -2,13 +2,14 @@
 // repeatable. Each candidate is played at the longest move limit of its recipe: a game cut at a shorter limit is
 // the same game up to that move, because the engine reads the move limit only to call a loss. So one batch of
 // games reports every move limit in the range. A cheap batch sorts out candidates that cannot reach the band at any
-// limit; the full batch then picks the move limit and decides.
+// limit; the full batch then picks the move limit and decides. When the recipe cannot get hard enough, the tuner
+// stretches it in steps: up to 6 fewer moves and up to 50% more blocked cells.
 import { BoardEngine, SeededRNG, type LevelDefinition } from "../../src/engine";
 import type { StarMoves } from "../../src/data/stars";
 import { levelSeed } from "../../src/state/progress";
-import { BAND_TOLERANCE, targetFailRate } from "./bands";
+import { BAND_TOLERANCE, bandFor, failRateAccepted, targetFailRate } from "./bands";
 import { DEFAULT_BOT, gameSeed, playGame, type BotOptions, type GameResult } from "./bot";
-import { buildLevel, withMoveLimit } from "./buildLevel";
+import { GRID_SIZE, buildLevel, withMoveLimit } from "./buildLevel";
 import type { SectorRecipe } from "./recipes";
 import { summarizeLevel, type LevelReport } from "./report";
 
@@ -17,9 +18,16 @@ export interface TuneOptions {
   games?: number;
   /** Games of the cheap first look at a candidate. */
   searchGames?: number;
-  /** Candidates to try before giving up. */
+  /** Candidates to try at each stretch step before giving up on it. */
   candidates?: number;
   bot?: BotOptions;
+}
+
+/** How far a recipe was stretched: step 0 is the recipe as written. */
+export interface Stretch {
+  step: number;
+  moves: [number, number];
+  blockedCells: [number, number];
 }
 
 export interface TuneResult {
@@ -27,14 +35,33 @@ export interface TuneResult {
   report: LevelReport;
   inBand: boolean;
   /** deadBoards counts games up to the recipe's most moves, past the chosen limit, since Play On goes there. */
-  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number };
+  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number; stretch: Stretch };
 }
 
 const defaults = { games: 200, searchGames: 40, candidates: 12 };
 
+/** Stretch steps after the recipe as written: 2 fewer moves and a sixth more blocked cells each, to 6 and 50%. */
+export const STRETCH_STEPS = 3;
+/** Pressure this close to the top that is still too easy means the recipe cannot get there: stretch it. */
+const topPressure = 0.93;
+const bottomPressure = 0.07;
+
 interface PlayedGame {
   result: GameResult;
   movesUsed: number;
+}
+
+/** The recipe at stretch `step`: 2 x step fewer moves, (1 + step / 6) x the blocked cells, capped to leave room to play. */
+export function stretchRecipe(recipe: SectorRecipe, step: number): SectorRecipe {
+  if (step === 0) return recipe;
+  const freeCells = GRID_SIZE * GRID_SIZE - (recipe.pattern === "dividerRow" ? GRID_SIZE : 0);
+  const cap = Math.floor(freeCells * 0.6);
+  const scale = 1 + step / 6;
+  return {
+    ...recipe,
+    moves: [recipe.moves[0] - 2 * step, recipe.moves[1] - 2 * step],
+    blockedCells: [Math.min(cap, Math.round(recipe.blockedCells[0] * scale)), Math.min(cap, Math.round(recipe.blockedCells[1] * scale))]
+  };
 }
 
 export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, options: TuneOptions = {}): TuneResult {
@@ -43,69 +70,96 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
   const candidates = options.candidates ?? defaults.candidates;
   const bot = options.bot ?? DEFAULT_BOT;
   const target = targetFailRate(levelId);
-  const [fewest, most] = recipe.moves;
+  const [bandMin, bandMax] = bandFor(levelId);
+  const lowest = Math.max(bandMin, target - BAND_TOLERANCE);
+  const highest = Math.min(bandMax, target + BAND_TOLERANCE);
 
-  // Pressure is searched by halving: too easy at the fewest moves pushes it up; too hard at the most moves, or a
-  // dead board, pushes it down.
-  let low = 0;
-  let high = 1;
   let best: TuneResult | null = null;
   let bestDistance = Infinity;
   // The candidate whose first look came closest, for when no candidate earns a full measurement.
-  let nearest: { candidate: number; pressure: number; level: LevelDefinition; distance: number } | null = null;
+  let nearest: { candidate: number; pressure: number; level: LevelDefinition; stretch: Stretch; distance: number } | null = null;
   let tried = 0;
-  for (let candidate = 0; candidate < candidates; candidate += 1) {
-    tried += 1;
-    const pressure = (low + high) / 2;
-    const level = buildLevel(recipe, levelId, name, candidateSeed(levelId, candidate), { pressure });
-    let first: PlayedGame[];
-    try {
-      first = playLongest(level, most, searchGames, bot);
-    } catch {
-      continue; // The engine refused the board: not a candidate.
-    }
-    const search = summarizeLimits(level, fewest, most, first);
-    const hardest = search.get(fewest)!.failRate;
-    const easiest = search.get(most)!.failRate;
-    const gap = (hardest < target ? target - hardest : easiest > target ? easiest - target : 0) + (deadBoards(first) > 0 ? 1 : 0);
-    if (!nearest || gap < nearest.distance - 1e-12) nearest = { candidate, pressure, level, distance: gap };
-    if (deadBoards(first) > 0) {
-      high = pressure;
-      continue;
-    }
-    if (hardest < target - BAND_TOLERANCE) {
-      low = pressure;
-      continue;
-    }
-    if (easiest > target + BAND_TOLERANCE) {
-      high = pressure;
-      continue;
-    }
+  let candidate = 0;
+  for (let step = 0; step <= STRETCH_STEPS; step += 1) {
+    const stretched = stretchRecipe(recipe, step);
+    const [fewest, most] = stretched.moves;
+    const stretch: Stretch = { step, moves: [fewest, most], blockedCells: [...stretched.blockedCells] };
+    // Pressure is searched by halving: too easy at the fewest moves pushes it up; too hard at the most moves, or a
+    // dead board, pushes it down.
+    let low = 0;
+    let high = 1;
+    let tooEasyAtTop = false;
+    let tooHardAtBottom = false;
+    // Layouts differ, so one board can be too hard at a pressure where another was too easy. Then the halving has
+    // pinned itself on noise: start it again with fresh layouts instead of giving up.
+    let sawTooEasy = false;
+    for (let attempt = 0; attempt < candidates && !tooEasyAtTop && !tooHardAtBottom; attempt += 1, candidate += 1) {
+      tried += 1;
+      const pressure = (low + high) / 2;
+      const level = buildLevel(stretched, levelId, name, candidateSeed(levelId, candidate), { pressure });
+      let first: PlayedGame[];
+      try {
+        first = playLongest(level, most, searchGames, bot);
+      } catch {
+        continue; // The engine refused the board: not a candidate.
+      }
+      const search = summarizeLimits(level, fewest, most, first);
+      const hardest = search.get(fewest)!.failRate;
+      const easiest = search.get(most)!.failRate;
+      const gap = (hardest < target ? target - hardest : easiest > target ? easiest - target : 0) + (deadBoards(first) > 0 ? 1 : 0);
+      // A tie goes to the later candidate: the search moves towards the target, and stretching only goes on harder.
+      if (!nearest || gap <= nearest.distance + 1e-12) nearest = { candidate, pressure, level, stretch, distance: gap };
+      if (deadBoards(first) > 0) {
+        high = pressure;
+        continue;
+      }
+      if (hardest < lowest) {
+        low = pressure;
+        sawTooEasy = true;
+        tooEasyAtTop = pressure >= topPressure;
+        continue;
+      }
+      if (easiest > highest) {
+        high = pressure;
+        if (pressure <= bottomPressure) {
+          if (!sawTooEasy) tooHardAtBottom = true;
+          else [low, high] = [0, 1];
+        }
+        continue;
+      }
 
-    const result = finish(level, fewest, most, playLongest(level, most, games, bot), target, candidate, pressure);
-    if (result.inBand) return withTried(result, tried);
-    const distance = Math.abs(result.report.failRate - target) + (result.details.deadBoards > 0 ? 1 : 0);
-    if (distance < bestDistance - 1e-12) {
-      best = result;
-      bestDistance = distance;
+      const result = finish(level, fewest, most, playLongest(level, most, games, bot), levelId, candidate, pressure, stretch);
+      if (result.inBand) return withTried(result, tried);
+      const distance = Math.abs(result.report.failRate - target) + (result.details.deadBoards > 0 ? 1 : 0);
+      if (distance < bestDistance - 1e-12) {
+        best = result;
+        bestDistance = distance;
+      }
+      if (result.details.deadBoards > 0 || result.report.failRate > target) high = pressure;
+      else {
+        low = pressure;
+        sawTooEasy = true;
+        tooEasyAtTop = pressure >= topPressure;
+      }
     }
-    if (result.details.deadBoards > 0 || result.report.failRate > target) high = pressure;
-    else low = pressure;
+    // Stretching only makes a level harder, so it helps only when the recipe ran out of difficulty.
+    if (!tooEasyAtTop) break;
   }
 
   // Nothing landed in band. Report the closest full measurement, or failing that the closest first look.
   if (best) return withTried(best, tried);
   if (!nearest) throw new Error(`Level ${levelId}: no candidate board passed the engine.`);
-  const { level, candidate, pressure } = nearest;
-  return withTried(finish(level, fewest, most, playLongest(level, most, games, bot), target, candidate, pressure), tried);
+  const { level, pressure, stretch } = nearest;
+  return withTried(finish(level, stretch.moves[0], stretch.moves[1], playLongest(level, stretch.moves[1], games, bot), levelId, nearest.candidate, pressure, stretch), tried);
 }
 
 /**
- * Picks the move limit closest to the target, sets star thresholds and reports. In band also needs no dead board
- * in any game up to the most moves.
+ * Picks the move limit closest to the target, preferring one that is accepted, sets star thresholds and reports.
+ * In band also needs no dead board in any game up to the most moves.
  */
-function finish(level: LevelDefinition, fewest: number, most: number, played: PlayedGame[], target: number, candidate: number, pressure: number): TuneResult {
-  const moves = closestLimit(summarizeLimits(level, fewest, most, played), target);
+function finish(level: LevelDefinition, fewest: number, most: number, played: PlayedGame[], levelId: number, candidate: number, pressure: number, stretch: Stretch): TuneResult {
+  const target = targetFailRate(levelId);
+  const moves = closestLimit(summarizeLimits(level, fewest, most, played), levelId);
   const tuned = withMoveLimit(level, moves);
   const cut = cutAt(played, moves);
   const starMoves = starMovesFor(
@@ -116,22 +170,24 @@ function finish(level: LevelDefinition, fewest: number, most: number, played: Pl
   else delete tuned.starMoves;
   const report = summarizeLevel(tuned, cut);
   const dead = deadBoards(played);
-  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, target), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0 } };
+  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, levelId), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0, stretch } };
 }
 
 function withTried(result: TuneResult, tried: number): TuneResult {
   return { ...result, details: { ...result.details, candidatesTried: tried } };
 }
 
-function closestLimit(reports: Map<number, LevelReport>, target: number): number {
+function closestLimit(reports: Map<number, LevelReport>, levelId: number): number {
+  const target = targetFailRate(levelId);
   let chosen = 0;
-  let chosenDistance = Infinity;
-  // From the most moves down, so a tie keeps the kinder limit.
+  let chosenScore = Infinity;
+  // From the most moves down, so a tie keeps the kinder limit. An accepted limit beats any that is not.
   for (const moves of [...reports.keys()].sort((left, right) => right - left)) {
-    const distance = Math.abs(reports.get(moves)!.failRate - target);
-    if (distance < chosenDistance - 1e-12) {
+    const report = reports.get(moves)!;
+    const score = Math.abs(report.failRate - target) + (acceptsCandidate(report, levelId) ? 0 : 10);
+    if (score < chosenScore - 1e-12) {
       chosen = moves;
-      chosenDistance = distance;
+      chosenScore = score;
     }
   }
   return chosen;
@@ -141,9 +197,9 @@ function deadBoards(played: PlayedGame[]): number {
   return played.filter((game) => game.result.deadBoard).length;
 }
 
-/** In band: within the tolerance of the target, with no dead board. */
-export function acceptsCandidate(report: Pick<LevelReport, "failRate" | "deadBoards">, target: number): boolean {
-  return report.deadBoards === 0 && Math.abs(report.failRate - target) <= BAND_TOLERANCE + 1e-9;
+/** Accepted: no dead board, and a fail rate inside the level's band and within the tolerance of its target. */
+export function acceptsCandidate(report: Pick<LevelReport, "failRate" | "deadBoards">, levelId: number): boolean {
+  return report.deadBoards === 0 && failRateAccepted(report.failRate, levelId);
 }
 
 /**
