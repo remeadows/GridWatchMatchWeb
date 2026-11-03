@@ -38,6 +38,10 @@ describe("production levels", () => {
     expect(snapshot.grid.rows).toBe(level.gridRows);
     expect(snapshot.grid.cols).toBe(level.gridCols);
     expect(engine.validMoves().length).toBeGreaterThan(0);
+    // Nothing is earned before the first move, and no pane is broken while the board is dealt.
+    for (const [goal, progress] of Object.entries(snapshot.objectiveProgress)) expect(progress, goal).toBe(0);
+    const overlays = snapshot.grid.allPositions.filter((position) => snapshot.grid.get(position).overlay !== null).length;
+    expect(overlays).toBe(level.cellMap.flat().filter((cell) => cell.overlay !== null).length);
   });
 });
 
