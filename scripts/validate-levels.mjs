@@ -85,6 +85,8 @@ async function main() {
           if (cell.underlay != null && !underlays.has(cell.underlay)) fail(report, "UNKNOWN_UNDERLAY", `${at}:${cell.underlay}`);
           if (cell.generator != null && !generators.has(cell.generator)) fail(report, "UNKNOWN_GENERATOR", `${at}:${cell.generator}`);
           if (cell.tile != null && cell.powerUp != null) fail(report, "CELL_TILE_POWERUP_CONFLICT", at);
+          if (cell.overlay != null && cell.locked === true) fail(report, "PANE_ON_LOCK", at);
+          if (cell.overlay != null && cell.powerUp != null) fail(report, "PANE_ON_POWERUP", at);
           if (cell.generator != null && (cell.tile != null || cell.locked !== true)) fail(report, "GENERATOR_CELL_INVALID", at);
         }
       }

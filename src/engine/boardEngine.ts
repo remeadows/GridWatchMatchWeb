@@ -70,6 +70,8 @@ export class BoardEngine {
   private chainDepthValue = 0;
   private actionHistory: BoardAction[] = [];
   private moveLimitBonus = 0;
+  /** Panes already hit in the move being resolved: a pane loses at most one layer per move. */
+  private panesHitThisMove = new Set<string>();
 
   constructor(level: LevelDefinition, rngSeed: bigint | number | string) {
     validateLevel(level);
@@ -137,6 +139,7 @@ export class BoardEngine {
 
   private applyInternal(action: BoardAction, capture?: ResolutionCapture): BoardDelta {
     const accumulator = emptyAccumulator();
+    this.panesHitThisMove.clear();
     let initialResolution = emptyPowerUpResolution();
     let preferredPowerUpCreationPositions: GridPosition[] = [];
 
@@ -329,6 +332,7 @@ export class BoardEngine {
       const clearPositions = sortedPositions(pendingClear);
       const chainedPowerUps: { origin: GridPosition; powerUp: PowerUpType; source: PowerUpType }[] = [];
       const recentlyCleared: GridPosition[] = [];
+      const recentlyMatched: GridPosition[] = [];
 
       for (const position of clearPositions) {
         if (!this.grid.isValid(position)) continue;
@@ -337,18 +341,9 @@ export class BoardEngine {
         const clearedByPowerUp = sourcePowerUp !== null;
 
         if (cell.overlay) {
-          if (clearedByPowerUp) {
-            cell.overlay = cell.overlay.hp <= 1 ? null : { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
-            this.grid.set(position, cell);
-            continue;
-          }
-          if (cell.overlay.hp > 1) {
-            cell.overlay = { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
-            this.grid.set(position, cell);
-            continue;
-          }
-          cell.overlay = null;
-          this.grid.set(position, cell);
+          // A pane keeps its piece: a power-up that reaches the pane's own cell removes a layer, nothing more.
+          this.hitPane(position, accumulator);
+          continue;
         }
 
         const underlayDestroyedAtCell = decrementUnderlayIfPresent(cell);
@@ -381,6 +376,7 @@ export class BoardEngine {
             objectiveId: contributions[0] ?? null
           });
           recentlyCleared.push(position);
+          if (!clearedByPowerUp) recentlyMatched.push(position);
         }
 
         setBaseTile(cell, null);
@@ -391,7 +387,7 @@ export class BoardEngine {
         this.grid.set(position, cell);
       }
 
-      this.applyAdjacentUnderlayDamage(recentlyCleared, accumulator);
+      this.applyAdjacentDamage(recentlyCleared, recentlyMatched, accumulator);
       if (capture) {
         capture.record("clear", this.snapshot, accumulator, clearPositions);
         capture.beginActivationBatch();
@@ -439,14 +435,33 @@ export class BoardEngine {
 
   }
 
-  private applyAdjacentUnderlayDamage(clearedPositions: GridPosition[], accumulator: ResolutionAccumulator): void {
+  private hitPane(position: GridPosition, _accumulator: ResolutionAccumulator): void {
+    const key = positionKey(position);
+    if (this.panesHitThisMove.has(key)) return;
+    const cell = this.grid.get(position);
+    if (!cell.overlay) return;
+    this.panesHitThisMove.add(key);
+    if (cell.overlay.hp > 1) {
+      cell.overlay = { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
+    } else {
+      cell.overlay = null;
+      cell.isMovable = cell.generator === null;
+    }
+    this.grid.set(position, cell);
+  }
+
+  /**
+   * Malware loses a layer next to anything cleared. A pane loses a layer next to a match only:
+   * a power-up clearing a neighbouring cell does not chip it.
+   */
+  private applyAdjacentDamage(recentlyCleared: GridPosition[], recentlyMatched: GridPosition[], accumulator: ResolutionAccumulator): void {
     const offsets = [
       { row: -1, col: 0 },
       { row: 1, col: 0 },
       { row: 0, col: -1 },
       { row: 0, col: 1 }
     ];
-    for (const position of clearedPositions) {
+    for (const position of recentlyCleared) {
       for (const offset of offsets) {
         const neighbor = { row: position.row + offset.row, col: position.col + offset.col };
         if (!this.grid.isValid(neighbor)) continue;
@@ -462,6 +477,13 @@ export class BoardEngine {
           cell.underlay = { kind: "malwarePropagation", hp: cell.underlay.hp - 1 };
         }
         this.grid.set(neighbor, cell);
+      }
+    }
+    for (const position of recentlyMatched) {
+      for (const offset of offsets) {
+        const neighbor = { row: position.row + offset.row, col: position.col + offset.col };
+        if (!this.grid.isValid(neighbor)) continue;
+        if (this.grid.get(neighbor).overlay) this.hitPane(neighbor, accumulator);
       }
     }
   }
@@ -500,33 +522,47 @@ export class BoardEngine {
   }
 
   private shuffleUntilPlayable(): number {
-    const movablePositions = this.grid.allPositions.filter((position) => {
-      const cell = this.grid.get(position);
-      return cell.isMovable && cell.generator === null;
-    });
-    if (movablePositions.length <= 1) return 0;
-    const occupants = movablePositions.map((position) => {
-      const cell = this.grid.get(position);
-      return {
-        baseTile: cell.baseTile,
-        powerUp: clonePowerUp(cell.powerUp),
-        debugTileId: cell.debugTileId,
-        debugDesignLocked: cell.debugDesignLocked
-      };
-    });
-    for (let attempt = 1; attempt <= 256; attempt += 1) {
-      this.rng.shuffle(occupants);
-      movablePositions.forEach((position, index) => {
+    let totalAttempts = 0;
+    while (true) {
+      const movablePositions = this.grid.allPositions.filter((position) => {
         const cell = this.grid.get(position);
-        setBaseTile(cell, occupants[index].baseTile);
-        if (occupants[index].powerUp) setPowerUp(cell, occupants[index].powerUp);
-        cell.debugTileId = occupants[index].debugTileId;
-        cell.debugDesignLocked = occupants[index].debugDesignLocked;
-        this.grid.set(position, cell);
+        return cell.isMovable && cell.generator === null;
       });
-      if (detectMatches(this.grid).length === 0 && this.validMovesForGrid(this.grid).length > 0) return attempt;
+      if (movablePositions.length > 1) {
+        const occupants = movablePositions.map((position) => {
+          const cell = this.grid.get(position);
+          return {
+            baseTile: cell.baseTile,
+            powerUp: clonePowerUp(cell.powerUp),
+            debugTileId: cell.debugTileId,
+            debugDesignLocked: cell.debugDesignLocked
+          };
+        });
+        for (let attempt = 1; attempt <= 256; attempt += 1) {
+          totalAttempts += 1;
+          this.rng.shuffle(occupants);
+          movablePositions.forEach((position, index) => {
+            const cell = this.grid.get(position);
+            setBaseTile(cell, occupants[index].baseTile);
+            if (occupants[index].powerUp) setPowerUp(cell, occupants[index].powerUp);
+            cell.debugTileId = occupants[index].debugTileId;
+            cell.debugDesignLocked = occupants[index].debugDesignLocked;
+            this.grid.set(position, cell);
+          });
+          if (detectMatches(this.grid).length === 0 && this.validMovesForGrid(this.grid).length > 0) return totalAttempts;
+        }
+      }
+      // No arrangement works: open the first pane in row order so its piece joins the shuffle.
+      const pane = this.grid.allPositions.find((position) => this.grid.get(position).overlay !== null);
+      if (!pane) {
+        if (movablePositions.length <= 1) return 0;
+        throw new BoardEngineError("noMovesAvailable", "No valid moves available.");
+      }
+      const paneCell = this.grid.get(pane);
+      paneCell.overlay = null;
+      paneCell.isMovable = paneCell.generator === null;
+      this.grid.set(pane, paneCell);
     }
-    throw new BoardEngineError("noMovesAvailable", "No valid moves available.");
   }
 
   private assignDebugTileIds(): void {
@@ -724,7 +760,7 @@ function parseCell(definition: CellDefinition, levelId: number): CellState {
   cell.overlay = parseOverlay(definition.overlay, levelId);
   cell.underlay = parseUnderlay(definition.underlay, levelId);
   cell.generator = definition.generator;
-  cell.isMovable = definition.generator === null ? !definition.locked : false;
+  cell.isMovable = definition.generator === null ? !definition.locked && cell.overlay === null : false;
   cell.debugDesignLocked = definition.locked;
   return cell;
 }
