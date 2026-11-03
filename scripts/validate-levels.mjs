@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..");
-const levelsDir = path.join(repoRoot, "public/levels");
+// A folder to check can be passed, such as a trial build; public/levels by default.
+const levelsDir = process.argv[2] ? path.resolve(process.argv[2]) : path.join(repoRoot, "public/levels");
 const allowedObjectiveIds = new Set(["collect", "clear", "multi", "malware", "guide", "panes", "locks"]);
 const tileTypes = new Set(["packet", "firewall", "key", "threat", "zeroDay"]);
 const powerUps = new Set(["rocket_h", "rocket_v", "propeller", "tnt", "lightBall"]);
@@ -99,6 +100,10 @@ async function main() {
     const hasMalwareGoal = (level.objectives ?? []).some((objective) => objective.id === "malware");
     const hasMalware = Array.isArray(level.cellMap) && level.cellMap.some((cells) => Array.isArray(cells) && cells.some((cell) => cell.underlay != null));
     if (hasMalwareGoal && !hasMalware) fail(report, "MALWARE_GOAL_WITHOUT_MALWARE");
+    // Malware progress caps at 1 (all removed), so any other target could never be met.
+    for (const objective of level.objectives ?? []) {
+      if (objective.id === "malware" && objective.target !== 1) fail(report, "MALWARE_TARGET_INVALID", String(objective.target));
+    }
 
     if (Array.isArray(level.cellMap)) {
       const cellsOf = (test) => level.cellMap.flat().filter((cell) => cell && test(cell)).length;

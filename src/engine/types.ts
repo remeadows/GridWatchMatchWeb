@@ -58,6 +58,8 @@ export interface LevelDefinition {
   bossTimerSeconds?: number | null;
   /** Moves left needed for two and three stars. Absent: the 20% / 50% rule. */
   starMoves?: { two: number; three: number };
+  /** Edited by hand: the level tool leaves this file alone. */
+  handTuned?: boolean;
 }
 
 export type BoardAction =
