@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
+import { starsForMovesLeft } from "./data/stars";
 import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
@@ -899,7 +900,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setQueueDepth(0);
     tickBossClock(false);
     const currentSnapshot = engine.snapshot;
-    const stars = starsEarned(currentSnapshot);
+    const stars = starsEarned(currentSnapshot, currentLevel);
     const leftoverMoves = Math.max(0, currentSnapshot.moveLimit - currentSnapshot.moveCount);
     setWinReward(levelCoinReward(saveRef.current, currentLevel.id, stars, leftoverMoves, playOnUsed));
     const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed, leftoverMoves);
@@ -1434,11 +1435,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       {status === "won" && snapshot && (
         <ResultModal
           title="Grid secured"
-          stars={activeBoardTheme() === "darkRealism" ? starsEarned(snapshot) : undefined}
+          stars={activeBoardTheme() === "darkRealism" ? starsEarned(snapshot, level) : undefined}
           still={save.settings.reducedMotion}
           message={activeBoardTheme() === "darkRealism"
             ? `Score ${score.toLocaleString()}.`
-            : `${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
+            : `${starsEarned(snapshot, level)} star(s). Score ${score.toLocaleString()}.`}
           coins={winReward && winReward.total > 0 ? <ResultCoins reward={winReward} balance={save.coins} /> : undefined}
           note={submitStatusLine(submitState)}
           primary={levelId < campaignLevelCount ? "Next Level" : "Operations"}
@@ -1836,12 +1837,8 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function starsEarned(snapshot: BoardSnapshot): number {
-  const remaining = snapshot.moveLimit - snapshot.moveCount;
-  const ratio = remaining / Math.max(1, snapshot.moveLimit);
-  if (ratio >= 0.5) return 3;
-  if (ratio >= 0.2) return 2;
-  return 1;
+function starsEarned(snapshot: BoardSnapshot, level: LevelDefinition | null): number {
+  return starsForMovesLeft(snapshot.moveLimit - snapshot.moveCount, snapshot.moveLimit, level?.starMoves);
 }
 
 function boosterLabel(booster: BoosterType): string {

@@ -56,6 +56,8 @@ export interface LevelDefinition {
   bossLevel: boolean;
   bonusLevel: boolean;
   bossTimerSeconds?: number | null;
+  /** Moves left needed for two and three stars. Absent: the 20% / 50% rule. */
+  starMoves?: { two: number; three: number };
 }
 
 export type BoardAction =
