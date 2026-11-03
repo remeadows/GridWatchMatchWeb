@@ -291,14 +291,16 @@ export function choosePropellerTargets(
   objectiveProgress: Record<string, number>,
   rng: SeededRNG
 ): GridPosition[] {
-  const candidates: { position: GridPosition; score: number }[] = [];
+  // Russ, 2026-11-03: the drone goes for blocked pieces (under a pane, or locked) before anything else.
+  const candidates: { position: GridPosition; blocked: boolean; score: number }[] = [];
   for (const position of grid.allPositions) {
     const cell = grid.get(position);
     if (!hasOccupant(cell) && cell.overlay === null && cell.underlay === null) continue;
     const objectiveWeight = weightForObjectivePriority(position, cell, objectives, objectiveProgress, grid.rows - 1);
     const tileWeight = cell.powerUp ? 1.2 : cell.baseTile ? 1.0 : 0.8;
     const distance = Math.abs(origin.row - position.row) + Math.abs(origin.col - position.col);
-    candidates.push({ position, score: objectiveWeight * tileWeight - distance * 0.01 });
+    const blocked = cell.overlay !== null || (cell.generator === null && !cell.isMovable && hasOccupant(cell));
+    candidates.push({ position, blocked, score: objectiveWeight * tileWeight - distance * 0.01 });
   }
 
   const results: GridPosition[] = [];
@@ -306,10 +308,13 @@ export function choosePropellerTargets(
   for (let index = 0; index < count; index += 1) {
     if (mutable.length === 0) break;
     mutable.sort((left, right) => {
+      if (left.blocked !== right.blocked) return left.blocked ? -1 : 1;
       if (left.score !== right.score) return right.score - left.score;
       return comparePositions(left.position, right.position);
     });
-    const pick = mutable.length > 1 && rng.nextDouble() < 0.15 ? 1 : 0;
+    // The occasional second choice stays among blocked pieces while any are left.
+    const canVary = mutable.length > 1 && mutable[1].blocked === mutable[0].blocked;
+    const pick = canVary && rng.nextDouble() < 0.15 ? 1 : 0;
     const [selected] = mutable.splice(pick, 1);
     results.push(selected.position);
   }
