@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-03
 
-## 🟡 2026-11-03: 11 allies, 11 villains, fresh portraits, no iOS sync. Same local branch `dev/level-campaign`; NOT pushed, NOT in production
+## 🟡 2026-11-03: 11 allies, 11 villains, fresh portraits, no iOS sync. On the dev site as `4204fd9-dev`; NOT pushed, NOT in production
 
 **Russ's words, 2026-11-03.** "I have made image files for every character and created a roster in
 the Match folder. ... A player can choose an avatar from the allied list. There are 11 villains and 11
@@ -31,7 +31,10 @@ Xcode… which is no time soon".
   villains used and each with a dossier; every portrait on disk), tsc clean. Dark e2e 302/302 (desktop
   and mobile), including a new test that picks AURORA-6 on the Account screen and finds her on the
   home screen after a reload; run without `CI=1` against the leftover port-4173 preview after a build
-  with the test origins. Classic-theme suite not run. Russ has not looked at it yet.
+  with the test origins. Classic-theme suite not run. On the dev site as `4204fd9-dev`
+  (version `d6be4b36`): the menu screenshot probe shows no console errors and no sideways scroll on
+  any screen at desktop or iPhone 15 size, and the new portraits and sector names are served. Russ has
+  not looked at it yet.
 
 ## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. On the dev site as `5a76b7d-dev`; NOT pushed, NOT in production
 
