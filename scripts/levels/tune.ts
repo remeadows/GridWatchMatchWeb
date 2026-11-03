@@ -5,6 +5,8 @@
 // limit; the full batch then picks the move limit and decides. When the recipe cannot get hard enough, the tuner
 // stretches it in steps. Tier 1: up to 6 fewer moves and 50% more blocked cells. Tier 2, only when tier 1 cannot
 // reach the band: moves down to a floor of 12, up to twice the blocked cells, and one more pane layer (at most 3).
+// A candidate whose starting board has fewer than MIN_OPENING_MOVES legal swaps is never played or written, unless
+// no layout of the recipe deals that many: then the closest candidate is written and marked (details.openingMoves).
 import { BoardEngine, SeededRNG, type LevelDefinition } from "../../src/engine";
 import type { StarMoves } from "../../src/data/stars";
 import { levelSeed } from "../../src/state/progress";
@@ -42,7 +44,7 @@ export interface TuneResult {
    * end says why the search stopped: in band; the stretch ran out (still too easy at the last step); or the search ran
    * out at a step whose closest result was too hard or had dead boards, where stretching further could not help.
    */
-  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number; stretch: Stretch; end: TuneEnd };
+  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number; stretch: Stretch; end: TuneEnd; openingMoves: number };
 }
 
 export type TuneEnd = "inBand" | "stretchRanOut" | "searchRanOut";
@@ -74,6 +76,26 @@ export function fallbackChoice(best: { deadBoards: number } | null, nearest: { d
 }
 
 const defaults = { games: 200, searchGames: 40, candidates: 12 };
+
+/**
+ * A candidate needs at least this many legal swaps on the board a player first sees, the one the game deals at
+ * levelSeed(level.id). With one or two, the opening is luck, not skill.
+ */
+export const MIN_OPENING_MOVES = 4;
+/**
+ * Layouts tried at one pressure for a board with enough opening moves. With five or six tiles and many blocked cells,
+ * as few as 1 layout in 100 deals 4 swaps, and a layout costs well under a millisecond against 40 games a candidate.
+ */
+export const OPENING_LAYOUTS = 500;
+
+/** Legal swaps on a level's real starting board; 0 when the engine refuses the board. */
+export function openingMoves(level: LevelDefinition): number {
+  try {
+    return new BoardEngine(level, levelSeed(level.id)).validMoves().length;
+  } catch {
+    return 0;
+  }
+}
 
 /** Steps in each stretch tier. Steps 1-3 are tier 1, steps 4-6 tier 2. */
 export const TIER_STEPS = 3;
@@ -116,7 +138,19 @@ export function stretchRecipe(recipe: SectorRecipe, step: number): SectorRecipe 
   };
 }
 
+/**
+ * Tunes a level from its recipe. Every candidate needs MIN_OPENING_MOVES legal swaps on its starting board. When no
+ * layout of the recipe deals that many, the search runs again without the rule and its result carries the short
+ * count in details.openingMoves, so the build can write it, mark it and leave the recipe to the owner.
+ */
 export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, options: TuneOptions = {}): TuneResult {
+  const result = searchLevel(recipe, levelId, name, options, MIN_OPENING_MOVES) ?? searchLevel(recipe, levelId, name, options, 0);
+  if (!result) throw new Error(`Level ${levelId}: no candidate board passed the engine.`);
+  return result;
+}
+
+/** The search behind tuneLevel; null when no candidate with `minOpening` opening moves passed the engine. */
+function searchLevel(recipe: SectorRecipe, levelId: number, name: string, options: TuneOptions, minOpening: number): TuneResult | null {
   const games = options.games ?? defaults.games;
   const searchGames = Math.min(games, options.searchGames ?? defaults.searchGames);
   const candidates = options.candidates ?? defaults.candidates;
@@ -137,8 +171,8 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
     const stretched = stretchRecipe(recipe, step);
     const [fewest, most] = stretched.moves;
     const stretch: Stretch = { tier: stretchTier(step), step, moves: [fewest, most], blockedCells: [...stretched.blockedCells], paneLayers: [...stretched.paneLayers] };
-    // Pressure is searched by halving: too easy at the fewest moves pushes it up; too hard at the most moves, or a
-    // dead board, pushes it down.
+    // Pressure is searched by halving: too easy at the fewest moves pushes it up; too hard at the most moves, a dead
+    // board, or no layout with enough opening moves pushes it down.
     let low = 0;
     let high = 1;
     let tooEasyAtTop = false;
@@ -150,7 +184,19 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
     for (let attempt = 0; attempt < candidates && !tooEasyAtTop && !tooHardAtBottom; attempt += 1, candidate += 1) {
       tried += 1;
       const pressure = (low + high) / 2;
-      const level = buildLevel(stretched, levelId, name, candidateSeed(levelId, candidate), { pressure });
+      // A layout with too few opening moves is not a candidate: the next layout is tried at the same pressure without
+      // spending an attempt. When none of them deal enough swaps, the blocked cells are taking them: lower the pressure.
+      let level = buildLevel(stretched, levelId, name, candidateSeed(levelId, candidate), { pressure });
+      let opening = openingMoves(level);
+      for (let layout = 1; layout < OPENING_LAYOUTS && opening < minOpening; layout += 1) {
+        candidate += 1;
+        level = buildLevel(stretched, levelId, name, candidateSeed(levelId, candidate), { pressure });
+        opening = openingMoves(level);
+      }
+      if (opening < minOpening) {
+        high = pressure;
+        continue;
+      }
       let first: PlayedGame[];
       try {
         first = playLongest(level, most, searchGames, bot);
@@ -207,7 +253,7 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
 
   // Nothing landed in band. Report the closest full measurement or first look, preferring one with no dead board.
   const choice = fallbackChoice(best ? { deadBoards: (best as TuneResult).details.deadBoards } : null, nearest);
-  if (choice === null) throw new Error(`Level ${levelId}: no candidate board passed the engine.`);
+  if (choice === null) return null;
   if (choice === "best") return withTried(best!, tried, end);
   const { level, pressure, stretch } = nearest!;
   const measured = finish(level, stretch.moves[0], stretch.moves[1], playLongest(level, stretch.moves[1], games, bot), levelId, nearest!.candidate, pressure, stretch);
@@ -233,7 +279,7 @@ function finish(level: LevelDefinition, fewest: number, most: number, played: Pl
   else delete tuned.starMoves;
   const report = summarizeLevel(tuned, cut);
   const dead = deadBoards(played);
-  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, levelId), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0, stretch, end: "searchRanOut" } };
+  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, levelId), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0, stretch, end: "searchRanOut", openingMoves: openingMoves(tuned) } };
 }
 
 function withTried(result: TuneResult, tried: number, end: TuneEnd): TuneResult {

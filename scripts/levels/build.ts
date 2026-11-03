@@ -15,7 +15,7 @@ import type { BotOptions } from "./bot";
 import { levelName } from "./levelNames";
 import { recipeForLevel } from "./recipes";
 import { measureLevel, type LevelReport } from "./report";
-import { acceptsCandidate, tuneLevel, type Stretch, type TuneEnd, type TuneResult } from "./tune";
+import { MIN_OPENING_MOVES, acceptsCandidate, openingMoves, tuneLevel, type Stretch, type TuneEnd, type TuneResult } from "./tune";
 
 export interface BuildSettings {
   levelIds: number[];
@@ -49,6 +49,10 @@ export interface BuildRow extends LevelReport {
   inBand: boolean;
   /** Missed its band even after both stretch tiers: the candidate closest to the target was written anyway. */
   outOfBand: boolean;
+  /** Legal swaps on the starting board at levelSeed(id). */
+  openingMoves: number;
+  /** Fewer than MIN_OPENING_MOVES opening moves: no layout of the recipe deals more, so the closest was written. */
+  openingShort: boolean;
   handTuned?: true;
   moveLimit: number;
   starMoves: { two: number; three: number } | null;
@@ -75,6 +79,8 @@ export interface BuildOutcome {
   outOfBand: number[];
   /** Built levels with a dead board in any game: they fail the build. */
   deadBoards: number[];
+  /** Built levels that open with fewer than MIN_OPENING_MOVES legal swaps. They do not fail the build. */
+  openingShort: number[];
   /** validate-levels failures among the built levels: they fail the build. */
   invalid: string[];
   failed: boolean;
@@ -150,6 +156,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
   for (const row of built) {
     if (row.handTuned && !row.inBand) log(`  Note: hand-tuned level ${row.id} is out of band (fail ${row.failRate}, target ${row.target.toFixed(3)}).`);
     else if (row.outOfBand) log(`  Out of band, closest written: level ${row.id} fail ${row.failRate} target ${row.target.toFixed(3)}, tier ${row.tier}, ${row.searchEnd}.`);
+    if (row.openingShort) log(`  Opening short: level ${row.id} opens with ${row.openingMoves} legal swaps (fewer than ${MIN_OPENING_MOVES}); no layout of its recipe deals more.`);
   }
   const tunedRows = built.filter((row) => !row.handTuned);
   const deadBoards = tunedRows.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).map((row) => row.id);
@@ -159,6 +166,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
     rows: built,
     outOfBand: tunedRows.filter((row) => row.outOfBand).map((row) => row.id),
     deadBoards,
+    openingShort: built.filter((row) => row.openingShort).map((row) => row.id),
     invalid,
     failed: deadBoards.length > 0 || invalid.length > 0,
     reused,
@@ -168,6 +176,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
 }
 
 function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fingerprint: string, fileHash: string, tuned?: TuneResult): BuildRow {
+  const opening = openingMoves(level);
   const goals = level.objectives.map((goal) => `${goal.id}:${goal.target}${goal.tileType ? `:${goal.tileType}` : ""}`).join(",");
   return {
     id: level.id,
@@ -176,6 +185,8 @@ function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fi
     target: round(targetFailRate(level.id)),
     inBand,
     outOfBand: !inBand,
+    openingMoves: opening,
+    openingShort: opening < MIN_OPENING_MOVES,
     ...(tuned ? {} : { handTuned: true as const }),
     moveLimit: level.moveLimit,
     starMoves: level.starMoves ?? null,
@@ -210,10 +221,13 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
   const inBand = sorted.filter((row) => row.inBand).length;
   const outOfBand = sorted.filter((row) => row.outOfBand).length;
   const dead = sorted.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).length;
+  const openingShort = sorted.filter((row) => row.openingShort);
   const moveSteps = moveLimitSteps(new Map([[1, sectorOneMedian()], ...sectors.map((sector) => [sector.sector, sector.medianMoveLimit] as [number, number])]));
   const flagged = moveSteps.filter((step) => step.overSix);
   const summary =
-    `${inBand}/${sorted.length} levels in band, ${outOfBand} out of band (closest candidate written), ${dead} with dead boards. ` +
+    `${inBand}/${sorted.length} levels in band, ${outOfBand} out of band (closest candidate written), ${dead} with dead boards, ` +
+    `${openingShort.length} opening with fewer than ${MIN_OPENING_MOVES} legal swaps` +
+    (openingShort.length === 0 ? ". " : ` (${openingShort.map((row) => `${row.id}: ${row.openingMoves}`).join(", ")}). `) +
     `First-win coins by sector (sum of each level's average first-win coins): ` +
     sectors.map((sector) => `${sector.sector}: ${sector.firstWinCoins}`).join(", ") +
     `. Median move-limit steps over 6 between neighbouring sectors: ` +
@@ -232,6 +246,7 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
       "inBand: failRate inside the level's band (ends included) and within tolerance of target, with no dead board; for tuned levels also none in games played on to the recipe's most moves.",
       "stretch: tier 0 is the recipe as written. Tier 1 (steps 1-3) takes 2 moves off a step and adds a sixth to the blocked cells, to -6 moves and x1.5. Tier 2 (steps 4-6), tried only when tier 1 cannot reach the band, adds a pane layer (max 3) and goes on to a fewest-moves limit of 12 and x2 cells.",
       "outOfBand: the level missed its band after both tiers and the candidate closest to its target was written. It does not fail the build; dead boards and invalid levels do.",
+      `openingMoves: legal swaps on the starting board at levelSeed(id). A tuned candidate needs at least ${MIN_OPENING_MOVES}; openingShort marks a level whose recipe deals fewer on every layout tried, written as its closest candidate. It does not fail the build.`,
       "starMoves: two at the median and three at the 75th percentile of moves left in wins; null means the default 20% / 50% rule.",
       "fingerprint and fileHash let a rerun reuse a row; a hand-tuned level is measured, never rewritten.",
       "searchEnd: why tuning stopped. stretchRanOut: still too easy at the last stretch step. searchRanOut: the closest result at a step was too hard or had dead boards, so stretching further could not help.",

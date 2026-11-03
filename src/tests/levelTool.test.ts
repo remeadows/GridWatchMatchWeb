@@ -10,7 +10,7 @@ import { MAX_COLLECT_PER_MOVE, blockersForLevel, buildLevel, withMoveLimit } fro
 import { levelName, newLevelNames } from "../../scripts/levels/levelNames";
 import { recipeForLevel, sectorRecipes, type SectorRecipe } from "../../scripts/levels/recipes";
 import { measureLevel } from "../../scripts/levels/report";
-import { MOVE_FLOOR, STRETCH_STEPS, TIER_STEPS, acceptsCandidate, fallbackChoice, reportsByMoveLimit, starMovesFor, stepOutcome, stretchRecipe, stretchTier, tuneLevel, type TuneResult } from "../../scripts/levels/tune";
+import { MIN_OPENING_MOVES, MOVE_FLOOR, STRETCH_STEPS, TIER_STEPS, acceptsCandidate, candidateSeed, fallbackChoice, openingMoves, reportsByMoveLimit, starMovesFor, stepOutcome, stretchRecipe, stretchTier, tuneLevel, type TuneResult } from "../../scripts/levels/tune";
 import { levelFile, levelJson, median, moveLimitSteps, runBuild, runLevelJob, type BuildSettings, type LevelJob, type LevelJobResult } from "../../scripts/levels/build";
 import { DEFAULT_BOT } from "../../scripts/levels/bot";
 
@@ -92,7 +92,7 @@ describe("recipes", () => {
     }
   });
 
-  it("a median moves step between sectors is at most 6", () => {
+  it("the recipe table's median moves step between neighbouring sectors is at most 6 (recipes, not built levels)", () => {
     const medians = sectorRecipes.map((recipe) => (recipe.moves[0] + recipe.moves[1]) / 2);
     for (let index = 1; index < medians.length; index += 1) {
       expect(Math.abs(medians[index] - medians[index - 1]), `sector ${index + 2}`).toBeLessThanOrEqual(6);
@@ -355,6 +355,37 @@ describe("tuner", () => {
     expect(atOne.details.end).toBe("inBand");
     expect(atOne.details.stretch.tier).toBe(1);
   }, 60_000);
+
+  it("a candidate needs at least 4 opening moves on the board the game deals", () => {
+    expect(MIN_OPENING_MOVES).toBe(4);
+    // Level 51's first candidate deals a single legal swap at levelSeed(51): the tuner has to pass it over.
+    const recipe = recipeForLevel(51);
+    const first = buildLevel(recipe, 51, "Test", candidateSeed(51, 0), { pressure: 0.5 });
+    expect(openingMoves(first)).toBe(new BoardEngine(first, levelSeed(51)).validMoves().length);
+    expect(openingMoves(first)).toBeLessThan(MIN_OPENING_MOVES);
+    const result = tuneLevel(recipe, 51, "Test", { searchGames: 2, games: 2, candidates: 2 });
+    expect(result.details.candidate).toBeGreaterThan(0);
+    expect(new BoardEngine(result.level, levelSeed(51)).validMoves().length).toBeGreaterThanOrEqual(MIN_OPENING_MOVES);
+  }, 60_000);
+
+  it("a recipe that never deals 4 opening moves is written as its closest candidate and marked short", () => {
+    // Sector 16 fills the whole inner ring with panes at 17 cells or more; at levelSeed(151) that leaves one swap.
+    const result = tuneLevel(recipeForLevel(151), 151, "Test", { searchGames: 2, games: 2, candidates: 2 });
+    expect(result.details.openingMoves).toBe(new BoardEngine(result.level, levelSeed(151)).validMoves().length);
+    expect(result.details.openingMoves).toBeLessThan(MIN_OPENING_MOVES);
+  }, 60_000);
+
+  it("built levels 11 to 200 open with at least 4 legal swaps, or the report marks them short", () => {
+    const report = JSON.parse(readFileSync(path.resolve(process.cwd(), "docs/gridwatch-match/level-report.json"), "utf8")) as {
+      rows: { id: number; openingMoves: number; openingShort: boolean }[];
+    };
+    const rows = new Map(report.rows.map((row) => [row.id, row]));
+    for (let id = 11; id <= 200; id += 1) {
+      const moves = openingMoves(fileLevel(id));
+      expect(rows.get(id)?.openingMoves, `level ${id}`).toBe(moves);
+      expect(rows.get(id)?.openingShort, `level ${id}`).toBe(moves < MIN_OPENING_MOVES);
+    }
+  });
 
   it("the fallback prefers a candidate with no dead board", () => {
     expect(fallbackChoice({ deadBoards: 0 }, { deadBoards: 0 })).toBe("best");

@@ -4,7 +4,8 @@
 // the difficulty report.
 // `npm run levels -- build --levels 11-200 --games 200 --out <report>` tunes levels from their sector recipes into
 // public/levels (or --levels-dir) and writes the build report. A level that misses its band is written as the closest
-// candidate and marked; the build exits 1 only for dead boards or levels that fail validation.
+// candidate and marked, as is a level whose recipe never deals MIN_OPENING_MOVES opening moves; the build exits 1 only
+// for dead boards or levels that fail validation.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import { areaForLevel } from "../../src/data/areas";
 import { DEFAULT_BOT, type BotOptions, type GameResult } from "./bot";
 import { reportJson, runBuild, runLevelJob, type LevelJob, type LevelJobResult } from "./build";
 import { runJobs, type WorkerSetup } from "./pool";
+import { MIN_OPENING_MOVES } from "./tune";
 import { playGames, readLevelFile, summarizeLevel, type LevelReport } from "./report";
 
 interface Chunk {
@@ -116,6 +118,7 @@ async function build(args: Record<string, string>): Promise<void> {
   console.error(`Done in ${((Date.now() - started) / 1000).toFixed(0)}s: ${outcome.tuned} tuned, ${outcome.measured} hand-tuned measured, ${outcome.reused} reused. Report: ${out}`);
   if (outcome.outOfBand.length > 0) console.error(`Out of band, closest written (does not fail the build): ${outcome.outOfBand.join(", ")}.`);
   if (outcome.deadBoards.length > 0) console.error(`Dead boards: ${outcome.deadBoards.join(", ")}.`);
+  if (outcome.openingShort.length > 0) console.error(`Fewer than ${MIN_OPENING_MOVES} opening moves, closest written (does not fail the build): ${outcome.openingShort.join(", ")}.`);
   if (outcome.invalid.length > 0) console.error(`Invalid levels:\n  ${outcome.invalid.join("\n  ")}`);
   if (outcome.failed) process.exitCode = 1;
 }
