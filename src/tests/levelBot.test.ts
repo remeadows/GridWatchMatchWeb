@@ -161,7 +161,7 @@ describe("level bot", () => {
   });
 
   it("the bot beats random play", () => {
-    const level = readLevel(41);
+    const level = readLevel(7);
     const games = 30;
     const bot = measureLevel(level, games, DEFAULT_BOT);
     const random = measureLevel(level, games, { mistakeRate: 1 });

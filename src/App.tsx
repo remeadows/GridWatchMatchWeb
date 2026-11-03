@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
@@ -634,7 +634,9 @@ function AreasScreen({ save, commitSave, navigate }: { save: SaveState; commitSa
           const complete = isAreaComplete(save, area);
           const rewardReady = complete && !save.areaRewards[String(area.id)];
           return (
-            <article className={`area-card ${unlocked ? "" : "locked"}`} key={area.id} style={{ "--accent": area.accent } as React.CSSProperties}>
+            <Fragment key={area.id}>
+            {area.id === 11 && <h2 className="area-tour-heading">The Return</h2>}
+            <article className={`area-card ${unlocked ? "" : "locked"}`} style={{ "--accent": area.accent } as React.CSSProperties}>
               <img src={assetUrl(assetManifest.images.villains[area.villainKey])} alt="" />
               <div>
                 <div className="card-kicker">Area {area.id} / {area.villainName}</div>
@@ -653,6 +655,7 @@ function AreasScreen({ save, commitSave, navigate }: { save: SaveState; commitSa
                 </div>
               </div>
             </article>
+            </Fragment>
           );
         })}
       </div>

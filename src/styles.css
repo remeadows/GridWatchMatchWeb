@@ -684,6 +684,14 @@ a.primary-action:focus-visible {
   border-color: color-mix(in srgb, var(--accent), transparent 58%);
 }
 
+.area-grid .area-tour-heading {
+  grid-column: 1 / -1;
+  margin: 10px 0 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .area-card.locked,
 .intel-card.locked {
   filter: grayscale(0.9);

@@ -25,15 +25,15 @@ const okBody = (over: Record<string, unknown> = {}, tOver: Record<string, unknow
 });
 
 describe("level limits artifact", () => {
-  it("covers all 100 levels with plausible limits", () => {
-    for (let id = 1; id <= 100; id++) {
+  it("covers all 200 levels with plausible limits", () => {
+    for (let id = 1; id <= 200; id++) {
       const limit = moveLimitFor(id);
       expect(limit, `level ${id}`).not.toBeNull();
-      expect(limit!).toBeGreaterThanOrEqual(17);
+      expect(limit!).toBeGreaterThanOrEqual(10);
       expect(limit!).toBeLessThanOrEqual(48);
     }
     expect(moveLimitFor(0)).toBeNull();
-    expect(moveLimitFor(101)).toBeNull();
+    expect(moveLimitFor(201)).toBeNull();
   });
 });
 
@@ -42,7 +42,7 @@ describe("validateSubmission", () => {
     expect(validateSubmission(okBody()).ok).toBe(true);
   });
   it("rejects unknown levels, bad counts, star mismatch, missing log", () => {
-    expect(validateSubmission(okBody({ levelId: 101 })).ok).toBe(false);
+    expect(validateSubmission(okBody({ levelId: 201 })).ok).toBe(false);
     expect(validateSubmission(okBody({}, { moveCount: 999 })).ok).toBe(false);
     expect(validateSubmission(okBody({}, { tilesCleared: 15 * 49 + 1 })).ok).toBe(false);
     expect(validateSubmission(okBody({}, { stars: 1 })).ok).toBe(false); // 15/25 used → not 1 star
@@ -129,10 +129,11 @@ describe("deriveScore", () => {
 
 describe("deriveScore anti-inflation", () => {
   it("caps max-plausible telemetry well under LEVEL_SCORE_CAP on the tightest level", () => {
-    // Tightest level: moveLimit 17 (min across all 100 levels — see level-limits.json).
-    const tightestLevelId = 34;
+    // Tightest level: the smallest moveLimit across all 200 levels — see level-limits.json.
+    const limits = Array.from({ length: 200 }, (_, i) => moveLimitFor(i + 1)!);
+    const tightestLevelId = limits.indexOf(Math.min(...limits)) + 1;
     const moveLimit = moveLimitFor(tightestLevelId)!;
-    expect(moveLimit).toBe(17);
+    expect(moveLimit).toBe(Math.min(...limits));
 
     const moveCount = moveLimit;
     const maxTelemetry = {
@@ -168,10 +169,11 @@ describe("deriveScore anti-inflation", () => {
     expect(validateSubmission(okBody({ levelId }, attackTelemetry)).ok).toBe(false);
   });
 
-  it("keeps LEVEL_SCORE_CAP an unreachable backstop on the largest level (moveLimit 48)", () => {
-    const largestLevelId = 61;
+  it("keeps LEVEL_SCORE_CAP an unreachable backstop on the largest level", () => {
+    const limits = Array.from({ length: 200 }, (_, i) => moveLimitFor(i + 1)!);
+    const largestLevelId = limits.indexOf(Math.max(...limits)) + 1;
     const moveLimit = moveLimitFor(largestLevelId)!;
-    expect(moveLimit).toBe(48);
+    expect(moveLimit).toBe(Math.max(...limits));
 
     const moveCount = moveLimit;
     const maxTelemetry = {
@@ -183,7 +185,7 @@ describe("deriveScore anti-inflation", () => {
       playOnUsed: false,
     };
 
-    expect(deriveScore(maxTelemetry)).toBe(24000);
+    expect(deriveScore(maxTelemetry)).toBe(moveCount * 500);
     expect(deriveScore(maxTelemetry)).toBeLessThan(LEVEL_SCORE_CAP);
   });
 });

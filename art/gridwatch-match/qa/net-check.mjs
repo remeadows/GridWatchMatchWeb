@@ -7,7 +7,7 @@ for (const q of ["", "&theme=classic"]) {
   const page = await browser.newPage();
   const got = [];
   page.on("response", (r) => { if (/\/assets\/images\/(match-v2|web-overrides)\/(tiles|powerups|boosters|cells)\//.test(r.url())) got.push(r.url().replace(/.*\/assets\/images\//, "")); });
-  await page.goto(`${base}/?gwTestMode=1&level=100${q}`, { waitUntil: "networkidle" });
+  await page.goto(`${base}/?gwTestMode=1&level=94${q}`, { waitUntil: "networkidle" });
   const v2 = got.filter((u) => u.startsWith("match-v2")).length, classic = got.filter((u) => u.startsWith("web-overrides")).length;
   console.log(q || "(dark)", "match-v2:", v2, "classic:", classic);
   await page.close();

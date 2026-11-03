@@ -66,7 +66,7 @@ export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy
             aria-valuemax={campaignLevelCount}
             aria-valuenow={completedLevels}
           >
-            <span style={{ width: `${completedLevels}%` }} />
+            <span style={{ width: `${(completedLevels / campaignLevelCount) * 100}%` }} />
           </div>
         </div>
         {/* Each action says what it does: one opens the sector list, the other starts the next level. */}

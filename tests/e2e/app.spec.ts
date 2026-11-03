@@ -115,6 +115,16 @@ test("handles fail, Play On decline path, forced win, and next level unlock", as
   await expect(page.getByText("Level 2")).toBeVisible();
 });
 
+test("level 150 opens and can be won", async ({ page }) => {
+  await page.goto("./?gwTestMode=1&level=150");
+  await expect(page.getByTestId("board-canvas")).toBeVisible();
+  await expect(page.getByText("Level 150")).toBeVisible();
+  await page.getByTestId("qa-win").click();
+  await expect(page.getByText("Grid secured")).toBeVisible();
+  await page.getByRole("button", { name: "Next Level" }).click();
+  await expect(page.getByText("Level 151")).toBeVisible();
+});
+
 test("the coins for a first win are counted on the banner and itemised on the result panel", async ({ page }) => {
   await page.goto("./?gwTestMode=1&level=1");
   const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);

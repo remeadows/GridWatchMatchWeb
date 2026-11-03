@@ -27,8 +27,8 @@ describe("SeededRNG", () => {
 describe("production levels", () => {
   const files = readdirSync(levelsDir).filter((name) => /^level_\d{3}\.json$/.test(name)).sort();
 
-  it("contains the current 100 synced iOS levels", () => {
-    expect(files).toHaveLength(100);
+  it("contains the 200 campaign levels", () => {
+    expect(files).toHaveLength(200);
   });
 
   it.each(files)("initializes %s without invariants breaking", (file) => {

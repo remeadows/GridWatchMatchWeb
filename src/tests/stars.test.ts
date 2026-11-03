@@ -2,7 +2,11 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../worker/level-stars.json", () => ({ default: { "1": { two: 2, three: 4 } } }));
+// Level 1 gets thresholds here; every other level keeps what the generated artifact says.
+vi.mock("../../worker/level-stars.json", async (importOriginal) => {
+  const original = await importOriginal<{ default: Record<string, { two: number; three: number }> }>();
+  return { default: { ...original.default, "1": { two: 2, three: 4 } } };
+});
 
 import { starsForMovesLeft } from "../data/stars";
 import { moveLimitFor, starsFor, validateSubmission } from "../../worker/validation";
@@ -45,7 +49,7 @@ describe("worker starsFor", () => {
       const level = JSON.parse(readFileSync(path.join(dir, f), "utf8")) as { id: number; moveLimit: number; starMoves?: { two: number; three: number } };
       for (let left = 0; left <= level.moveLimit; left += 1) {
         const moveCount = level.moveLimit - left;
-        // level 1 is mocked with thresholds in this file; the others use the artifact (none yet)
+        // level 1 is mocked with thresholds in this file; the others use the artifact
         const expected = level.id === 1
           ? starsForMovesLeft(left, level.moveLimit, { two: 2, three: 4 })
           : starsForMovesLeft(left, level.moveLimit, level.starMoves);
