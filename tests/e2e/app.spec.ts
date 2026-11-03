@@ -36,6 +36,22 @@ test("home presents the active operation and agent as a command deck", async ({ 
   await expect(deck.getByRole("button", { name: "Quick Deploy" })).toBeVisible();
 });
 
+test("every ally can be picked as the avatar from the start", async ({ page }) => {
+  await page.goto("./?gwTestMode=1");
+  await page.locator(".main-nav").getByRole("button", { name: "Account", exact: true }).click();
+
+  const cards = page.locator(".hero-card");
+  await expect(cards).toHaveCount(11);
+  await expect(cards.getByRole("button", { name: "Select", exact: true })).toHaveCount(10);
+  await expect(cards.filter({ hasText: "Rusty" }).getByRole("button", { name: "Selected" })).toBeDisabled();
+
+  await cards.filter({ has: page.getByRole("heading", { name: "AURORA-6", exact: true }) }).getByRole("button", { name: "Select" }).click();
+  await expect(cards.filter({ hasText: "AURORA-6" }).getByRole("button", { name: "Selected" })).toBeDisabled();
+
+  await page.reload();
+  await expect(page.getByTestId("home-command-deck").getByRole("img", { name: "AURORA-6, selected agent" })).toBeVisible();
+});
+
 test("navigates Home to Operations to Level 1 and applies a deterministic swap", async ({ page }) => {
   await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Operations", exact: true }).click();

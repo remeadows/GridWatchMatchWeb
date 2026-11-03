@@ -39,13 +39,13 @@ export function webAudioOverridePath(assetPath: string): string | null {
 }
 
 /*
- * Keep this module in sync with scripts/sync-ios-assets.mjs:
+ * Rules this module checks at load:
  * - IMAGE_ASSET_PREFIX/AUDIO_ASSET_PREFIX are the manifest roots.
  * - WEB_IMAGE_OVERRIDE_PREFIX must be inside IMAGE_ASSET_PREFIX.
  * - WEB_AUDIO_OVERRIDE_PREFIX must be inside AUDIO_ASSET_PREFIX.
  * - normalizeManifestPath trims whitespace and strips all leading slashes.
  * - webOverridePath maps assets/images/<path> to assets/images/web-overrides/<path>.
- * Both files read src/data/assetOverrideRules.json as the source of truth.
+ * src/data/assetOverrideRules.json is the source of truth.
  */
 function assertAssetOverrideRules(): void {
   if (!IMAGE_ASSET_PREFIX || !WEB_IMAGE_OVERRIDE_PREFIX || !AUDIO_ASSET_PREFIX || !WEB_AUDIO_OVERRIDE_PREFIX) {

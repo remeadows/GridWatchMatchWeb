@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { areas, campaignLevelCount } from "../data/areas";
 import { intelFiles } from "../data/intel";
-import { assetManifest } from "../data/assetManifest.generated";
+import { heroes } from "../data/heroes";
+import { allyPortraits, villainPortraits } from "../data/portraits";
 import { moveLimitFor, starsFor, validateSubmission } from "../../worker/validation";
 import { currentArea } from "../state/progress";
 import { defaultSaveState, normalizeSave } from "../state/save";
@@ -25,17 +26,34 @@ describe("villains", () => {
     expect([byId[5], byId[7], byId[8], byId[9], byId[10]]).toEqual(["DREAD", "VYRUS", "SHARD", "LOTUS", "MALUS"]);
   });
 
-  it("keeps no team member in a dossier", () => {
-    const names = intelFiles.map((file) => file.codename);
-    for (const team of ["RUSTY", "TEE", "TISH", "HELIX", "AX-10M2"]) expect(names).not.toContain(team);
+  it("gives AX-10M² sectors 6 and 16 and THE ARCHITECT the final sector", () => {
+    const byId = Object.fromEntries(areas.map((a) => [a.id, a.villainName]));
+    expect([byId[6], byId[16], byId[20]]).toEqual(["AX-10M²", "AX-10M²", "THE ARCHITECT"]);
   });
 
-  it("has a portrait file on disk for every sector villain", () => {
-    for (const area of areas) {
-      const path = (assetManifest.images.villains as Record<string, string>)[area.villainKey];
-      expect(path, `manifest entry for ${area.villainKey}`).toBeTruthy();
+  it("uses all 11 villains in the campaign and keeps every ally out of it", () => {
+    expect(new Set(areas.map((a) => a.villainKey))).toEqual(new Set(Object.keys(villainPortraits)));
+    const names = new Set([...areas.map((a) => a.villainName), ...intelFiles.map((file) => file.codename)]);
+    for (const ally of heroes) expect(names, ally.displayName).not.toContain(ally.displayName.toUpperCase());
+  });
+
+  it("has a dossier for every villain", () => {
+    const dossiers = new Set(intelFiles.map((file) => file.portraitKey));
+    for (const key of Object.keys(villainPortraits)) expect(dossiers, key).toContain(key);
+  });
+
+  it("has a portrait file on disk for every villain and ally", () => {
+    for (const path of [...Object.values(villainPortraits), ...Object.values(allyPortraits)]) {
       expect(existsSync(join(process.cwd(), "public", path)), path).toBe(true);
     }
+  });
+});
+
+describe("allies", () => {
+  it("offers all 11 allies as avatars, none locked", () => {
+    expect(heroes.map((hero) => hero.id).sort()).toEqual(Object.keys(allyPortraits).sort());
+    expect(heroes).toHaveLength(11);
+    for (const hero of heroes) expect(Object.keys(hero).sort()).toEqual(["description", "displayName", "id"]);
   });
 });
 
@@ -52,9 +70,9 @@ describe("the campaign of 200", () => {
     });
   });
 
-  it("sectors 11 to 20 repeat the first ten villains in order", () => {
-    expect(second.map((a) => a.villainKey)).toEqual(areas.slice(0, 10).map((a) => a.villainKey));
-    expect(second.map((a) => a.villainName)).toEqual(areas.slice(0, 10).map((a) => a.villainName));
+  it("sectors 11 to 19 repeat the first nine villains in order", () => {
+    expect(second.slice(0, 9).map((a) => a.villainKey)).toEqual(areas.slice(0, 9).map((a) => a.villainKey));
+    expect(second.slice(0, 9).map((a) => a.villainName)).toEqual(areas.slice(0, 9).map((a) => a.villainName));
   });
 
   it("pays 1,100 to 2,000 and reuses the first tour's accent, icon and theme", () => {
@@ -74,11 +92,11 @@ describe("the campaign of 200", () => {
       ["Incident Response II", "ZERO returns"],
       ["SOC Operations II", "AX-10M returns"],
       ["Zero-Day Defense II", "DREAD returns"],
-      ["AI Counterattack II", "AURORA-6 returns"],
+      ["AI Counterattack II", "AX-10M² returns"],
       ["Firmware Purge II", "VYRUS returns"],
       ["Protocol Override II", "SHARD returns"],
       ["Deep Net Sweep II", "LOTUS returns"],
-      ["Final Breach II", "MALUS returns"]
+      ["Final Breach II", "THE ARCHITECT steps forward"]
     ]);
   });
 

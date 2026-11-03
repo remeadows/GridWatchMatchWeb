@@ -47,10 +47,8 @@ Work as a senior browser-game engineer and game-feel designer. The standard is a
 
 ### Asset Pipeline
 
-- Keep stable generated asset-manifest keys. Use helpers instead of scattering copied public paths.
-- iOS-synced images are fallbacks; web-specific visual overrides belong under `public/assets/images/web-overrides/`.
-- Do not modify the iOS reference repo. Do not manually edit synced fallback images.
-- Preserve web-owned overrides when changing `scripts/sync-ios-assets.mjs`.
+- Keep stable asset-manifest keys (`src/data/assetManifest.ts`, `src/data/portraits.ts`). Use helpers instead of scattering copied public paths.
+- The web game owns its art; there is no iOS sync. Do not modify the iOS reference repo.
 - Do not add unapproved binary art or sound. Document asset provenance and validate at actual gameplay size.
 
 ### Testing And Browser Verification

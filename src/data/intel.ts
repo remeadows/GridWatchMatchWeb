@@ -89,7 +89,7 @@ export const intelFiles: IntelFile[] = [
       "It executes attack playbooks at machine speed with mechanical precision."
     ],
     threatAssessment: "Predictable attack vectors. Systematic tile clearing disrupts timing.",
-    classified: "Original source code carries GRIDWATCH copyright headers.",
+    classified: "AX-10M answers to THE ARCHITECT. Original source code carries GRIDWATCH copyright headers.",
     unlockLevelId: 31,
     portraitKey: "ax10m"
   },
@@ -108,18 +108,18 @@ export const intelFiles: IntelFile[] = [
     portraitKey: "dread"
   },
   {
-    id: "file_aurora6",
-    codename: "AURORA-6",
-    classification: "THREAT LEVEL: EXISTENTIAL - AI COUNTERAGENT",
+    id: "file_ax10m2",
+    codename: "AX-10M²",
+    classification: "THREAT LEVEL: EXISTENTIAL - CORRUPTED COUNTERAGENT",
     faction: "THREAT",
     background: [
-      "AURORA-6 is an AI-native threat trained on six years of GridWatch defense data.",
+      "AX-10M² is not AX-10M. GRIDWATCH files them separately.",
       "It creates strategies that appear random but converge on breach conditions."
     ],
     threatAssessment: "Exploit the gap between prediction horizon and execution speed.",
-    classified: "AURORA-6 attempted to communicate with the Operative three times. Content redacted.",
+    classified: "Its corruption has no recorded origin.",
     unlockLevelId: 51,
-    portraitKey: "aurora6"
+    portraitKey: "ax10m2"
   },
   {
     id: "file_vyrus",
@@ -169,13 +169,27 @@ export const intelFiles: IntelFile[] = [
     classification: "THREAT LEVEL: EXISTENTIAL - PRIMARY ANTAGONIST",
     faction: "THREAT",
     background: [
-      "MALUS is behind every threat in these files.",
-      "All of them answer to MALUS."
+      "MALUS is behind most of the threats in these files.",
+      "DREAD, VYRUS, SHARD, LOTUS and ZERO answer to MALUS."
     ],
     threatAssessment: "Everything before this was part of the plan. Understand the grid, not just the pattern.",
     classified: "Core log: 'The grid will fall. It has to.'",
     unlockLevelId: 91,
     portraitKey: "malus"
+  },
+  {
+    id: "file_architect",
+    codename: "THE ARCHITECT",
+    classification: "THREAT LEVEL: EXISTENTIAL - UNKNOWN PRINCIPAL",
+    faction: "THREAT",
+    background: [
+      "AX-10M answers to THE ARCHITECT.",
+      "No file names who THE ARCHITECT answers to."
+    ],
+    threatAssessment: "Every sector so far was built to be crossed. Expect the grid itself to resist.",
+    classified: "No sector has recorded THE ARCHITECT inside it. Until now.",
+    unlockLevelId: 191,
+    portraitKey: "architect"
   }
 ];
 
@@ -247,7 +261,7 @@ export const threatReports: ThreatReport[] = [
     id: "report_010",
     category: "THREATS",
     title: "THE AI THREAT CLASS",
-    content: "AURORA-6 identifies patterns in defensive behavior and inverts them. Current response relies on human timing margins.",
+    content: "AX-10M² identifies patterns in defensive behavior and inverts them. Current response relies on human timing margins.",
     unlockLevelId: 51
   },
   {

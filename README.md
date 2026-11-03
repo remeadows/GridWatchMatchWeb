@@ -40,24 +40,18 @@ Controls:
 
 ```sh
 npm ci
-npm run sync:assets
 npm run validate:levels
 npm run dev
 ```
 
-The sync script expects the sibling iOS repository at:
+## Assets
 
-`../GridWatchMatch`
-
-If your local checkout uses a different layout, run sync with `GRIDWATCH_IOS_SOURCE=/path/to/GridWatchMatch/GridWatchMatch/GridWatchMatch npm run sync:assets`.
-
-## Web Asset Overrides
-
-`npm run sync:assets` copies the current iOS art into `public/assets/images`, but it preserves `public/assets/images/web-overrides`.
-
-To replace web art without modifying the iOS source, save PNGs under `public/assets/images/web-overrides/<same-relative-path>`, then run `npm run sync:assets` so the generated manifest points at the override when it exists. For example, replacing `public/assets/images/tiles/tile_packet.png` uses:
-
-`public/assets/images/web-overrides/tiles/tile_packet.png`
+The web game owns all of its art. The iOS asset sync was removed on 2026-11-03: Russ is not taking
+the game to Xcode any time soon. Image, audio and animation paths are listed by hand in
+`src/data/assetManifest.ts`; character portraits (11 allies, 11 villains) are in
+`src/data/portraits.ts`, made from Russ's ChatGPT portraits in Google Drive
+(`GridWatchArt / 4 - GridWatch Match`, roster `GridWatch-Match-Allied-Villain-Roster-v1.md`).
+Older replacements still sit under `public/assets/images/web-overrides/<same-relative-path>`.
 
 Art direction and exact override filenames are in `docs/art/cyberpunk-asset-spec.md`. Agents must not commit generated binary art.
 
@@ -67,7 +61,6 @@ Art direction and exact override filenames are in `docs/art/cyberpunk-asset-spec
 npm run dev
 npm run build
 npm run preview
-npm run sync:assets
 npm run validate:levels
 npm run test
 npm run test:e2e

@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { assetManifest, assetUrl } from "../data/assets";
 import { campaignLevelCount } from "../data/areas";
 import { heroes } from "../data/heroes";
+import { allyPortraits } from "../data/portraits";
 import { areaProgressLabel, completedLevelsInArea, currentArea } from "../state/progress";
 import type { SaveState } from "../state/save";
 
@@ -84,7 +85,7 @@ export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy
         </button>
         <div className="dr-home-status">
           <div className="dr-home-selected">
-            <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt={`${hero.displayName}, selected agent`} />
+            <img src={assetUrl(allyPortraits[hero.id])} alt={`${hero.displayName}, selected agent`} />
             <span>
               <small>Selected agent</small>
               <strong>{hero.displayName}</strong>

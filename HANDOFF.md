@@ -2,6 +2,37 @@
 
 Last updated: 2026-11-03
 
+## 🟡 2026-11-03: 11 allies, 11 villains, fresh portraits, no iOS sync. Same local branch `dev/level-campaign`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03.** "I have made image files for every character and created a roster in
+the Match folder. ... A player can choose an avatar from the allied list. There are 11 villains and 11
+allies. Fresh imagery for every character." On the open sectors he chose AX-10M² for sectors 6 and 16
+and The Architect as the last boss (sector 20). Then: "Get rid of iOS sync. No need until I take it to
+Xcode… which is no time soon".
+
+- **Implementation (built).** The roster is Drive `GridWatchArt / 4 - GridWatch Match /
+  GridWatch-Match-Allied-Villain-Roster-v1.md`. All 22 portraits come from the files it names, resized
+  to 768 px JPEGs under `public/assets/images/characters/` (3.1 MB in all, against about 16 MB
+  before) and listed in `src/data/portraits.ts`. AURORA-6 is an ally now: AX-10M² takes sectors 6 and
+  16, THE ARCHITECT takes sector 20 ("THE ARCHITECT steps forward"), and Malus keeps sector 10 only.
+  The Account screen offers all 11 allies with no unlocks (`unlockAreaId` and `isHeroUnlocked`
+  removed). Old saves keep their pick, since the four old ids are unchanged. The sector 6 dossier is
+  now AX-10M²'s, The Architect has one (opens at level 191), AX-10M's says he answers to The Architect,
+  and Malus's no longer claims every threat. The iOS sync is gone: `scripts/sync-ios-assets.mjs`,
+  `npm run sync:assets`, `assetSyncState.generated.json` and the `.sync-manifest.json` ignore line.
+  `assetManifest.generated.ts` became the hand-kept `assetManifest.ts`. README, AGENTS, SKILLS,
+  MEMORY and the CodeRabbit config no longer mention the sync.
+- **My calls, open to Russ.** These texts are drafts: the ally one-liners (June's and AURORA-6's are
+  just "GridWatch operative", since the roster gives no role), the sector 20 subtitle, and the
+  AX-10M² and Architect dossiers. The home screen's large Tish is scene art, not a portrait, so it
+  stays. The CodeRabbit config still asks reviewers for iOS animation parity; only its sync rules were
+  removed.
+- **Verification (automated).** Unit 848/848 with new roster tests (11 allies, none locked; all 11
+  villains used and each with a dossier; every portrait on disk), tsc clean. Dark e2e 302/302 (desktop
+  and mobile), including a new test that picks AURORA-6 on the Account screen and finds her on the
+  home screen after a reload; run without `CI=1` against the leftover port-4173 preview after a build
+  with the test origins. Classic-theme suite not run. Russ has not looked at it yet.
+
 ## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. On the dev site as `5a76b7d-dev`; NOT pushed, NOT in production
 
 **Where it lives.** Local branch `dev/level-campaign`, started from `dev/feel-pieces-effects` at

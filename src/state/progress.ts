@@ -39,12 +39,6 @@ export function isAreaComplete(save: SaveState, area: AreaInfo): boolean {
   return completedLevelsInArea(save, area) >= area.lastLevel - area.firstLevel + 1;
 }
 
-export function isHeroUnlocked(save: SaveState, unlockAreaId: number | null): boolean {
-  if (unlockAreaId === null) return true;
-  const area = areas.find((candidate) => candidate.id === unlockAreaId);
-  return area ? isAreaComplete(save, area) : false;
-}
-
 export interface LevelCoinReward {
   starCoins: number;
   leftoverMoves: number;

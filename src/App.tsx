@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSPr
 import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
+import { allyPortraits, villainPortraits } from "./data/portraits";
 import { starsForMovesLeft } from "./data/stars";
 import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
@@ -42,7 +43,6 @@ import {
   currentArea,
   isAreaComplete,
   isAreaUnlocked,
-  isHeroUnlocked,
   isLevelUnlocked,
   levelCoinReward,
   type LevelCoinReward,
@@ -601,7 +601,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
         </section>
 
         <section className="agent-brief">
-          <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt={`${hero.displayName}, selected agent`} />
+          <img src={assetUrl(allyPortraits[hero.id])} alt={`${hero.displayName}, selected agent`} />
           <div>
             <span>Selected agent</span>
             <h2>{hero.displayName}</h2>
@@ -637,7 +637,7 @@ function AreasScreen({ save, commitSave, navigate }: { save: SaveState; commitSa
             <Fragment key={area.id}>
             {area.id === 11 && <h2 className="area-tour-heading">The Return</h2>}
             <article className={`area-card ${unlocked ? "" : "locked"}`} style={{ "--accent": area.accent } as React.CSSProperties}>
-              <img src={assetUrl(assetManifest.images.villains[area.villainKey])} alt="" />
+              <img src={assetUrl(villainPortraits[area.villainKey])} alt="" />
               <div>
                 <div className="card-kicker">Area {area.id} / {area.villainName}</div>
                 <h2>{area.name}</h2>
@@ -1484,17 +1484,17 @@ function AccountScreen({ save, commitSave, auth }: { save: SaveState; commitSave
       <OperatorIdentityPanel auth={auth} />
       <div className="hero-grid">
         {heroes.map((hero) => {
-          const unlocked = isHeroUnlocked(save, hero.unlockAreaId);
+          const selected = save.selectedHeroId === hero.id;
           return (
-            <article className={`hero-card ${save.selectedHeroId === hero.id ? "selected" : ""}`} key={hero.id}>
-              <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt="" />
+            <article className={`hero-card ${selected ? "selected" : ""}`} key={hero.id}>
+              <img src={assetUrl(allyPortraits[hero.id])} alt="" />
               <h2>{hero.displayName}</h2>
               <p>{hero.description}</p>
-              <button disabled={!unlocked} onClick={() => {
+              <button disabled={selected} onClick={() => {
                 const next = cloneSave(save);
                 next.selectedHeroId = hero.id;
                 commitSave(next);
-              }}>{unlocked ? "Select" : `Complete Area ${hero.unlockAreaId}`}</button>
+              }}>{selected ? "Selected" : "Select"}</button>
             </article>
           );
         })}

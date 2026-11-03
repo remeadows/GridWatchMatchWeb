@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc --noEmit && tsc -p worker/tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
-    "sync:assets": "node scripts/sync-ios-assets.mjs",
     "validate:levels": "node scripts/validate-levels.mjs",
     "generate:level-limits": "node scripts/generate-level-limits.mjs",
     "levels": "esbuild scripts/levels/cli.ts --bundle --platform=node --format=esm --outfile=.levels/cli.mjs && node .levels/cli.mjs",

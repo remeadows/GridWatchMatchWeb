@@ -35,7 +35,7 @@ is not done is listed in §7.
 - **Board size** comes from level JSON (`public/levels/`, `snapshot.grid.rows/cols`); nothing in
   the art or the integration assumes 7×7. Cell size is `floor(min(canvas) / max(rows, cols))`.
 - **Engine** (`src/engine`) is a pure deterministic state machine. The art work does not touch it.
-- **Pieces** load through `src/data/assetManifest.generated.ts` (iOS art, with web overrides under
+- **Pieces** load through `src/data/assetManifest.ts` (web-owned since the iOS sync was removed on 2026-11-03; older replacements under
   `public/assets/images/web-overrides/`). A piece is drawn at `0.85 × cell`.
 - **Persistence:** campaign, settings and inventory are saved to IndexedDB (localStorage fallback)
   and, signed in, to cloud saves through `@gridwatch/account-kit`; scores go through `/api/score`.
