@@ -25,6 +25,7 @@ recordings for reference)".
     restarts the count, as does every move or animation. With reduced motion, the outline holds
     still and nothing nudges.
   - Times are in `presentationTiming.ts` (`BOARD_HINT_*`).
+- **On the dev site** as `14de1ff-dev` (version `62f3aa86`).
 - **Verification (automated).** Unit 856/856 (new `hint.test.ts`: the biggest match wins and its
   pieces are outlined where they sit; two power-ups come first; a frozen piece is never asked to move;
   a lone power-up is tapped). Dark e2e 306/306, desktop and mobile, including a new test: no hint at
