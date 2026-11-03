@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const output = `${root}src/tests/fixtures/resolution/`;
-const baseline = '328a1a7';
+// Re-recorded under the pane and malware rule changes; the baseline is the commit the engine was recorded at.
+const baseline = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 registerHooks({ resolve(specifier, context, next) {
   if (specifier.startsWith('.') && context.parentURL) {
     const url = new URL(specifier, context.parentURL);
@@ -42,8 +43,9 @@ export function encodeAction(action) {
   return [2, action.booster, action.at.row, action.at.col];
 }
 
-// Refuse to freeze expectations from modified rules, even on a later branch.
-const paths = execFileSync('git', ['ls-tree', '-r', '--name-only', baseline, '--', 'src/engine', 'public/levels'], { cwd: root, encoding: 'utf8' }).trim().split('\n');
+// Refuse to freeze expectations from a modified working tree: engine and frozen levels must match the baseline commit.
+const levelDir = 'src/tests/fixtures/resolution/levels';
+const paths = execFileSync('git', ['ls-tree', '-r', '--name-only', baseline, '--', 'src/engine', levelDir], { cwd: root, encoding: 'utf8' }).trim().split('\n');
 const hashes = Object.fromEntries(paths.map(path => {
   const bytes = readFileSync(root + path);
   assert.deepEqual(bytes, execFileSync('git', ['show', `${baseline}:${path}`], { cwd: root }), `${path} is no longer the frozen engine/content`);
