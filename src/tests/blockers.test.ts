@@ -330,6 +330,18 @@ describe("remove all malware", () => {
     }
   });
 
+  it("malware spreads once per move even when the move cascades", () => {
+    // After z z z clears, the columns drop and row 4 becomes p t k k k: a second match.
+    const rows = ["z~1 t k z f", "k f z p t", "p p t z f", "p t k f t", "z z k z k"];
+    for (const top of [rows[0], "z~1 t k z f~1"]) {
+      const engine = engineFor([top, ...rows.slice(1)]);
+      const before = malwareCount(engine);
+      const delta = engine.apply(MALWARE_SWAP);
+      expect(delta.chainDepth).toBeGreaterThanOrEqual(1);
+      expect(malwareCount(engine)).toBe(before + 1);
+    }
+  });
+
   it("a move that removes malware stops the spread", () => {
     const engine = engineFor(malwareBoard("z t k z f~1", "z~1 t k f z"));
     expect(malwareCount(engine)).toBe(2);
