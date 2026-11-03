@@ -100,8 +100,18 @@ export interface ObjectiveEvent {
   progressDelta: number;
 }
 
+export type BlockerKind = "pane" | "lock" | "malware";
+
+/** A blocker removed by the move: a pane's last layer, a lock's piece clearing, or a malware cell's last layer. */
+export interface BlockerClear {
+  position: GridPosition;
+  kind: BlockerKind;
+  objectiveId: string | null;
+}
+
 export interface BoardDelta {
   clears: ClearEvent[];
+  blockerClears: BlockerClear[];
   moves: MoveEvent[];
   spawns: SpawnEvent[];
   powerUpEvents: PowerUpEvent[];
@@ -167,6 +177,7 @@ export interface BoardResolutionStep {
   before: BoardSnapshot;
   after: BoardSnapshot;
   clears: (ClearEvent & { occupantId: number | null })[];
+  blockerClears: BlockerClear[];
   moves: BoardResolutionMove[];
   spawns: (SpawnEvent & { occupantId: number | null })[];
   objectiveEvents: ObjectiveEvent[];

@@ -1479,7 +1479,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private resolutionStepDelta(step: BoardResolutionStep, powerUpEvents: PowerUpEvent[] = []): BoardDelta {
-    return { clears: step.clears, moves: [], spawns: step.spawns, powerUpEvents,
+    return { clears: step.clears, blockerClears: step.blockerClears, moves: [], spawns: step.spawns, powerUpEvents,
       objectiveEvents: step.objectiveEvents, chainDepth: step.cascadeDepth,
       scoreGained: 0, isWin: false, isFail: false, shuffleAttempts: 0 };
   }

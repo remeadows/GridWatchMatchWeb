@@ -387,6 +387,10 @@ function weightForObjectivePriority(
       weight += 1.5;
     } else if (objective.id === "malware" && cell.underlay !== null) {
       weight += 2.5;
+    } else if (objective.id === "panes" && cell.overlay !== null) {
+      weight += 2.5;
+    } else if (objective.id === "locks" && cell.overlay === null && cell.generator === null && !cell.isMovable) {
+      weight += 2.5;
     } else if (objective.id === "guide" && position.row === bottomRow) {
       weight += 2.0;
     } else if (objective.id === "multi") {

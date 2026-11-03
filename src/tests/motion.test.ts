@@ -115,6 +115,7 @@ function emptyDelta(): BoardDelta {
   return {
     clears: [],
     moves: [],
+    blockerClears: [],
     spawns: [],
     powerUpEvents: [],
     objectiveEvents: [],

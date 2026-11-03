@@ -397,3 +397,119 @@ describe("remove all malware", () => {
     expect(delta.isFail).toBe(false);
   });
 });
+
+function goal(id: string, target: number) {
+  return { id, target, displayName: id, tileType: null };
+}
+
+function countCells(engine: BoardEngine, test: (cell: ReturnType<BoardEngine["snapshot"]["grid"]["get"]>) => boolean): number {
+  const { grid } = engine.snapshot;
+  return grid.allPositions.filter((position) => test(grid.get(position))).length;
+}
+
+// Row 2 holds a locked piece, a 1-layer pane and a piece on 1-layer malware; a rocket along it clears all three.
+const BLOCKER_ROW_BOARD = [
+  "z t k z f",
+  "k f z p t",
+  "p! f#1 k~1 z t",
+  "f k t f z",
+  "t z p k f"
+];
+const ROCKET_ON_ROW_2: BoardAction = { kind: "activateBooster", booster: "rocket", at: { row: 2, col: 3 } };
+
+describe("pane and lock goals", () => {
+  it("a pane counts for the goal when its last layer breaks", () => {
+    const rows = ["z t k z f", "k f z p t", "p k f#2 z f", "z t k f z", "t z p k f"];
+    const engine = new BoardEngine(testLevel(rows, { objectives: [goal("panes", 1)] }), 7);
+    const hitRow2: BoardAction = { kind: "activateBooster", booster: "rocket", at: { row: 2, col: 0 } };
+    engine.apply(hitRow2);
+    expect(engine.snapshot.grid.get({ row: 2, col: 2 }).overlay?.hp).toBe(1);
+    expect(engine.snapshot.objectiveProgress.panes).toBe(0);
+    engine.apply({ kind: "activateBooster", booster: "rocket", at: { row: 2, col: 0 } });
+    expect(engine.snapshot.grid.get({ row: 2, col: 2 }).overlay).toBeNull();
+    expect(engine.snapshot.objectiveProgress.panes).toBe(1);
+  });
+
+  it("a lock counts when its piece clears", () => {
+    const rows = ["p p! k p z", "k t z p f", "z p f k t", "f k t z p", "t z p f k"];
+    const engine = new BoardEngine(testLevel(rows, { objectives: [goal("locks", 1)] }), 7);
+    expect(engine.snapshot.objectiveProgress.locks).toBe(0);
+    const delta = engine.apply(swap({ row: 0, col: 2 }, { row: 0, col: 3 }));
+    expect(engine.snapshot.objectiveProgress.locks).toBe(1);
+    expect(delta.blockerClears.filter((blocker) => blocker.kind === "lock")).toHaveLength(1);
+  });
+
+  it("a lock counts when a power-up clears it", () => {
+    const rows = ["z t k z f", "k f z p t", "p! f k z t", "f k t f z", "t z p k f"];
+    const engine = new BoardEngine(testLevel(rows, { objectives: [goal("locks", 1)] }), 7);
+    const delta = engine.apply(ROCKET_ON_ROW_2);
+    expect(engine.snapshot.objectiveProgress.locks).toBe(1);
+    expect(delta.blockerClears.map((blocker) => blocker.kind)).toContain("lock");
+  });
+
+  it("a honeypot never counts as a lock", () => {
+    const rows = ["z t k z f", "k f z p t", "p H k z t", "f k t f z", "t z p k f"];
+    const engine = new BoardEngine(testLevel(rows, { objectives: [goal("locks", 1)] }), 7);
+    const delta = engine.apply(ROCKET_ON_ROW_2);
+    expect(engine.snapshot.objectiveProgress.locks).toBe(0);
+    expect(delta.blockerClears.filter((blocker) => blocker.kind === "lock")).toHaveLength(0);
+  });
+
+  it("a pane opened to relieve a stuck board counts", () => {
+    const rows = [
+      "p#3 f#3 k#3 t#3 z#3",
+      "k#3 t#3 z#3 p#3 f#3",
+      "z#3 p#3 f#3 k#3 t#3",
+      "f#3 k#3 t#3 z#3 p#3",
+      "p p f p t#3"
+    ];
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const engine = new BoardEngine(testLevel(rows, { objectives: [goal("panes", 99)] }), seed);
+      const before = countCells(engine, (cell) => cell.overlay !== null);
+      const progressBefore = engine.snapshot.objectiveProgress.panes;
+      const delta = engine.apply(swap({ row: 4, col: 2 }, { row: 4, col: 3 }));
+      const gone = before - countCells(engine, (cell) => cell.overlay !== null);
+      const counted = delta.blockerClears.filter((blocker) => blocker.kind === "pane");
+      expect(counted).toHaveLength(gone);
+      expect(engine.snapshot.objectiveProgress.panes - progressBefore).toBe(gone);
+    }
+  });
+});
+
+describe("blocker events", () => {
+  const ALL_GOALS = [goal("panes", 1), goal("locks", 1), goal("malware", 1)];
+
+  it("each removed blocker appears in blockerClears once, with its objective id", () => {
+    const engine = new BoardEngine(testLevel(BLOCKER_ROW_BOARD, { objectives: ALL_GOALS }), 7);
+    const delta = engine.apply(ROCKET_ON_ROW_2);
+    const byKind = Object.fromEntries(delta.blockerClears.map((blocker) => [blocker.kind, blocker]));
+    expect(delta.blockerClears).toHaveLength(3);
+    expect(byKind.pane).toMatchObject({ position: { row: 2, col: 1 }, objectiveId: "panes" });
+    expect(byKind.lock).toMatchObject({ position: { row: 2, col: 0 }, objectiveId: "locks" });
+    expect(byKind.malware).toMatchObject({ position: { row: 2, col: 2 }, objectiveId: "malware" });
+  });
+
+  it("the objective id is null when the level has no such goal", () => {
+    const engine = new BoardEngine(testLevel(BLOCKER_ROW_BOARD), 7);
+    const delta = engine.apply(ROCKET_ON_ROW_2);
+    expect(delta.blockerClears.map((blocker) => blocker.kind).sort()).toEqual(["lock", "malware", "pane"]);
+    expect(delta.blockerClears.every((blocker) => blocker.objectiveId === null)).toBe(true);
+  });
+
+  it("a blocker over its goal target gives a null objective id", () => {
+    const rows = ["z t k z f", "k f z p t", "p f#1 k z t#1", "f k t f z", "t z p k f"];
+    const engine = new BoardEngine(testLevel(rows, { objectives: [goal("panes", 1)] }), 7);
+    const delta = engine.apply(ROCKET_ON_ROW_2);
+    const panes = delta.blockerClears.filter((blocker) => blocker.kind === "pane");
+    expect(panes.map((blocker) => blocker.objectiveId).sort()).toEqual([null, "panes"]);
+    expect(engine.snapshot.objectiveProgress.panes).toBe(1);
+  });
+
+  it("step blockerClears sum to the delta's", () => {
+    const engine = new BoardEngine(testLevel(BLOCKER_ROW_BOARD, { objectives: ALL_GOALS }), 7);
+    const { delta, steps } = engine.applyWithResolution(ROCKET_ON_ROW_2);
+    const fromSteps = steps.flatMap((step) => step.blockerClears);
+    expect(delta.blockerClears).toHaveLength(3);
+    expect(fromSteps).toEqual(delta.blockerClears);
+  });
+});
