@@ -36,9 +36,10 @@ on Russ.
   - **Out of band (fail rate against target), written as the closest candidate:** 26 0.285 vs 0.10
     (too hard); 33 0.13 vs 0.225, 34 0.09 vs 0.20, 35 0.10 vs 0.24, 38 0.09 vs 0.24, 39 0.15 vs 0.29,
     40 0.15 vs 0.30; 52 0.20 vs 0.37, 56 0.12 vs 0.40, 57 0.21 vs 0.44, 59 0.165 vs 0.49, 60 0.025 vs
-    0.50; 163 0.145 vs 0.525, 165 0.245 vs 0.54, 167 0.31 vs 0.555, 170 0.505 vs 0.60. Sector 6
-    (52-60) is new since the opening-moves rule: its stretched ring layouts never deal 4 swaps, so it
-    stays unstretched and too easy.
+    0.50; 163 0.145 vs 0.525, 165 0.245 vs 0.54, 167 0.31 vs 0.555, 170 0.505 vs 0.60. Five of
+    sector 6 (52, 56, 57, 59, 60) are new since the opening-moves rule: their stretched ring layouts
+    never deal 4 swaps, so they stay unstretched and too easy (51, 53, 54, 55, 58 stretched and landed
+    in band).
   - **Four levels open with one legal swap: 151, 153, 154, 158.** Sector 16's recipe fills the whole
     inner ring with panes at 17 cells or more, so no layout can do better. The levers are recipe
     changes and his: a different pattern, fewer than 17 blocked cells, or a ring with gaps.
