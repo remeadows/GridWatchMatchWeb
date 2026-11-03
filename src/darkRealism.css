@@ -1375,3 +1375,27 @@
 @keyframes dr-toast-leave {
   to { opacity: 0; }
 }
+
+/* Three or more goals stay on one row on a phone: smaller pictures, tighter type, and the words
+   wrap inside the chip instead of pushing the chip onto a second row, which would shrink the board. */
+@media (max-width: 760px) {
+  :root[data-board-theme="darkRealism"] .objective-row:has(.objective-chip:nth-child(3)) {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  :root[data-board-theme="darkRealism"] .objective-row:has(.objective-chip:nth-child(3)) .objective-chip {
+    flex: 1 1 0;
+    min-width: 0;
+    gap: 6px;
+    padding: 4px 6px 4px 6px;
+    font-size: 0.6rem;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+  }
+
+  :root[data-board-theme="darkRealism"] .objective-row:has(.objective-chip:nth-child(3)) .objective-picture {
+    width: 24px;
+    height: 24px;
+  }
+}

@@ -763,6 +763,20 @@ const objectiveFlights = (page: Page) => page.evaluate(() =>
   ((window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] }).__gwPresentationTrace ?? [])
     .filter(entry => entry.kind === "objective-fly").map(entry => entry.detail));
 
+/** Counts, frame by frame from now on, the frames in which any flight is in the air. */
+async function watchFlights(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const w = window as Window & { __gwFlightFrames?: number };
+    w.__gwFlightFrames = 0;
+    const look = () => {
+      if (document.querySelector(".piece-flight")) w.__gwFlightFrames = (w.__gwFlightFrames ?? 0) + 1;
+      requestAnimationFrame(look);
+    };
+    look();
+  });
+}
+const flightFrames = (page: Page) => page.evaluate(() => (window as Window & { __gwFlightFrames?: number }).__gwFlightFrames ?? 0);
+
 async function darkOnly(page: Page): Promise<void> {
   const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
   test.skip(theme !== "darkRealism", "the archived classic board has no flights");
@@ -804,7 +818,12 @@ test("a pane's strength number drops when a match beside it removes a layer", as
 
 test("swapping into a frozen pane is refused cleanly", async ({ page }) => {
   const errors = watchForErrors(page);
-  await openBlockerLevel(page, PANE_BOARD("k#2"));
+  // Column 3 holds k k above the swap target, so moving the pane's k into (3,3) would make a line
+  // of three if the pane did not freeze it: only the pane can be what refuses this swap.
+  const rows = PANE_BOARD("k#2");
+  rows[1] = "k f z k t";
+  rows[2] = "p k t k f";
+  await openBlockerLevel(page, rows);
   await expect(movesShown(page)).toHaveText("20/20");
   await dragBoardCells(page, { row: 3, col: 3 }, { row: 3, col: 2 });
   // Nothing resolves: the board declines the gesture, so there is no trace to wait for.
@@ -834,50 +853,111 @@ test("a booster dropped on a pane fires", async ({ page }) => {
 test("reduced motion and classic count blockers at once", async ({ page }) => {
   for (const mode of ["reduced", "classic"] as const) {
     await page.unroute("**/levels/level_001.json");
-    if (mode === "reduced") await page.emulateMedia({ reducedMotion: "reduce" });
+    // Classic is tried with motion on, so that only the classic board is what stops a flight.
+    await page.emulateMedia({ reducedMotion: mode === "reduced" ? "reduce" : "no-preference" });
     await openBlockerLevel(page, PANE_BOARD("k#1"), PANES_GOAL, mode === "classic" ? "&theme=classic" : "");
     await expect(page.locator('[data-objective-id="panes"]')).toContainText("Panes: 0/2");
+    await watchFlights(page);
     await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
     await waitForResolutionComplete(page);
     await expect(page.locator('[data-objective-id="panes"]')).toContainText("Panes: 1/2");
-    await expect(page.locator(".piece-flight")).toHaveCount(0);
-    // Reduced motion is the player's setting and the flight itself declines it; the classic board never plans one.
+    // A flight lasts 480ms: waiting past it, the frame count says whether one ever flew.
+    await page.waitForTimeout(700);
+    expect(await flightFrames(page)).toBe(0);
     if (mode === "classic") expect(await objectiveFlights(page)).toEqual([]);
   }
 });
 
-test("blocker goals fit one phone screen", async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 550 });
+test("a malware chip never rises because of a flight, and counts down as they land", async ({ page }) => {
   const rows = [
-    "z t k z f#2",
-    "k f z p t~1",
+    "z t k z f~1",
+    "k f z p t",
     "p k t z f",
-    "z t k#1 f z",
-    "p p! k p f"
+    "z~1 t~1 k f z",
+    "p p k p f"
   ];
-  const goals = [
+  const goal = [{ id: "malware", target: 1, displayName: "Malware", tileType: null }];
+  await openBlockerLevel(page, rows, goal);
+  await darkOnly(page);
+  const chip = page.locator('[data-objective-id="malware"]');
+  await expect(chip).toContainText("Malware left: 3");
+  await page.evaluate(() => {
+    const w = window as Window & { __gwMalwareFrames?: { left: number; flying: boolean }[] };
+    w.__gwMalwareFrames = [];
+    const look = () => {
+      const text = document.querySelector('[data-objective-id="malware"]')?.textContent ?? "";
+      const left = Number(text.match(/(\d+)\s*$/)?.[1] ?? NaN);
+      w.__gwMalwareFrames!.push({ left, flying: document.querySelector(".piece-flight") !== null });
+      requestAnimationFrame(look);
+    };
+    look();
+  });
+  await dragBoardCells(page, { row: 4, col: 2 }, { row: 4, col: 3 });
+  await waitForResolutionComplete(page);
+  await page.waitForTimeout(700);
+  const frames = await page.evaluate(() => (window as Window & { __gwMalwareFrames?: { left: number; flying: boolean }[] }).__gwMalwareFrames ?? []);
+  expect(frames.some(frame => frame.flying)).toBe(true);
+  const counts = frames.map(frame => frame.left);
+  expect(Math.max(...counts)).toBe(3);
+  for (let index = 1; index < counts.length; index += 1) expect(counts[index]).toBeLessThanOrEqual(counts[index - 1]);
+  expect(counts.at(-1)).toBe(1);
+  await expect(chip).toContainText("Malware left: 1");
+});
+
+/** A real board: 7 x 7, no matches anywhere, one pane, one lock and one malware cell. */
+function realBoard(): string[] {
+  const letters = ["p", "f", "k", "t", "z"];
+  const rows = Array.from({ length: 7 }, (_, row) => Array.from({ length: 7 }, (_, col) => letters[(row * 2 + col) % 5]));
+  rows[1][1] += "#1";
+  rows[2][5] += "!";
+  rows[5][3] += "~1";
+  return rows.map(row => row.join(" "));
+}
+
+const GOAL_SETS = {
+  "pane, lock and malware": [
     { id: "panes", target: 2, displayName: "Panes", tileType: null },
     { id: "locks", target: 1, displayName: "Locks", tileType: null },
     { id: "malware", target: 1, displayName: "Malware", tileType: null }
-  ];
-  await openBlockerLevel(page, rows, goals);
-  await page.addStyleTag({ content: ".qa-tools, .delta-line { display: none !important; }" });
-  await expect(page.locator('[data-objective-id="malware"]')).toContainText("Malware left: 1");
-  const fit = await page.evaluate(() => ({
-    chips: [...document.querySelectorAll<HTMLElement>(".objective-chip")].map(chip => ({
-      clipped: chip.scrollWidth > chip.clientWidth + 1 || chip.scrollHeight > chip.clientHeight + 1,
-      right: chip.getBoundingClientRect().right
-    })),
-    scrollX: document.documentElement.scrollWidth - window.innerWidth,
-    scrollY: document.documentElement.scrollHeight - window.innerHeight,
-    width: window.innerWidth
-  }));
-  expect(fit.chips).toHaveLength(3);
-  for (const chip of fit.chips) {
-    expect(chip.clipped).toBe(false);
-    expect(chip.right).toBeLessThanOrEqual(fit.width);
+  ],
+  "three collect goals": [
+    { id: "c1", target: 20, displayName: "Packets", tileType: "packet" },
+    { id: "c2", target: 20, displayName: "Firewalls", tileType: "firewall" },
+    { id: "c3", target: 20, displayName: "Keys", tileType: "key" }
+  ]
+} as const;
+const SCRATCH = "/private/tmp/claude-501/-Users-russmeadows-Dev-1---WarSignalLabs-4---Games-GridWatchMatchWeb/1f1b1e21-0505-4a48-a3a9-7d10c03868c3/scratchpad";
+
+for (const [width, height] of [[375, 550], [440, 748]] as const) {
+  for (const [name, goals] of Object.entries(GOAL_SETS)) {
+    test(`blocker goals fit one phone screen: ${name} at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await openBlockerLevel(page, realBoard(), goals as never);
+      await darkOnly(page);
+      await page.addStyleTag({ content: ".qa-tools, .delta-line { display: none !important; }" });
+      await expect(page.locator(".objective-chip")).toHaveCount(3);
+      const fit = await page.evaluate(() => ({
+        chips: [...document.querySelectorAll<HTMLElement>(".objective-chip")].map(chip => {
+          const box = chip.getBoundingClientRect();
+          return { clipped: chip.scrollWidth > chip.clientWidth + 1 || chip.scrollHeight > chip.clientHeight + 1, top: box.top, right: box.right };
+        }),
+        scrollX: document.documentElement.scrollWidth - window.innerWidth,
+        scrollY: document.documentElement.scrollHeight - window.innerHeight
+      }));
+      for (const chip of fit.chips) {
+        expect(chip.clipped).toBe(false);
+        expect(chip.right).toBeLessThanOrEqual(width);
+        expect(chip.top).toBeCloseTo(fit.chips[0].top, 0);
+      }
+      expect(fit.scrollX).toBeLessThanOrEqual(0);
+      expect(fit.scrollY).toBeLessThanOrEqual(0);
+      const box = (await page.locator(".game-board-panel").boundingBox())!;
+      const tray = (await page.locator(".booster-tray").boundingBox())!;
+      expect(box.width).toBeCloseTo(box.height, 0);
+      expect(box.width).toBeGreaterThanOrEqual(240);
+      expect(box.y + box.height).toBeLessThanOrEqual(tray.y);
+      expect(tray.y + tray.height).toBeLessThanOrEqual(height);
+      await page.screenshot({ path: `${SCRATCH}/blocker-goals-7x7-${name.replace(/[^a-z]+/g, "-")}-${width}x${height}.png` });
+    });
   }
-  expect(fit.scrollX).toBeLessThanOrEqual(0);
-  expect(fit.scrollY).toBeLessThanOrEqual(0);
-  await page.screenshot({ path: "test-results/blocker-goals-375x550.png" });
-});
+}

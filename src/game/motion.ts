@@ -168,13 +168,13 @@ export function orderCascadeMoves<T extends Pick<MoveEvent, "from" | "to">>(move
 /**
  * Where each refilling piece waits before it falls, as a row above the board: the piece going
  * deepest in a column waits at row -1, the next at row -2, so a refill arrives spaced like the
- * column it joins. Keyed `row,col` of the destination. A column cut by a pane has a run of its
- * own below it, whose refill waits above that run (and is hidden until it passes the pane's lower
- * edge), so that nothing falls through the pane.
+ * column it joins. Keyed `row,col` of the destination. A column cut by anything that does not let
+ * a piece through (a pane, a lock or a honeypot) has a run of its own below the cut, whose refill
+ * waits above that run (hidden until it passes the run's top edge), so that nothing falls through it.
  */
 export function refillStartRows(
   spawns: ReadonlyArray<Pick<CascadePresentationSpawn, "position">>,
-  /** The first row of the open run of cells a spawn falls through: below a pane that is not row 0. */
+  /** The first row of the open run of cells a spawn falls through: below a pane, lock or honeypot that is not row 0. */
   topOf: (position: GridPosition) => number = () => 0
 ): Map<string, number> {
   const taken = new Map<string, number>();

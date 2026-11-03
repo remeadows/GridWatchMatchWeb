@@ -101,9 +101,25 @@ describe("a piece's flight to the objective", () => {
 });
 
 describe("the malware count while pieces are in the air", () => {
-  it("shows malware still in the air as not yet removed", () => {
-    const counts = launchPiece({}, "malware", 0);
-    expect(malwareCountShown(counts, 4)).toBe(5);
+  it("never rises at takeoff, and drops by one on each landing", () => {
+    let counts = launchPiece({}, "malware", 3);
+    counts = launchPiece(counts, "malware", 3);
+    // The true count has already fallen to 1 at the end of the step; the chip waits for the landings.
+    expect(malwareCountShown(counts, 1)).toBe(3);
+    counts = landPiece(counts, "malware");
+    expect(malwareCountShown(counts, 1)).toBe(2);
+    counts = landPiece(counts, "malware");
+    expect(counts).toEqual({});
+    expect(malwareCountShown(counts, 1)).toBe(1);
+  });
+
+  it("shows nothing different when nothing flies, and lets spread raise the count", () => {
     expect(malwareCountShown({}, 4)).toBe(4);
+    expect(malwareCountShown(launchPiece({}, "malware", 2), 5)).toBe(5);
+  });
+
+  it("a malware piece over the cap counts at once", () => {
+    const counts = skipPiece(launchPiece({}, "malware", 4), "malware");
+    expect(malwareCountShown(counts, 2)).toBe(3);
   });
 });

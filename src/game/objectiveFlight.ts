@@ -17,6 +17,11 @@ export interface ObjectiveFlightCount {
 
 export type ObjectiveFlightCounts = Readonly<Record<string, ObjectiveFlightCount>>;
 
+/** Malware counts cells left, so each one removed takes one off; every other goal counts up. */
+function countStep(objectiveId: string): number {
+  return objectiveId === "malware" ? -1 : 1;
+}
+
 /** The count stops moving at the first takeoff, so that each landing is what moves it. */
 export function launchPiece(counts: ObjectiveFlightCounts, objectiveId: string, progress: number): ObjectiveFlightCounts {
   const current = counts[objectiveId];
@@ -30,13 +35,13 @@ export function landPiece(counts: ObjectiveFlightCounts, objectiveId: string): O
     const { [objectiveId]: _landed, ...rest } = counts;
     return rest;
   }
-  return { ...counts, [objectiveId]: { inAir: current.inAir - 1, shown: current.shown + 1 } };
+  return { ...counts, [objectiveId]: { inAir: current.inAir - 1, shown: current.shown + countStep(objectiveId) } };
 }
 
 /** A piece over the cap counts at once. */
 export function skipPiece(counts: ObjectiveFlightCounts, objectiveId: string): ObjectiveFlightCounts {
   const current = counts[objectiveId];
-  return current ? { ...counts, [objectiveId]: { ...current, shown: current.shown + 1 } } : counts;
+  return current ? { ...counts, [objectiveId]: { ...current, shown: current.shown + countStep(objectiveId) } } : counts;
 }
 
 export function objectiveCountShown(counts: ObjectiveFlightCounts, objectiveId: string, progress: number): number {
@@ -45,11 +50,13 @@ export function objectiveCountShown(counts: ObjectiveFlightCounts, objectiveId: 
 }
 
 /**
- * Malware is a count of cells left, not progress toward a target, so a piece in the air has not
- * been removed yet: it still counts among those left until it lands.
+ * Malware is a count of cells left, and it only goes down as pieces land: the shown value is frozen
+ * at the first takeoff (src/game/objectiveFlight.ts `launchPiece`) and counts down on each landing,
+ * so the chip never rises because of a flight. Malware spreading raises `left` past it, and that shows.
  */
 export function malwareCountShown(counts: ObjectiveFlightCounts, left: number): number {
-  return left + (counts.malware?.inAir ?? 0);
+  const current = counts.malware;
+  return current ? Math.max(left, current.shown) : left;
 }
 
 export interface FlightKeyframe {

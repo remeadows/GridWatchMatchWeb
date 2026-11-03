@@ -725,7 +725,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     };
   }, [levelId, runId]);
   const handlePieceCollected = useCallback((piece: CollectedPiece) => {
-    const progress = piece.objectiveId === "malware" ? 0 : hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
+    const progress = piece.objectiveId === "malware" ? hudRef.current?.malwareLeft ?? 0 : hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
     const flew = pieceFlightsRef.current?.launch(piece) ?? false;
     setFlightCounts((counts) => (flew ? launchPiece(counts, piece.objectiveId, progress) : skipPiece(counts, piece.objectiveId)));
   }, []);

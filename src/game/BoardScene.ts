@@ -2622,6 +2622,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const spawnTweens: typeof moveTweens = [];
+    // The top of the open run a refill falls through: it stops at a pane, a lock or a honeypot above.
     const runTop = (position: GridPosition): number => {
       let row = position.row;
       while (row > 0) {
@@ -2760,7 +2761,7 @@ export class BoardScene extends Phaser.Scene {
 
   // A refilling piece waits above the board and is cut off along the board's top edge until it has
   // come in. Cutting its images, rather than masking the layer, costs a phone nothing per frame.
-  /** Hides what is above `edge`: the board's top, or the top of an open run below a pane. */
+  /** Hides what is above `edge`: the board's top, or the top of an open run below a pane, lock or honeypot. */
   private clipToBoardTop(sprite: Phaser.GameObjects.Container, edge: number = this.boardBounds.y): void {
     for (const child of sprite.list as Phaser.GameObjects.GameObject[]) {
       if (!(child instanceof Phaser.GameObjects.Image)) {

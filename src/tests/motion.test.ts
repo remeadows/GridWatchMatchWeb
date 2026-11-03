@@ -375,9 +375,9 @@ describe("refillStartRows", () => {
   });
 });
 
-describe("refillStartRows below a pane", () => {
-  it("waits above the run below the pane, not at the top of the board", () => {
-    // Column 2 is cut at row 3 (a pane), so row 4 is a run of its own.
+describe("refillStartRows below a pane, lock or honeypot", () => {
+  it("waits above the run below the cut, not at the top of the board", () => {
+    // Column 2 is cut at row 3 (a pane, lock or honeypot), so row 4 is a run of its own.
     const topOf = (position: { row: number; col: number }) => (position.col === 2 && position.row >= 4 ? 4 : 0);
     const rows = refillStartRows([{ position: { row: 4, col: 2 } }, { position: { row: 0, col: 2 } }, { position: { row: 5, col: 2 } }], topOf);
     expect(rows.get("5,2")).toBe(3);
