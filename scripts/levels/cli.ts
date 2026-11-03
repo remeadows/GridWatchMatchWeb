@@ -3,7 +3,8 @@
 // `npm run levels -- report --levels 1-100 --games 200 --out <file>` has the test bot play every level and writes
 // the difficulty report.
 // `npm run levels -- build --levels 11-200 --games 200 --out <report>` tunes levels from their sector recipes into
-// public/levels (or --levels-dir) and writes the build report; it exits 1 if a built level is out of band.
+// public/levels (or --levels-dir) and writes the build report. A level that misses its band is written as the closest
+// candidate and marked; the build exits 1 only for dead boards or levels that fail validation.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { availableParallelism } from "node:os";
 import path from "node:path";
@@ -113,10 +114,10 @@ async function build(args: Record<string, string>): Promise<void> {
   console.error(`Building ${levelIds.length} levels into ${settings.levelsDir} on up to ${workers} workers (mistake rate ${options.mistakeRate}).`);
   const outcome = await runBuild(settings, (jobs, onResult) => runJobs<LevelJob, LevelJobResult>(jobs, workers, options, onResult), (line) => console.error(line));
   console.error(`Done in ${((Date.now() - started) / 1000).toFixed(0)}s: ${outcome.tuned} tuned, ${outcome.measured} hand-tuned measured, ${outcome.reused} reused. Report: ${out}`);
-  if (outcome.outOfBand.length > 0) {
-    console.error(`Out of band: ${outcome.outOfBand.join(", ")}.`);
-    process.exitCode = 1;
-  }
+  if (outcome.outOfBand.length > 0) console.error(`Out of band, closest written (does not fail the build): ${outcome.outOfBand.join(", ")}.`);
+  if (outcome.deadBoards.length > 0) console.error(`Dead boards: ${outcome.deadBoards.join(", ")}.`);
+  if (outcome.invalid.length > 0) console.error(`Invalid levels:\n  ${outcome.invalid.join("\n  ")}`);
+  if (outcome.failed) process.exitCode = 1;
 }
 
 function runWorker(setup: WorkerSetup): void {

@@ -3,7 +3,8 @@
 // the same game up to that move, because the engine reads the move limit only to call a loss. So one batch of
 // games reports every move limit in the range. A cheap batch sorts out candidates that cannot reach the band at any
 // limit; the full batch then picks the move limit and decides. When the recipe cannot get hard enough, the tuner
-// stretches it in steps: up to 6 fewer moves and up to 50% more blocked cells.
+// stretches it in steps. Tier 1: up to 6 fewer moves and 50% more blocked cells. Tier 2, only when tier 1 cannot
+// reach the band: moves down to a floor of 12, up to twice the blocked cells, and one more pane layer (at most 3).
 import { BoardEngine, SeededRNG, type LevelDefinition } from "../../src/engine";
 import type { StarMoves } from "../../src/data/stars";
 import { levelSeed } from "../../src/state/progress";
@@ -23,11 +24,13 @@ export interface TuneOptions {
   bot?: BotOptions;
 }
 
-/** How far a recipe was stretched: step 0 is the recipe as written. */
+/** How far a recipe was stretched: step 0 (tier 0) is the recipe as written. */
 export interface Stretch {
+  tier: 0 | 1 | 2;
   step: number;
   moves: [number, number];
   blockedCells: [number, number];
+  paneLayers: [number, number];
 }
 
 export interface TuneResult {
@@ -40,8 +43,11 @@ export interface TuneResult {
 
 const defaults = { games: 200, searchGames: 40, candidates: 12 };
 
-/** Stretch steps after the recipe as written: 2 fewer moves and a sixth more blocked cells each, to 6 and 50%. */
-export const STRETCH_STEPS = 3;
+/** Steps in each stretch tier. Steps 1-3 are tier 1, steps 4-6 tier 2. */
+export const TIER_STEPS = 3;
+export const STRETCH_STEPS = 2 * TIER_STEPS;
+/** Tier 2 never takes a move limit below this. */
+export const MOVE_FLOOR = 12;
 /** Pressure this close to the top that is still too easy means the recipe cannot get there: stretch it. */
 const topPressure = 0.93;
 const bottomPressure = 0.07;
@@ -51,16 +57,30 @@ interface PlayedGame {
   movesUsed: number;
 }
 
-/** The recipe at stretch `step`: 2 x step fewer moves, (1 + step / 6) x the blocked cells, capped to leave room to play. */
+export function stretchTier(step: number): 0 | 1 | 2 {
+  return step === 0 ? 0 : step <= TIER_STEPS ? 1 : 2;
+}
+
+/**
+ * The recipe at stretch `step`. Tier 1 (steps 1-3) takes 2 moves off a step and adds a sixth to the blocked cells,
+ * reaching 6 moves and x1.5. Tier 2 (steps 4-6) adds a layer to every pane and walks on to a fewest-moves limit of
+ * 12 and x2 the blocked cells. No limit goes under 12; blocked cells are capped to leave room to play.
+ */
 export function stretchRecipe(recipe: SectorRecipe, step: number): SectorRecipe {
   if (step === 0) return recipe;
   const freeCells = GRID_SIZE * GRID_SIZE - (recipe.pattern === "dividerRow" ? GRID_SIZE : 0);
   const cap = Math.floor(freeCells * 0.6);
-  const scale = 1 + step / 6;
+  const tierOne = Math.min(step, TIER_STEPS);
+  const tierTwo = Math.max(0, step - TIER_STEPS);
+  const afterTierOne = recipe.moves[0] - 2 * TIER_STEPS;
+  const cut = 2 * tierOne + Math.round((Math.max(0, afterTierOne - MOVE_FLOOR) * tierTwo) / TIER_STEPS);
+  const scale = 1 + tierOne / 6 + tierTwo / 6;
+  const extraLayer = tierTwo > 0 ? 1 : 0;
   return {
     ...recipe,
-    moves: [recipe.moves[0] - 2 * step, recipe.moves[1] - 2 * step],
-    blockedCells: [Math.min(cap, Math.round(recipe.blockedCells[0] * scale)), Math.min(cap, Math.round(recipe.blockedCells[1] * scale))]
+    moves: [Math.max(MOVE_FLOOR, recipe.moves[0] - cut), Math.max(MOVE_FLOOR, recipe.moves[1] - cut)],
+    blockedCells: [Math.min(cap, Math.round(recipe.blockedCells[0] * scale)), Math.min(cap, Math.round(recipe.blockedCells[1] * scale))],
+    paneLayers: [Math.min(3, recipe.paneLayers[0] + extraLayer), Math.min(3, recipe.paneLayers[1] + extraLayer)]
   };
 }
 
@@ -83,7 +103,7 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
   for (let step = 0; step <= STRETCH_STEPS; step += 1) {
     const stretched = stretchRecipe(recipe, step);
     const [fewest, most] = stretched.moves;
-    const stretch: Stretch = { step, moves: [fewest, most], blockedCells: [...stretched.blockedCells] };
+    const stretch: Stretch = { tier: stretchTier(step), step, moves: [fewest, most], blockedCells: [...stretched.blockedCells], paneLayers: [...stretched.paneLayers] };
     // Pressure is searched by halving: too easy at the fewest moves pushes it up; too hard at the most moves, or a
     // dead board, pushes it down.
     let low = 0;

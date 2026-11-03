@@ -3,8 +3,10 @@
 // fingerprint (recipe, name, settings and the source of everything that plays or builds it) has changed or its file
 // no longer matches what the report recorded, so a second run with nothing changed reuses every stored result.
 // The same command on the same commit writes the same files: nothing in them depends on time or worker count.
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { normalizeLevel } from "../../src/data/levels";
 import type { LevelDefinition } from "../../src/engine";
@@ -45,6 +47,8 @@ export interface BuildRow extends LevelReport {
   sector: number;
   target: number;
   inBand: boolean;
+  /** Missed its band even after both stretch tiers: the candidate closest to the target was written anyway. */
+  outOfBand: boolean;
   handTuned?: true;
   moveLimit: number;
   starMoves: { two: number; three: number } | null;
@@ -55,8 +59,9 @@ export interface BuildRow extends LevelReport {
   candidatesTried?: number;
   /** Dead boards in games played on to the recipe's most moves. */
   deadBoardsToMostMoves?: number;
-  /** Whether the tuner had to stretch the recipe, and the move and blocked-cell ranges it built from. */
+  /** Whether the tuner had to stretch the recipe, the tier (0 none, 1, 2), and the ranges it built from. */
   stretched?: boolean;
+  tier?: 0 | 1 | 2;
   stretch?: Stretch;
   fingerprint: string;
   fileHash: string;
@@ -64,7 +69,13 @@ export interface BuildRow extends LevelReport {
 
 export interface BuildOutcome {
   rows: BuildRow[];
+  /** Built levels written although out of band. They do not fail the build. */
   outOfBand: number[];
+  /** Built levels with a dead board in any game: they fail the build. */
+  deadBoards: number[];
+  /** validate-levels failures among the built levels: they fail the build. */
+  invalid: string[];
+  failed: boolean;
   reused: number;
   tuned: number;
   measured: number;
@@ -123,7 +134,9 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
     log(
       `  ${String(finished).padStart(3)}/${jobs.length} level ${levelId}: fail ${row.failRate.toFixed(3)} target ${row.target.toFixed(3)} ` +
         `${row.inBand ? "in band" : "OUT OF BAND"}, ${row.moveLimit} moves, ${row.goals}` +
-        (row.stretched ? `, stretched ${row.stretch!.step} (moves ${row.stretch!.moves.join("-")}, cells ${row.stretch!.blockedCells.join("-")})` : "") +
+        (row.stretched
+          ? `, tier ${row.tier} step ${row.stretch!.step} (moves ${row.stretch!.moves.join("-")}, cells ${row.stretch!.blockedCells.join("-")}, panes ${row.stretch!.paneLayers.join("-")})`
+          : "") +
         (row.candidatesTried === undefined ? " (hand-tuned)" : `, candidate ${row.candidate! + 1} of ${row.candidatesTried} tried`) +
         ` | ${elapsed.toFixed(0)}s, about ${eta.toFixed(0)}s left`
     );
@@ -132,10 +145,20 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
   log(report.summary);
 
   const built = settings.levelIds.map((id) => rows.get(id)!);
-  for (const row of built) if (row.handTuned && !row.inBand) log(`  Note: hand-tuned level ${row.id} is out of band (fail ${row.failRate}, target ${row.target.toFixed(3)}).`);
+  for (const row of built) {
+    if (row.handTuned && !row.inBand) log(`  Note: hand-tuned level ${row.id} is out of band (fail ${row.failRate}, target ${row.target.toFixed(3)}).`);
+    else if (row.outOfBand) log(`  Out of band, closest written: level ${row.id} fail ${row.failRate} target ${row.target.toFixed(3)}, tier ${row.tier}.`);
+  }
+  const tunedRows = built.filter((row) => !row.handTuned);
+  const deadBoards = tunedRows.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).map((row) => row.id);
+  const invalid = validateBuilt(settings.levelsDir, tunedRows.map((row) => row.id));
+  for (const line of invalid) log(`  Invalid: ${line}`);
   return {
     rows: built,
-    outOfBand: built.filter((row) => !row.handTuned && !row.inBand).map((row) => row.id),
+    outOfBand: tunedRows.filter((row) => row.outOfBand).map((row) => row.id),
+    deadBoards,
+    invalid,
+    failed: deadBoards.length > 0 || invalid.length > 0,
     reused,
     tuned: jobs.filter((job) => job.kind === "tune").length,
     measured: jobs.filter((job) => job.kind === "measure").length
@@ -150,6 +173,7 @@ function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fi
     sector: Math.ceil(level.id / 10),
     target: round(targetFailRate(level.id)),
     inBand,
+    outOfBand: !inBand,
     ...(tuned ? {} : { handTuned: true as const }),
     moveLimit: level.moveLimit,
     starMoves: level.starMoves ?? null,
@@ -161,6 +185,7 @@ function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fi
           candidatesTried: tuned.details.candidatesTried,
           deadBoardsToMostMoves: tuned.details.deadBoards,
           stretched: tuned.details.stretch.step > 0,
+          tier: tuned.details.stretch.tier,
           stretch: tuned.details.stretch
         }
       : {}),
@@ -180,8 +205,11 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
   const sorted = [...rows.values()].sort((left, right) => left.id - right.id);
   const sectors = sectorSummary(sorted);
   const inBand = sorted.filter((row) => row.inBand).length;
+  const outOfBand = sorted.filter((row) => row.outOfBand).length;
+  const dead = sorted.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).length;
   const summary =
-    `${inBand}/${sorted.length} levels in band. First-win coins by sector (sum of each level's average first-win coins): ` +
+    `${inBand}/${sorted.length} levels in band, ${outOfBand} out of band (closest candidate written), ${dead} with dead boards. ` +
+    `First-win coins by sector (sum of each level's average first-win coins): ` +
     sectors.map((sector) => `${sector.sector}: ${sector.firstWinCoins}`).join(", ") +
     ".";
   const report = {
@@ -195,7 +223,8 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
       "Built by `npm run levels -- build`. Engine seed is levelSeed(levelId), as in real play; game i uses bot seed gameSeed(levelId, i).",
       "No bought power-ups, no Play On, boss timers ignored. A board the engine cannot shuffle is a loss (deadBoards).",
       "inBand: failRate inside the level's band (ends included) and within tolerance of target, with no dead board; for tuned levels also none in games played on to the recipe's most moves.",
-      "stretch: step 0 is the recipe as written; each step takes 2 moves off and adds a sixth to the blocked cells, up to 6 moves and 50%.",
+      "stretch: tier 0 is the recipe as written. Tier 1 (steps 1-3) takes 2 moves off a step and adds a sixth to the blocked cells, to -6 moves and x1.5. Tier 2 (steps 4-6), tried only when tier 1 cannot reach the band, adds a pane layer (max 3) and goes on to a fewest-moves limit of 12 and x2 cells.",
+      "outOfBand: the level missed its band after both tiers and the candidate closest to its target was written. It does not fail the build; dead boards and invalid levels do.",
       "starMoves: two at the median and three at the 75th percentile of moves left in wins; null means the default 20% / 50% rule.",
       "fingerprint and fileHash let a rerun reuse a row; a hand-tuned level is measured, never rewritten."
     ],
@@ -217,7 +246,7 @@ function sectorSummary(rows: BuildRow[]) {
       sector,
       levels: rangeText(sectorRows.map((row) => row.id)),
       inBand: `${sectorRows.filter((row) => row.inBand).length}/${sectorRows.length}`,
-      outOfBand: sectorRows.filter((row) => !row.inBand).map((row) => row.id),
+      outOfBand: sectorRows.filter((row) => row.outOfBand).map((row) => row.id),
       target: mean((row) => row.target),
       failRate: mean((row) => row.failRate),
       avgMovesLeft: mean((row) => row.avgMovesLeft),
@@ -239,6 +268,21 @@ function readPreviousRows(out: string): Map<number, BuildRow> {
     // An unreadable report is rebuilt from scratch.
   }
   return rows;
+}
+
+/** Runs validate-levels on just the built levels, in a scratch copy. Returns its FAIL lines. */
+function validateBuilt(levelsDir: string, levelIds: number[]): string[] {
+  if (levelIds.length === 0) return [];
+  const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+  try {
+    for (const levelId of levelIds) copyFileSync(levelFile(levelsDir, levelId), levelFile(dir, levelId));
+    const run = spawnSync(process.execPath, [path.resolve(process.cwd(), "scripts/validate-levels.mjs"), dir], { encoding: "utf8" });
+    const failures = run.stdout.split("\n").filter((line) => line.startsWith("FAIL "));
+    if (run.status !== 0 && failures.length === 0) return [`validate-levels exited ${run.status}: ${run.stderr.trim()}`];
+    return failures;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 /** Everything that plays, measures or builds a level. Recipes and names are hashed per level instead. */

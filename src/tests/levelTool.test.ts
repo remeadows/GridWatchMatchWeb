@@ -10,7 +10,9 @@ import { MAX_COLLECT_PER_MOVE, blockersForLevel, buildLevel, withMoveLimit } fro
 import { levelName, newLevelNames } from "../../scripts/levels/levelNames";
 import { recipeForLevel, sectorRecipes, type SectorRecipe } from "../../scripts/levels/recipes";
 import { measureLevel } from "../../scripts/levels/report";
-import { STRETCH_STEPS, acceptsCandidate, reportsByMoveLimit, starMovesFor, stretchRecipe, tuneLevel } from "../../scripts/levels/tune";
+import { MOVE_FLOOR, STRETCH_STEPS, TIER_STEPS, acceptsCandidate, reportsByMoveLimit, starMovesFor, stretchRecipe, stretchTier, tuneLevel, type TuneResult } from "../../scripts/levels/tune";
+import { levelFile, levelJson, runBuild, runLevelJob, type BuildSettings, type LevelJob, type LevelJobResult } from "../../scripts/levels/build";
+import { DEFAULT_BOT } from "../../scripts/levels/bot";
 
 const levelsDir = path.resolve(process.cwd(), "public/levels");
 const seeds = [1n, 2n, 3n];
@@ -270,20 +272,49 @@ describe("tuner", () => {
     expect(MAX_COLLECT_PER_MOVE).toBe(1.5);
   });
 
-  it("a stretched recipe has up to 6 fewer moves and up to 50% more blocked cells", () => {
+  it("stretch tier 1 has up to 6 fewer moves and up to 50% more blocked cells", () => {
     for (const recipe of sectorRecipes) {
       expect(stretchRecipe(recipe, 0)).toEqual(recipe);
-      const stretched = stretchRecipe(recipe, STRETCH_STEPS);
+      expect(stretchTier(0)).toBe(0);
+      const stretched = stretchRecipe(recipe, TIER_STEPS);
       expect(stretched.moves).toEqual([recipe.moves[0] - 6, recipe.moves[1] - 6]);
       const cap = recipe.pattern === "dividerRow" ? 25 : 29;
       expect(stretched.blockedCells).toEqual([Math.min(cap, Math.round(recipe.blockedCells[0] * 1.5)), Math.min(cap, Math.round(recipe.blockedCells[1] * 1.5))]);
-      for (let step = 1; step <= STRETCH_STEPS; step += 1) {
+      for (let step = 1; step <= TIER_STEPS; step += 1) {
         const at = stretchRecipe(recipe, step);
+        expect(stretchTier(step)).toBe(1);
         expect(at.moves[0]).toBe(recipe.moves[0] - 2 * step);
         expect(at.blockedCells[1]).toBeGreaterThanOrEqual(stretchRecipe(recipe, step - 1).blockedCells[1]);
+        expect(at.paneLayers).toEqual(recipe.paneLayers);
         expect(at.blockers).toEqual(recipe.blockers);
         expect(at.pattern).toBe(recipe.pattern);
       }
+    }
+  });
+
+  it("stretch tier 2 goes no lower than 12 moves, no more than twice the cells, and one more pane layer up to 3", () => {
+    expect(STRETCH_STEPS).toBe(2 * TIER_STEPS);
+    expect(MOVE_FLOOR).toBe(12);
+    for (const recipe of sectorRecipes) {
+      const cap = recipe.pattern === "dividerRow" ? 25 : 29;
+      for (let step = TIER_STEPS + 1; step <= STRETCH_STEPS; step += 1) {
+        const at = stretchRecipe(recipe, step);
+        const before = stretchRecipe(recipe, step - 1);
+        expect(stretchTier(step)).toBe(2);
+        expect(at.moves[0]).toBeGreaterThanOrEqual(MOVE_FLOOR);
+        expect(at.moves[0]).toBeLessThanOrEqual(at.moves[1]);
+        expect(at.moves[0]).toBeLessThanOrEqual(before.moves[0]);
+        expect(at.moves[1] - at.moves[0]).toBe(recipe.moves[1] - recipe.moves[0]);
+        for (const index of [0, 1]) {
+          expect(at.blockedCells[index]).toBeLessThanOrEqual(2 * recipe.blockedCells[index]);
+          expect(at.blockedCells[index]).toBeGreaterThanOrEqual(before.blockedCells[index]);
+          expect(at.paneLayers[index]).toBe(Math.min(3, recipe.paneLayers[index] + 1));
+        }
+        expect(at.blockers).toEqual(recipe.blockers);
+      }
+      const last = stretchRecipe(recipe, STRETCH_STEPS);
+      expect(last.moves[0]).toBe(MOVE_FLOOR);
+      expect(last.blockedCells).toEqual([Math.min(cap, recipe.blockedCells[0] * 2), Math.min(cap, recipe.blockedCells[1] * 2)]);
     }
   });
 
@@ -294,9 +325,11 @@ describe("tuner", () => {
     const { stretch } = result.details;
     expect(stretch.step).toBeGreaterThan(0);
     expect(stretch.step).toBeLessThanOrEqual(STRETCH_STEPS);
+    expect(stretch.tier).toBe(stretchTier(stretch.step));
     const stretched = stretchRecipe(recipe, stretch.step);
     expect(stretch.moves).toEqual(stretched.moves);
     expect(stretch.blockedCells).toEqual(stretched.blockedCells);
+    expect(stretch.paneLayers).toEqual(stretched.paneLayers);
     expect(result.level.moveLimit).toBeGreaterThanOrEqual(stretch.moves[0]);
     expect(result.level.moveLimit).toBeLessThanOrEqual(stretch.moves[1]);
   }, 60_000);
@@ -322,6 +355,67 @@ describe("tuner", () => {
     const stars = result.level.starMoves;
     if (stars) expect(0 < stars.two && stars.two < stars.three && stars.three < result.level.moveLimit).toBe(true);
     expect(tuneLevel(recipe, 23, "Test", { searchGames: 2, games: 4, candidates: 2 })).toEqual(result);
+  }, 60_000);
+});
+
+describe("build", () => {
+  const tiny = { games: 2, searchGames: 2, candidates: 4 };
+
+  function settingsIn(dir: string, levelIds: number[]): BuildSettings {
+    return { levelIds, ...tiny, bot: DEFAULT_BOT, levelsDir: path.join(dir, "levels"), out: path.join(dir, "report.json") };
+  }
+
+  /** Runs jobs in this thread, optionally changing a result as if the tuner had returned it. */
+  function inline(change: (result: TuneResult) => TuneResult = (result) => result) {
+    return async (jobs: LevelJob[], onResult: (result: LevelJobResult, finished: number) => void) => {
+      const results: LevelJobResult[] = [];
+      for (const job of jobs) {
+        let done = runLevelJob(job, DEFAULT_BOT);
+        if (done.kind === "tune") done = { ...done, result: change(done.result) };
+        results.push(done);
+        onResult(done, results.length);
+      }
+      return results;
+    };
+  }
+
+  it("a level that misses its band is written as its closest candidate, marked, and does not fail the build", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+    try {
+      const outcome = await runBuild(settingsIn(dir, [17]), inline(), () => {});
+      const expected = tuneLevel(recipeForLevel(17), 17, levelName(17), tiny);
+      expect(expected.inBand).toBe(false);
+      expect(readFileSync(levelFile(path.join(dir, "levels"), 17), "utf8")).toBe(levelJson(expected.level));
+      const row = outcome.rows[0];
+      expect(row).toMatchObject({ id: 17, inBand: false, outOfBand: true, target: 0.12, failRate: expected.report.failRate, tier: expected.details.stretch.tier });
+      expect(outcome.outOfBand).toEqual([17]);
+      expect(outcome.deadBoards).toEqual([]);
+      expect(outcome.invalid).toEqual([]);
+      expect(outcome.failed).toBe(false);
+      const report = JSON.parse(readFileSync(path.join(dir, "report.json"), "utf8")) as { summary: string };
+      expect(report.summary).toContain("0/1 levels in band, 1 out of band");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("a dead board or an invalid level still fails the build", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+    try {
+      const dead = await runBuild(settingsIn(dir, [17]), inline((result) => ({ ...result, details: { ...result.details, deadBoards: 3 } })), () => {});
+      expect(dead.deadBoards).toEqual([17]);
+      expect(dead.failed).toBe(true);
+
+      const broken = (result: TuneResult): TuneResult => ({
+        ...result,
+        level: { ...result.level, objectives: result.level.objectives.map((goal) => (goal.id === "malware" ? { ...goal, target: 2 } : goal)) }
+      });
+      const invalid = await runBuild(settingsIn(path.join(dir, "second"), [17]), inline(broken), () => {});
+      expect(invalid.invalid.join(" ")).toContain("MALWARE_TARGET_INVALID");
+      expect(invalid.failed).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }, 60_000);
 });
 
