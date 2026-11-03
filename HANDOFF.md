@@ -27,6 +27,7 @@ glows". And: "The rosters and info are in GridWatch Art --> GridWatch Assets".
     and evolved").
 - **Not measured.** Since the drone favours blockers, pane and lock levels should play somewhat
   easier. Bot fail rates have not been re-run; that belongs with Task 13 calibration.
+- **On the dev site** as `7d518f6-dev` (version `378ae649`).
 - **Verification (automated).** Unit 852/852 (new `droneTargets.test.ts`: a lock across the board
   beats goal pieces beside the drone on 200 seeds; panes and locks come before any plain piece;
   honeypots never count; with no blockers it still follows the goal). Dark e2e 304/304, desktop and
