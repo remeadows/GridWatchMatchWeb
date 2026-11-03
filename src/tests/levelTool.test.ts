@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -10,8 +10,8 @@ import { MAX_COLLECT_PER_MOVE, blockersForLevel, buildLevel, withMoveLimit } fro
 import { levelName, newLevelNames } from "../../scripts/levels/levelNames";
 import { recipeForLevel, sectorRecipes, type SectorRecipe } from "../../scripts/levels/recipes";
 import { measureLevel } from "../../scripts/levels/report";
-import { MOVE_FLOOR, STRETCH_STEPS, TIER_STEPS, acceptsCandidate, reportsByMoveLimit, starMovesFor, stretchRecipe, stretchTier, tuneLevel, type TuneResult } from "../../scripts/levels/tune";
-import { levelFile, levelJson, runBuild, runLevelJob, type BuildSettings, type LevelJob, type LevelJobResult } from "../../scripts/levels/build";
+import { MOVE_FLOOR, STRETCH_STEPS, TIER_STEPS, acceptsCandidate, fallbackChoice, reportsByMoveLimit, starMovesFor, stepOutcome, stretchRecipe, stretchTier, tuneLevel, type TuneResult } from "../../scripts/levels/tune";
+import { levelFile, levelJson, median, moveLimitSteps, runBuild, runLevelJob, type BuildSettings, type LevelJob, type LevelJobResult } from "../../scripts/levels/build";
 import { DEFAULT_BOT } from "../../scripts/levels/bot";
 
 const levelsDir = path.resolve(process.cwd(), "public/levels");
@@ -334,6 +334,37 @@ describe("tuner", () => {
     expect(result.level.moveLimit).toBeLessThanOrEqual(stretch.moves[1]);
   }, 60_000);
 
+  it("a step whose closest result was too easy goes on to the next tier, even after a too-hard verdict", () => {
+    // Negative: fail rate under the target (too easy). Positive: too hard.
+    expect(stepOutcome([{ signed: 0.2, dead: false }, { signed: -0.05, dead: false }])).toBe("stretch");
+    expect(stepOutcome([{ signed: -0.3, dead: false }, { signed: 0.4, dead: false }, { signed: -0.1, dead: false }])).toBe("stretch");
+    expect(stepOutcome([{ signed: 0, dead: true }, { signed: -0.2, dead: false }])).toBe("stretch");
+    expect(stepOutcome([{ signed: -0.2, dead: false }, { signed: 0.05, dead: false }])).toBe("stop");
+    expect(stepOutcome([{ signed: 0, dead: true }])).toBe("stop");
+    expect(stepOutcome([])).toBe("stop");
+  });
+
+  it("a level that reaches band at tier 0 or 1 stays at that tier", () => {
+    const atZero = tuneLevel(recipeForLevel(200), 200, "Test", { searchGames: 10, games: 20, candidates: 4 });
+    expect(atZero.inBand).toBe(true);
+    expect(atZero.details.end).toBe("inBand");
+    expect(atZero.details.stretch.tier).toBe(0);
+    expect(atZero.level.moveLimit).toBeGreaterThanOrEqual(recipeForLevel(200).moves[0]);
+    const atOne = tuneLevel(recipeForLevel(51), 51, "Test", { searchGames: 10, games: 20, candidates: 4 });
+    expect(atOne.inBand).toBe(true);
+    expect(atOne.details.end).toBe("inBand");
+    expect(atOne.details.stretch.tier).toBe(1);
+  }, 60_000);
+
+  it("the fallback prefers a candidate with no dead board", () => {
+    expect(fallbackChoice({ deadBoards: 0 }, { deadBoards: 0 })).toBe("best");
+    expect(fallbackChoice({ deadBoards: 2 }, { deadBoards: 0 })).toBe("nearest");
+    expect(fallbackChoice({ deadBoards: 2 }, { deadBoards: 1 })).toBe("best");
+    expect(fallbackChoice(null, { deadBoards: 1 })).toBe("nearest");
+    expect(fallbackChoice({ deadBoards: 1 }, null)).toBe("best");
+    expect(fallbackChoice(null, null)).toBeNull();
+  });
+
   it("games played at the longest move limit report every shorter limit exactly", () => {
     const recipe = recipeForLevel(35);
     const level = buildLevel(recipe, 35, "Test", 1n);
@@ -413,6 +444,73 @@ describe("build", () => {
       const invalid = await runBuild(settingsIn(path.join(dir, "second"), [17]), inline(broken), () => {});
       expect(invalid.invalid.join(" ")).toContain("MALWARE_TARGET_INVALID");
       expect(invalid.failed).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("a hand-tuned file is left alone, reported, and does not fail the build when out of band", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+    try {
+      const levelsDir = path.join(dir, "levels");
+      mkdirSync(levelsDir, { recursive: true });
+      // Level 17 as its recipe is written: the bot never fails it, so it sits under its band.
+      const text = levelJson({ ...buildLevel(recipeForLevel(17), 17, "Hand Made", 5n), handTuned: true });
+      writeFileSync(levelFile(levelsDir, 17), text);
+      const outcome = await runBuild(settingsIn(dir, [17]), inline(), () => {});
+      expect(readFileSync(levelFile(levelsDir, 17), "utf8")).toBe(text);
+      const row = outcome.rows[0];
+      expect(row).toMatchObject({ id: 17, name: "Hand Made", handTuned: true, inBand: false, outOfBand: true });
+      for (const field of ["candidate", "pressure", "candidatesTried", "stretch", "stretched", "tier", "searchEnd"]) expect(row).not.toHaveProperty(field);
+      expect(outcome.failed).toBe(false);
+      expect(outcome.outOfBand).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it("a second run with nothing changed reuses every result and writes the same report", async () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+    try {
+      const settings = settingsIn(dir, [17, 18]);
+      const first = await runBuild(settings, inline(), () => {});
+      const report = readFileSync(settings.out);
+      const files = [17, 18].map((id) => readFileSync(levelFile(settings.levelsDir, id)));
+      expect(first.reused).toBe(0);
+      let jobs = -1;
+      const second = await runBuild(settings, async (pending, onResult) => {
+        jobs = pending.length;
+        return inline()(pending, onResult);
+      }, () => {});
+      expect(jobs).toBe(0);
+      expect(second.reused).toBe(2);
+      expect(readFileSync(settings.out).equals(report)).toBe(true);
+      [17, 18].forEach((id, index) => expect(readFileSync(levelFile(settings.levelsDir, id)).equals(files[index])).toBe(true));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  it("the report flags a median move-limit step over 6 between neighbouring sectors, sector 1 included", async () => {
+    expect(median([23, 25, 25, 26, 26, 27, 29, 29, 29, 29])).toBe(26.5);
+    expect(median([12, 30, 14])).toBe(14);
+    const steps = moveLimitSteps(new Map([[1, 26.5], [2, 15], [3, 20], [5, 40]]));
+    expect(steps).toEqual([
+      { from: 1, to: 2, fromMedian: 26.5, toMedian: 15, step: 11.5, overSix: true },
+      { from: 2, to: 3, fromMedian: 15, toMedian: 20, step: 5, overSix: false }
+    ]);
+    const dir = mkdtempSync(path.join(tmpdir(), "levels-build-"));
+    try {
+      const outcome = await runBuild(settingsIn(dir, [17]), inline(), () => {});
+      const report = JSON.parse(readFileSync(path.join(dir, "report.json"), "utf8")) as { summary: string; moveLimitSteps: { from: number; fromMedian: number; toMedian: number; overSix: boolean }[]; sectors: { medianMoveLimit: number }[] };
+      const sectorOne = median(Array.from({ length: 10 }, (_, index) => fileLevel(index + 1).moveLimit));
+      expect(report.sectors[0].medianMoveLimit).toBe(outcome.rows[0].moveLimit);
+      expect(report.moveLimitSteps).toEqual([
+        { from: 1, to: 2, fromMedian: sectorOne, toMedian: outcome.rows[0].moveLimit, step: Math.abs(outcome.rows[0].moveLimit - sectorOne), overSix: Math.abs(outcome.rows[0].moveLimit - sectorOne) > 6 }
+      ]);
+      expect(report.summary).toContain("Median move-limit steps over 6");
+      // A flagged step never fails the build.
+      expect(outcome.failed).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

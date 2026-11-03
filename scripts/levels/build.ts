@@ -15,7 +15,7 @@ import type { BotOptions } from "./bot";
 import { levelName } from "./levelNames";
 import { recipeForLevel } from "./recipes";
 import { measureLevel, type LevelReport } from "./report";
-import { acceptsCandidate, tuneLevel, type Stretch, type TuneResult } from "./tune";
+import { acceptsCandidate, tuneLevel, type Stretch, type TuneEnd, type TuneResult } from "./tune";
 
 export interface BuildSettings {
   levelIds: number[];
@@ -59,6 +59,8 @@ export interface BuildRow extends LevelReport {
   candidatesTried?: number;
   /** Dead boards in games played on to the recipe's most moves. */
   deadBoardsToMostMoves?: number;
+  /** Why tuning stopped: see TuneEnd. */
+  searchEnd?: TuneEnd;
   /** Whether the tuner had to stretch the recipe, the tier (0 none, 1, 2), and the ranges it built from. */
   stretched?: boolean;
   tier?: 0 | 1 | 2;
@@ -147,7 +149,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
   const built = settings.levelIds.map((id) => rows.get(id)!);
   for (const row of built) {
     if (row.handTuned && !row.inBand) log(`  Note: hand-tuned level ${row.id} is out of band (fail ${row.failRate}, target ${row.target.toFixed(3)}).`);
-    else if (row.outOfBand) log(`  Out of band, closest written: level ${row.id} fail ${row.failRate} target ${row.target.toFixed(3)}, tier ${row.tier}.`);
+    else if (row.outOfBand) log(`  Out of band, closest written: level ${row.id} fail ${row.failRate} target ${row.target.toFixed(3)}, tier ${row.tier}, ${row.searchEnd}.`);
   }
   const tunedRows = built.filter((row) => !row.handTuned);
   const deadBoards = tunedRows.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).map((row) => row.id);
@@ -184,6 +186,7 @@ function rowFor(level: LevelDefinition, report: LevelReport, inBand: boolean, fi
           pressure: round(tuned.details.pressure),
           candidatesTried: tuned.details.candidatesTried,
           deadBoardsToMostMoves: tuned.details.deadBoards,
+          searchEnd: tuned.details.end,
           stretched: tuned.details.stretch.step > 0,
           tier: tuned.details.stretch.tier,
           stretch: tuned.details.stretch
@@ -207,10 +210,14 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
   const inBand = sorted.filter((row) => row.inBand).length;
   const outOfBand = sorted.filter((row) => row.outOfBand).length;
   const dead = sorted.filter((row) => row.deadBoards > 0 || (row.deadBoardsToMostMoves ?? 0) > 0).length;
+  const moveSteps = moveLimitSteps(new Map([[1, sectorOneMedian()], ...sectors.map((sector) => [sector.sector, sector.medianMoveLimit] as [number, number])]));
+  const flagged = moveSteps.filter((step) => step.overSix);
   const summary =
     `${inBand}/${sorted.length} levels in band, ${outOfBand} out of band (closest candidate written), ${dead} with dead boards. ` +
     `First-win coins by sector (sum of each level's average first-win coins): ` +
     sectors.map((sector) => `${sector.sector}: ${sector.firstWinCoins}`).join(", ") +
+    `. Median move-limit steps over 6 between neighbouring sectors: ` +
+    (flagged.length === 0 ? "none" : flagged.map((step) => `${step.from}->${step.to} (${step.fromMedian} to ${step.toMedian})`).join(", ")) +
     ".";
   const report = {
     bot: { ...settings.bot, lookahead: "greedy, one move" },
@@ -226,9 +233,12 @@ function writeReport(settings: BuildSettings, rows: Map<number, BuildRow>) {
       "stretch: tier 0 is the recipe as written. Tier 1 (steps 1-3) takes 2 moves off a step and adds a sixth to the blocked cells, to -6 moves and x1.5. Tier 2 (steps 4-6), tried only when tier 1 cannot reach the band, adds a pane layer (max 3) and goes on to a fewest-moves limit of 12 and x2 cells.",
       "outOfBand: the level missed its band after both tiers and the candidate closest to its target was written. It does not fail the build; dead boards and invalid levels do.",
       "starMoves: two at the median and three at the 75th percentile of moves left in wins; null means the default 20% / 50% rule.",
-      "fingerprint and fileHash let a rerun reuse a row; a hand-tuned level is measured, never rewritten."
+      "fingerprint and fileHash let a rerun reuse a row; a hand-tuned level is measured, never rewritten.",
+      "searchEnd: why tuning stopped. stretchRanOut: still too easy at the last stretch step. searchRanOut: the closest result at a step was too hard or had dead boards, so stretching further could not help.",
+      "moveLimitSteps: the median built moveLimit of each sector (sector 1 read from public/levels) and the step to the next sector; overSix flags a step over 6. It does not fail the build."
     ],
     summary,
+    moveLimitSteps: moveSteps,
     sectors,
     rows: sorted
   };
@@ -251,11 +261,45 @@ function sectorSummary(rows: BuildRow[]) {
       failRate: mean((row) => row.failRate),
       avgMovesLeft: mean((row) => row.avgMovesLeft),
       moveLimits: rangeText([...new Set(sectorRows.map((row) => row.moveLimit))].sort((left, right) => left - right)),
+      medianMoveLimit: median(sectorRows.map((row) => row.moveLimit)),
       stretched: sectorRows.filter((row) => row.stretched).map((row) => row.id),
       firstWinCoins: Math.round(sectorRows.reduce((total, row) => total + row.firstWinCoins, 0)),
       deadBoards: sectorRows.reduce((total, row) => total + row.deadBoards, 0)
     };
   });
+}
+
+export interface MoveLimitStep {
+  from: number;
+  to: number;
+  fromMedian: number;
+  toMedian: number;
+  step: number;
+  overSix: boolean;
+}
+
+/** Steps between the median move limits of neighbouring sectors (n and n + 1, both present); over 6 is flagged. */
+export function moveLimitSteps(medians: Map<number, number>): MoveLimitStep[] {
+  const steps: MoveLimitStep[] = [];
+  for (const sector of [...medians.keys()].sort((left, right) => left - right)) {
+    const next = medians.get(sector + 1);
+    if (next === undefined) continue;
+    const fromMedian = medians.get(sector)!;
+    const step = round(Math.abs(next - fromMedian));
+    steps.push({ from: sector, to: sector + 1, fromMedian, toMedian: next, step, overSix: step > 6 });
+  }
+  return steps;
+}
+
+/** Median move limit of the hand-made levels 1-10, from public/levels. */
+function sectorOneMedian(root = process.cwd()): number {
+  return median(Array.from({ length: 10 }, (_, index) => (JSON.parse(readFileSync(levelFile(path.join(root, "public/levels"), index + 1), "utf8")) as LevelDefinition).moveLimit));
+}
+
+export function median(values: number[]): number {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
 function readPreviousRows(out: string): Map<number, BuildRow> {

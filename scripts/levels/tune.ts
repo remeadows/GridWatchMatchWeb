@@ -37,8 +37,40 @@ export interface TuneResult {
   level: LevelDefinition;
   report: LevelReport;
   inBand: boolean;
-  /** deadBoards counts games up to the recipe's most moves, past the chosen limit, since Play On goes there. */
-  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number; stretch: Stretch };
+  /**
+   * deadBoards counts games up to the recipe's most moves, past the chosen limit, since Play On goes there.
+   * end says why the search stopped: in band; the stretch ran out (still too easy at the last step); or the search ran
+   * out at a step whose closest result was too hard or had dead boards, where stretching further could not help.
+   */
+  details: { target: number; candidate: number; pressure: number; deadBoards: number; candidatesTried: number; stretch: Stretch; end: TuneEnd };
+}
+
+export type TuneEnd = "inBand" | "stretchRanOut" | "searchRanOut";
+
+/** One candidate's result at a stretch step: fail rate minus target (negative is too easy), or a dead board. */
+export interface StepVerdict {
+  signed: number;
+  dead: boolean;
+}
+
+/**
+ * What a stretch step that found nothing in band leads to. Stretching only makes a level harder, so the tuner goes on
+ * to the next step when the step's closest result without a dead board was too easy, whatever other verdicts said.
+ */
+export function stepOutcome(verdicts: StepVerdict[]): "stretch" | "stop" {
+  let closest: StepVerdict | null = null;
+  for (const verdict of verdicts) {
+    if (verdict.dead) continue;
+    if (!closest || Math.abs(verdict.signed) < Math.abs(closest.signed) - 1e-12) closest = verdict;
+  }
+  return closest !== null && closest.signed < 0 ? "stretch" : "stop";
+}
+
+/** The fallback when nothing is in band: a candidate with no dead board beats one with, then the closer one. */
+export function fallbackChoice(best: { deadBoards: number } | null, nearest: { deadBoards: number } | null): "best" | "nearest" | null {
+  if (best && best.deadBoards === 0) return "best";
+  if (nearest && nearest.deadBoards === 0) return "nearest";
+  return best ? "best" : nearest ? "nearest" : null;
 }
 
 const defaults = { games: 200, searchGames: 40, candidates: 12 };
@@ -97,9 +129,10 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
   let best: TuneResult | null = null;
   let bestDistance = Infinity;
   // The candidate whose first look came closest, for when no candidate earns a full measurement.
-  let nearest: { candidate: number; pressure: number; level: LevelDefinition; stretch: Stretch; distance: number } | null = null;
+  let nearest: { candidate: number; pressure: number; level: LevelDefinition; stretch: Stretch; distance: number; deadBoards: number } | null = null;
   let tried = 0;
   let candidate = 0;
+  let end: TuneEnd = "searchRanOut";
   for (let step = 0; step <= STRETCH_STEPS; step += 1) {
     const stretched = stretchRecipe(recipe, step);
     const [fewest, most] = stretched.moves;
@@ -113,6 +146,7 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
     // Layouts differ, so one board can be too hard at a pressure where another was too easy. Then the halving has
     // pinned itself on noise: start it again with fresh layouts instead of giving up.
     let sawTooEasy = false;
+    const verdicts: StepVerdict[] = [];
     for (let attempt = 0; attempt < candidates && !tooEasyAtTop && !tooHardAtBottom; attempt += 1, candidate += 1) {
       tried += 1;
       const pressure = (low + high) / 2;
@@ -128,18 +162,21 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
       const easiest = search.get(most)!.failRate;
       const gap = (hardest < target ? target - hardest : easiest > target ? easiest - target : 0) + (deadBoards(first) > 0 ? 1 : 0);
       // A tie goes to the later candidate: the search moves towards the target, and stretching only goes on harder.
-      if (!nearest || gap <= nearest.distance + 1e-12) nearest = { candidate, pressure, level, stretch, distance: gap };
+      if (!nearest || gap <= nearest.distance + 1e-12) nearest = { candidate, pressure, level, stretch, distance: gap, deadBoards: deadBoards(first) };
       if (deadBoards(first) > 0) {
+        verdicts.push({ signed: 0, dead: true });
         high = pressure;
         continue;
       }
       if (hardest < lowest) {
+        verdicts.push({ signed: hardest - target, dead: false });
         low = pressure;
         sawTooEasy = true;
         tooEasyAtTop = pressure >= topPressure;
         continue;
       }
       if (easiest > highest) {
+        verdicts.push({ signed: easiest - target, dead: false });
         high = pressure;
         if (pressure <= bottomPressure) {
           if (!sawTooEasy) tooHardAtBottom = true;
@@ -149,7 +186,8 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
       }
 
       const result = finish(level, fewest, most, playLongest(level, most, games, bot), levelId, candidate, pressure, stretch);
-      if (result.inBand) return withTried(result, tried);
+      if (result.inBand) return withTried(result, tried, "inBand");
+      verdicts.push({ signed: result.report.failRate - target, dead: result.details.deadBoards > 0 });
       const distance = Math.abs(result.report.failRate - target) + (result.details.deadBoards > 0 ? 1 : 0);
       if (distance < bestDistance - 1e-12) {
         best = result;
@@ -162,15 +200,20 @@ export function tuneLevel(recipe: SectorRecipe, levelId: number, name: string, o
         tooEasyAtTop = pressure >= topPressure;
       }
     }
-    // Stretching only makes a level harder, so it helps only when the recipe ran out of difficulty.
-    if (!tooEasyAtTop) break;
+    // Stretching only makes a level harder, so it helps only when this step's closest result was too easy.
+    if (stepOutcome(verdicts) === "stop") break;
+    if (step === STRETCH_STEPS) end = "stretchRanOut";
   }
 
-  // Nothing landed in band. Report the closest full measurement, or failing that the closest first look.
-  if (best) return withTried(best, tried);
-  if (!nearest) throw new Error(`Level ${levelId}: no candidate board passed the engine.`);
-  const { level, pressure, stretch } = nearest;
-  return withTried(finish(level, stretch.moves[0], stretch.moves[1], playLongest(level, stretch.moves[1], games, bot), levelId, nearest.candidate, pressure, stretch), tried);
+  // Nothing landed in band. Report the closest full measurement or first look, preferring one with no dead board.
+  const choice = fallbackChoice(best ? { deadBoards: (best as TuneResult).details.deadBoards } : null, nearest);
+  if (choice === null) throw new Error(`Level ${levelId}: no candidate board passed the engine.`);
+  if (choice === "best") return withTried(best!, tried, end);
+  const { level, pressure, stretch } = nearest!;
+  const measured = finish(level, stretch.moves[0], stretch.moves[1], playLongest(level, stretch.moves[1], games, bot), levelId, nearest!.candidate, pressure, stretch);
+  // Its full measurement can still turn up a dead board that the first look missed.
+  if (measured.details.deadBoards > 0 && best && best.details.deadBoards === 0) return withTried(best, tried, end);
+  return withTried(measured, tried, end);
 }
 
 /**
@@ -190,11 +233,11 @@ function finish(level: LevelDefinition, fewest: number, most: number, played: Pl
   else delete tuned.starMoves;
   const report = summarizeLevel(tuned, cut);
   const dead = deadBoards(played);
-  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, levelId), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0, stretch } };
+  return { level: tuned, report, inBand: dead === 0 && acceptsCandidate(report, levelId), details: { target, candidate, pressure, deadBoards: dead, candidatesTried: 0, stretch, end: "searchRanOut" } };
 }
 
-function withTried(result: TuneResult, tried: number): TuneResult {
-  return { ...result, details: { ...result.details, candidatesTried: tried } };
+function withTried(result: TuneResult, tried: number, end: TuneEnd): TuneResult {
+  return { ...result, details: { ...result.details, candidatesTried: tried, end } };
 }
 
 function closestLimit(reports: Map<number, LevelReport>, levelId: number): number {
