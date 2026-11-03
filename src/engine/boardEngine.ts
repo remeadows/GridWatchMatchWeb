@@ -1063,6 +1063,48 @@ function validMovesForGrid(board: Grid2D<CellState>): BoardAction[] {
   return actions.sort(compareActions);
 }
 
+/** A move worth pointing at when the player has been looking at the board for a while. */
+export interface BoardHint {
+  action: Extract<BoardAction, { kind: "swap" } | { kind: "tap" }>;
+  /** The pieces to outline, where they sit now: the swapped pair plus the rest of the match it makes. */
+  cells: GridPosition[];
+}
+
+/**
+ * Picks the hint: two power-ups swapped together first, then the swap making the biggest match, then
+ * a power-up swapped into a plain piece, then a power-up tapped. Ties go to the first move in board order.
+ */
+export function findHint(board: Grid2D<CellState>): BoardHint | null {
+  let best: { hint: BoardHint; score: number } | null = null;
+  for (const action of validMovesForGrid(board)) {
+    let hint: BoardHint;
+    let score: number;
+    if (action.kind === "tap") {
+      hint = { action, cells: [{ ...action.at }] };
+      score = 20;
+    } else if (action.kind === "swap") {
+      const { from, to } = action;
+      const bothPowerUps = board.get(from).powerUp !== null && board.get(to).powerUp !== null;
+      const candidate = board.clone(cloneCell);
+      candidate.swap(from, to);
+      const fromKey = positionKey(from);
+      const toKey = positionKey(to);
+      const matched = new Set<string>();
+      for (const group of detectMatches(candidate)) {
+        if (!group.positions.has(fromKey) && !group.positions.has(toKey)) continue;
+        // After the swap, the piece at `from` is the one that started at `to`, and the other way round.
+        for (const key of group.positions) matched.add(key === fromKey ? toKey : key === toKey ? fromKey : key);
+      }
+      matched.add(fromKey);
+      matched.add(toKey);
+      hint = { action, cells: bothPowerUps ? sortedPositions([fromKey, toKey]) : sortedPositions(matched) };
+      score = bothPowerUps ? 1000 : matched.size > 2 ? matched.size * 10 : 25;
+    } else continue;
+    if (!best || score > best.score) best = { hint, score };
+  }
+  return best?.hint ?? null;
+}
+
 function compareActions(lhs: BoardAction, rhs: BoardAction): number {
   const key = (action: BoardAction): [number, number, number, number, number] => {
     if (action.kind === "swap") return [0, action.from.row, action.from.col, action.to.row, action.to.col];

@@ -67,6 +67,11 @@ import {
   PROPELLER_SECONDARY_STAGGER_MS,
   SHUFFLE_TRAVEL_MS,
   SWAP_SETTLE_MS,
+  BOARD_HINT_FADE_IN_MS,
+  BOARD_HINT_IDLE_MS,
+  BOARD_HINT_NUDGE_MS,
+  BOARD_HINT_NUDGE_REST_MS,
+  BOARD_HINT_PULSE_MS,
   SWAP_TRAVEL_MS,
   TNT_CASCADE_AFTER_DETONATION_MS,
   TNT_SHOVE_BACK_MS,
@@ -77,11 +82,13 @@ import {
 import {
   cloneCell,
   detectMatches,
+  findHint,
   powerUpKey,
   serializePowerUp,
   type BlockerClear,
   type BlockerKind,
   type BoardAction,
+  type BoardHint,
   type BoardDelta,
   type BoardResolutionStep,
   type BoardSnapshot,
@@ -471,6 +478,12 @@ export class BoardScene extends Phaser.Scene {
   // glow on the board breathes together from one pulse, so a redraw never strands a tween.
   private lockGlows: Phaser.GameObjects.Graphics[] = [];
   private lockGlowPulse: Phaser.Tweens.Tween | null = null;
+  // The idle hint: armed whenever the board waits on the player, shown after BOARD_HINT_IDLE_MS.
+  private hintsAllowed = false;
+  private hintTimer: Phaser.Time.TimerEvent | null = null;
+  private hint: BoardHint | null = null;
+  private hintNodes: Phaser.GameObjects.GameObject[] = [];
+  private hintTweens: Phaser.Tweens.Tween[] = [];
   private boardJolt: { startMs: number; x: number; y: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
@@ -874,6 +887,7 @@ export class BoardScene extends Phaser.Scene {
     this.snapshot = snapshot;
     this.renderSnapshot();
     this.signalBoardReady();
+    this.restartHintTimer();
   }
 
   private finishAnimation(): void {
@@ -884,6 +898,8 @@ export class BoardScene extends Phaser.Scene {
     this.activeAnimationId = null;
     this.activeResolvedSnapshot = null;
     if (completedAnimationId !== null) this.onAnimationComplete?.(completedAnimationId);
+    // A move that bounced back brings no new snapshot, so the idle count restarts here too.
+    this.restartHintTimer();
   }
 
   private isPresentationTestMode(): boolean {
@@ -913,6 +929,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private beginPresentationSequence(action: BoardAction): void {
+    this.clearHint();
     this.playback?.cancel();
     this.playback = null;
     if (this.isPresentationTestMode()) {
@@ -990,6 +1007,7 @@ export class BoardScene extends Phaser.Scene {
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
     if (!this.layer || !this.snapshot) return;
+    this.stopHintVisuals();
     const reusable = new Map<number, Phaser.GameObjects.Container>();
     if (this.playback) for (const node of this.occupantNodes.values()) {
       const id = node.getData("tileId") as number | null;
@@ -1027,6 +1045,159 @@ export class BoardScene extends Phaser.Scene {
       this.renderCell(position, hiddenPositions, reusable);
     }
     for (const node of reusable.values()) node.destroy();
+    if (this.hint && !this.playback) this.drawHint(this.hint);
+  }
+
+  /** The app says whether the level is in play with nothing over the board. */
+  setHintsAllowed(allowed: boolean): void {
+    if (allowed === this.hintsAllowed) return;
+    this.hintsAllowed = allowed;
+    if (this.layer) this.restartHintTimer();
+  }
+
+  /** Takes down any hint and, if the board is waiting on the player, starts the idle count again. */
+  private restartHintTimer(): void {
+    this.clearHint();
+    const snapshot = this.snapshot;
+    if (!this.hintsAllowed || !snapshot || !this.layer) return;
+    if (this.activeAnimationId !== null || this.playback || this.pendingBooster || this.winPresentationActive || this.activePointerId !== null) return;
+    if (snapshot.moveCount >= snapshot.moveLimit) return;
+    this.hintTimer = this.time.delayedCall(BOARD_HINT_IDLE_MS, () => {
+      this.hintTimer = null;
+      if (this.snapshot !== snapshot) return;
+      const hint = findHint(snapshot.grid);
+      if (!hint) return;
+      this.hint = hint;
+      this.drawHint(hint);
+      this.recordHint(hint);
+    });
+  }
+
+  private clearHint(): void {
+    this.hintTimer?.remove();
+    this.hintTimer = null;
+    if (!this.hint) return;
+    this.hint = null;
+    this.stopHintVisuals();
+    this.recordHint(null);
+  }
+
+  private stopHintVisuals(): void {
+    for (const tween of this.hintTweens) tween.remove();
+    this.hintTweens = [];
+    for (const node of this.hintNodes) node.destroy();
+    this.hintNodes = [];
+    if (!this.hint) return;
+    // Nudged pieces go back to the middle of their cells.
+    for (const position of this.hint.cells) {
+      const node = this.occupantNodes.get(positionKey(position));
+      if (node?.active) node.setPosition(this.cellCenter(position).x, this.cellCenter(position).y);
+    }
+  }
+
+  /**
+   * One warm outline round the hinted pieces, as in Royal Match: it fades in, then breathes, with
+   * sparks twinkling on it. The swapped pair nudge toward each other, so the move reads at a glance.
+   */
+  private drawHint(hint: BoardHint): void {
+    if (!this.layer) return;
+    const color = 0xfff1c2;
+    const inside = new Set(hint.cells.map(positionKey));
+    const inset = Math.max(1, this.tileSize * 0.03);
+    const edges: Array<[number, number, number, number]> = [];
+    for (const position of hint.cells) {
+      const { x, y } = this.cellTopLeft(position);
+      const left = x + inset;
+      const top = y + inset;
+      const right = x + this.tileSize - inset;
+      const bottom = y + this.tileSize - inset;
+      const open = (row: number, col: number) => !inside.has(positionKey({ row: position.row + row, col: position.col + col }));
+      if (open(-1, 0)) edges.push([left, top, right, top]);
+      if (open(1, 0)) edges.push([left, bottom, right, bottom]);
+      if (open(0, -1)) edges.push([left, top, left, bottom]);
+      if (open(0, 1)) edges.push([right, top, right, bottom]);
+    }
+    const outline = this.add.graphics();
+    outline.setBlendMode(Phaser.BlendModes.ADD);
+    for (const [width, alpha] of [[0.12, 0.14], [0.06, 0.3], [0.025, 1]] as const) {
+      outline.lineStyle(Math.max(1.5, this.tileSize * width), color, alpha);
+      for (const [x1, y1, x2, y2] of edges) outline.lineBetween(x1, y1, x2, y2);
+    }
+    this.layer.add(outline);
+    this.hintNodes.push(outline);
+
+    if (this.reducedMotion) return;
+    outline.setAlpha(0);
+    this.hintTweens.push(this.tweens.add({
+      targets: outline,
+      alpha: 1,
+      duration: BOARD_HINT_FADE_IN_MS,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        if (!outline.active) return;
+        this.hintTweens.push(this.tweens.add({ targets: outline, alpha: 0.6, duration: BOARD_HINT_PULSE_MS, ease: "Sine.easeInOut", yoyo: true, repeat: -1 }));
+      }
+    }));
+
+    // Sparks sit on the outline's corners and twinkle in turn.
+    const corners = edges.flatMap(([x1, y1, x2, y2]) => [[x1, y1], [x2, y2]] as const);
+    const seen = new Set<string>();
+    const sparkPoints = corners.filter(([x, y]) => {
+      const key = `${Math.round(x)}:${Math.round(y)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+    sparkPoints.forEach(([x, y], index) => {
+      const spark = this.add.image(x, y, vfxTextureKeys.spark);
+      spark.setBlendMode(Phaser.BlendModes.ADD);
+      spark.setTint(color);
+      spark.setDisplaySize(this.tileSize * 0.22, this.tileSize * 0.22);
+      spark.setAlpha(0);
+      this.layer!.add(spark);
+      this.hintNodes.push(spark);
+      this.hintTweens.push(this.tweens.add({
+        targets: spark,
+        alpha: 1,
+        angle: 90,
+        duration: 420,
+        delay: BOARD_HINT_FADE_IN_MS + index * 260,
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: 900,
+        ease: "Sine.easeInOut"
+      }));
+    });
+
+    if (hint.action.kind !== "swap") {
+      const node = this.occupantNodes.get(positionKey(hint.action.at));
+      if (node) this.hintTweens.push(this.tweens.add({ targets: node, scale: 1.1, duration: BOARD_HINT_NUDGE_MS, ease: "Sine.easeInOut", yoyo: true, repeat: -1, repeatDelay: BOARD_HINT_NUDGE_REST_MS, delay: BOARD_HINT_FADE_IN_MS }));
+      return;
+    }
+    const { from, to } = hint.action;
+    const reach = this.tileSize * 0.14;
+    for (const [mover, toward] of [[from, to], [to, from]] as const) {
+      const node = this.occupantNodes.get(positionKey(mover));
+      if (!node) continue;
+      const home = this.cellCenter(mover);
+      this.hintTweens.push(this.tweens.add({
+        targets: node,
+        x: home.x + (toward.col - mover.col) * reach,
+        y: home.y + (toward.row - mover.row) * reach,
+        duration: BOARD_HINT_NUDGE_MS,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: BOARD_HINT_NUDGE_REST_MS,
+        delay: BOARD_HINT_FADE_IN_MS
+      }));
+    }
+  }
+
+  /** Test mode only: the hint on show, or null. */
+  private recordHint(hint: BoardHint | null): void {
+    if (!this.isPresentationTestMode()) return;
+    (window as Window & { __gwHint?: BoardHint | null }).__gwHint = hint ? { action: hint.action, cells: hint.cells.map((cell) => ({ ...cell })) } : null;
   }
 
   /**
@@ -1364,6 +1535,7 @@ export class BoardScene extends Phaser.Scene {
   playWinSequence(onComplete: () => void): boolean {
     if (!this.snapshot || !this.layer || !this.fxLayer || this.winPresentationActive) return false;
     this.winPresentationActive = true;
+    this.clearHint();
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.beginWinPresentationTrace();
     const sequenceId = this.activePresentationSequenceId;
@@ -3711,6 +3883,7 @@ export class BoardScene extends Phaser.Scene {
     const canvas = this.game.canvas;
     const down = (event: PointerEvent) => {
       if (this.activePointerId !== null || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+      this.clearHint();
       const pointer = this.pointerFromDomEvent(event);
       if (this.pendingBooster) {
         const didTarget = this.activateBoosterAtPointer(this.pendingBooster, pointer);
@@ -3734,12 +3907,14 @@ export class BoardScene extends Phaser.Scene {
       event.preventDefault();
       this.releaseDomPointerCapture(canvas, event.pointerId);
       this.handlePointerUp(this.pointerFromDomEvent(event));
+      this.restartHintTimer();
     };
     const cancel = (event: PointerEvent) => {
       if (this.activePointerId !== event.pointerId) return;
       this.activePointerId = null;
       this.releaseDomPointerCapture(canvas, event.pointerId);
       if (this.drag && !this.drag.committed) this.snapBackDrag(this.drag);
+      this.restartHintTimer();
     };
 
     this.domPointerHandlers = { cancel, down, move, up };
@@ -3755,6 +3930,7 @@ export class BoardScene extends Phaser.Scene {
       this.clearLockedCellVisuals();
       this.lockGlowPulse?.remove();
       this.lockGlowPulse = null;
+      this.clearHint();
       this.lockGlows = [];
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);

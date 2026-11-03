@@ -59,6 +59,14 @@ export const PROPELLER_FLIGHT_MS = 210;
 export const PROPELLER_RETICLE_DELAY_MS = 30;
 export const PROPELLER_SECONDARY_STAGGER_MS = 32;
 export const PROPELLER_SEQUENCE_BUDGET_MS = 780;
+// Russ, 2026-11-03: "When a user is looking at the board for more than 6 seconds looking for a match,
+// give an animated hint". Measured from his Royal Match recording: an outline fades in round the
+// pieces of one move and stays, twinkling, until the player touches the board.
+export const BOARD_HINT_IDLE_MS = 6000;
+export const BOARD_HINT_FADE_IN_MS = 300;
+export const BOARD_HINT_PULSE_MS = 900;
+export const BOARD_HINT_NUDGE_MS = 200;
+export const BOARD_HINT_NUDGE_REST_MS = 900;
 export const LIGHTBALL_WAVE_CONCURRENCY_CAP = 3;
 export const LIGHTBALL_WAVE_COUNT = 3;
 export const LIGHTBALL_DIM_MS = 80;

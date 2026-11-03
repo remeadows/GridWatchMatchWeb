@@ -1303,6 +1303,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           animationEvent={animationEvent}
           reducedMotion={save.settings.reducedMotion}
           pendingBooster={selectedBooster}
+          hintsAllowed={status === "running" && !showTutorial && powerUpOffer === null && introKind === null}
           onAction={handleBoardAction}
           onAnimationComplete={handleBoardAnimationComplete}
           onStepComplete={handleBoardStepComplete}

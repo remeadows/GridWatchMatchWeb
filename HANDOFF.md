@@ -2,6 +2,36 @@
 
 Last updated: 2026-11-03
 
+## 🟡 2026-11-03: A hint after 6 seconds without a move. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03.** "One more change before I go into full test mode. When a user is looking
+at the board for more than 6 seconds looking for a match, give an animated hint (check screen
+recordings for reference)".
+
+- **Reference.** In his Royal Match recording (`ScreenRecording_11-01-2026 03-28-47_1.mp4`, about
+  42 s in), a pale outline fades in round the two pieces of one move after a few seconds of stillness,
+  with sparkles on it, and stays until he touches the board. Found by charting where the frames
+  change, since the game's ambient animation never stops.
+- **Implementation (built).**
+  - `findHint(grid)` (engine, pure) picks the move. Two power-ups swapped together come first, then
+    the swap making the biggest match, then a power-up swapped into a plain piece, then a power-up
+    tapped. It returns the move and the pieces to outline (the swapped pair plus the rest of the
+    match), where they sit now.
+  - The board starts counting when it waits on the player. It only counts while the level is in play
+    with no tutorial, intro card or power-up offer over it (`hintsAllowed` from the app), with no
+    booster picked and moves left. At 6 s it draws one warm outline round the pieces; the outline
+    fades in over 0.3 s, then breathes, with sparks twinkling at its corners. The swapped pair nudge
+    toward each other every ~1.1 s; a tapped power-up swells instead. Any touch takes it down and
+    restarts the count, as does every move or animation. With reduced motion, the outline holds
+    still and nothing nudges.
+  - Times are in `presentationTiming.ts` (`BOARD_HINT_*`).
+- **Verification (automated).** Unit 856/856 (new `hint.test.ts`: the biggest match wins and its
+  pieces are outlined where they sit; two power-ups come first; a frozen piece is never asked to move;
+  a lone power-up is tapped). Dark e2e 306/306, desktop and mobile, including a new test: no hint at
+  5 s, a hint by 7 s, gone on a touch, back after another 6 s, and the hinted swap really spends a
+  move. Run without `CI=1` against the leftover port-4173 preview. Classic suite not run. Screenshot
+  of level 1 checked by eye. Russ has not seen it yet.
+
 ## 🟡 2026-11-03: Drone timing and targets, glowing locks, ally roles. Same branch, NOT pushed, NOT in production
 
 **Russ's words, 2026-11-03,** playing `4204fd9-dev` on PC: "Everything is playing smooth. Two changes

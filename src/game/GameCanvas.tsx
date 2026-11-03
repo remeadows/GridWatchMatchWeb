@@ -10,6 +10,8 @@ interface GameCanvasProps {
   animationEvent: BoardAnimationEvent | null;
   reducedMotion: boolean;
   pendingBooster: BoosterType | null;
+  /** The level is in play with nothing over the board, so a long look may earn a hint. */
+  hintsAllowed: boolean;
   onAction: (action: BoardAction) => void;
   onAnimationComplete: (animationId: number) => void;
   onStepComplete: (animationId: number, ordinal: number) => void;
@@ -23,7 +25,7 @@ export interface GameCanvasHandle {
 }
 
 export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function GameCanvas(
-  { snapshot, animationEvent, reducedMotion, pendingBooster, onAction, onAnimationComplete, onStepComplete, onAnimationError, onPieceCollected },
+  { snapshot, animationEvent, reducedMotion, pendingBooster, hintsAllowed, onAction, onAnimationComplete, onStepComplete, onAnimationError, onPieceCollected },
   ref
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -34,6 +36,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
   const onAnimationErrorRef = useRef(onAnimationError);
   const onPieceCollectedRef = useRef(onPieceCollected);
   const presentationRef = useRef({ snapshot, animationEvent, reducedMotion, pendingBooster });
+  const hintsAllowedRef = useRef(hintsAllowed);
 
   useEffect(() => {
     onActionRef.current = onAction;
@@ -108,6 +111,7 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
           scene.events.once(Phaser.Scenes.Events.CREATE, () => {
             const current = presentationRef.current;
             if (current.snapshot) scene.sync(current.snapshot, current.animationEvent, current.reducedMotion, current.pendingBooster);
+            scene.setHintsAllowed(hintsAllowedRef.current);
           });
         }
       }
@@ -146,6 +150,12 @@ export const GameCanvas = forwardRef<GameCanvasHandle, GameCanvasProps>(function
     const scene = gameRef.current.scene.getScene("BoardScene") as BoardScene | undefined;
     if (scene) scene.sync(snapshot, animationEvent, reducedMotion, pendingBooster);
   }, [snapshot, animationEvent, reducedMotion, pendingBooster]);
+
+  useEffect(() => {
+    hintsAllowedRef.current = hintsAllowed;
+    const scene = gameRef.current?.scene.getScene("BoardScene") as BoardScene | undefined;
+    scene?.setHintsAllowed(hintsAllowed);
+  }, [hintsAllowed]);
 
   return <div ref={containerRef} className="board-canvas" data-testid="board-canvas" />;
 });

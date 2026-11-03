@@ -52,6 +52,36 @@ test("every ally can be picked as the avatar from the start", async ({ page }) =
   await expect(page.getByTestId("home-command-deck").getByRole("img", { name: "AURORA-6, selected agent" })).toBeVisible();
 });
 
+test("after 6 seconds without a move the board shows a hint, which goes on a touch and comes back", async ({ page }) => {
+  // Russ, 2026-11-03: "When a user is looking at the board for more than 6 seconds looking for a match,
+  // give an animated hint".
+  test.setTimeout(60_000);
+  type Hint = { action: { kind: string; from?: { row: number; col: number }; to?: { row: number; col: number } }; cells: unknown[] } | null;
+  const hint = () => page.evaluate(() => (window as Window & { __gwHint?: Hint }).__gwHint ?? null);
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+
+  await page.waitForTimeout(5_000);
+  expect(await hint(), "no hint before 6 seconds").toBeNull();
+  await expect.poll(hint, { timeout: 3_000 }).not.toBeNull();
+  const shown = (await hint())!;
+  expect(shown.action.kind).toBe("swap");
+  expect(shown.cells.length).toBeGreaterThanOrEqual(3);
+
+  await clickBoardPoint(page, await boardCellPoint(page, { row: 0, col: 0 }));
+  expect(await hint(), "a touch takes the hint down").toBeNull();
+  await clickBoardPoint(page, await boardCellPoint(page, { row: 0, col: 0 }));
+  await expect.poll(hint, { timeout: 8_000 }).not.toBeNull();
+
+  // The hinted move is a real one: playing it spends a move.
+  const again = (await hint())!;
+  const before = await movesShown(page).textContent();
+  await dragBoardCells(page, again.action.from!, again.action.to!);
+  await waitForResolutionComplete(page);
+  await expect(movesShown(page)).not.toHaveText(before ?? "");
+  expect(await hint()).toBeNull();
+});
+
 test("navigates Home to Operations to Level 1 and applies a deterministic swap", async ({ page }) => {
   await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Operations", exact: true }).click();
