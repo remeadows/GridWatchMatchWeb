@@ -258,4 +258,51 @@ describe("panes really block", () => {
     }
     expect(opened).toBeGreaterThan(0);
   });
+
+  it("a match that makes a power-up next to a pane removes one layer", () => {
+    // Swap (3,2)-(4,2): row 3 becomes p p p p, a rocket forms at (3,2) and the pane above it is the only neighbour.
+    const rows = [
+      "z t k z f",
+      "k f z t t",
+      "z k t#3 f z",
+      "p p k p z",
+      "t f p z k"
+    ];
+    const engine = engineFor(rows);
+    const delta = engine.apply(swap({ row: 3, col: 2 }, { row: 4, col: 2 }));
+    expect(delta.spawns.some((spawn) => spawn.asPowerUp !== null)).toBe(true);
+    expect(engine.snapshot.grid.get({ row: 2, col: 2 }).overlay?.hp).toBe(2);
+  });
+
+  it("a dense board with no legal move at the start opens a pane", () => {
+    const rows = [
+      "p#3 f#3 k#3 t#3 z#3",
+      "k#3 t#3 z#3 p#3 f#3",
+      "z#3 p#3 f#3 k#3 t#3",
+      "f#3 k#3 t#3 z#3 p#3",
+      "p f p f t#3"
+    ];
+    const engine = new BoardEngine(testLevel(rows), 5);
+    expect(engine.validMoves().length).toBeGreaterThan(0);
+  });
+
+  it("a booster on a pane fires and removes one layer, and the piece stays", () => {
+    const rows = [
+      "z t k z f",
+      "k f z p t",
+      "p k f#2 z f",
+      "z t k f z",
+      "t z p k f"
+    ];
+    const engine = engineFor(rows);
+    const pane = { row: 2, col: 2 };
+    const id = engine.snapshot.grid.get(pane).debugTileId;
+    const delta = engine.apply({ kind: "activateBooster", booster: "rocket", at: pane });
+    expect(delta.powerUpEvents.length).toBeGreaterThan(0);
+    const after = engine.snapshot.grid.get(pane);
+    expect(after.overlay?.hp).toBe(1);
+    expect(after.baseTile).toBe("firewall");
+    expect(after.debugTileId).toBe(id);
+    expect(after.powerUp).toBeNull();
+  });
 });

@@ -4556,6 +4556,7 @@ function canPreviewTarget(cell: CellState): boolean {
 }
 
 function canTargetBooster(cell: CellState): boolean {
+  if (cell.overlay && !cell.generator) return Boolean(cell.baseTile || cell.powerUp);
   return cell.isMovable && !cell.generator && Boolean(cell.baseTile || cell.powerUp);
 }
 

@@ -102,6 +102,9 @@ export class BoardEngine {
     fillInitialTiles(this.grid, this.spawnRule, level.id, this.rng);
     repairInitialMatches(this.grid, this.spawnRule, level.id, this.rng);
     repairInitialDeadlock(this.grid, this.rng);
+    if (validMovesStatic(this.grid).length === 0 && this.grid.allPositions.some((position) => this.grid.get(position).overlay !== null)) {
+      this.shuffleUntilPlayable();
+    }
     this.assignDebugTileIds();
 
     for (const objective of level.objectives) {
@@ -275,8 +278,13 @@ export class BoardEngine {
     }
     const powerUp = mapBoosterToPowerUp(booster);
     const cell = this.grid.get(origin);
-    if (!cell.isMovable || cell.generator !== null || !hasOccupant(cell)) {
+    // A pane is a valid target: the piece under it stays, and the pane takes the power-up's hit.
+    const isPane = cell.overlay !== null && cell.generator === null && !cell.debugDesignLocked && hasOccupant(cell);
+    if (!isPane && (!cell.isMovable || cell.generator !== null || !hasOccupant(cell))) {
       throw new BoardEngineError("invalidTap", "Booster target is blocked");
+    }
+    if (isPane) {
+      return triggerSinglePowerUp(powerUp, origin, this.grid, this.level.objectives, this.objectiveProgressValue, this.rng, { kind: "tap" });
     }
     setPowerUp(cell, powerUp);
     if (cell.debugTileId === null) {
@@ -332,7 +340,8 @@ export class BoardEngine {
       const clearPositions = sortedPositions(pendingClear);
       const chainedPowerUps: { origin: GridPosition; powerUp: PowerUpType; source: PowerUpType }[] = [];
       const recentlyCleared: GridPosition[] = [];
-      const recentlyMatched: GridPosition[] = [];
+      // A new power-up's anchor is not cleared, but it is still part of the match.
+      const recentlyMatched: GridPosition[] = creations.map((creation) => creation.position);
 
       for (const position of clearPositions) {
         if (!this.grid.isValid(position)) continue;
