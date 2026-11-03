@@ -11,6 +11,13 @@ export class SeededRNG {
     this.value = parsed & mask64;
   }
 
+  /** Resumes a generator from a saved `state`. Unlike a seed, a state of zero is allowed: the sequence can reach it. */
+  static fromState(state: bigint): SeededRNG {
+    const rng = Object.create(SeededRNG.prototype) as SeededRNG;
+    rng.value = state & mask64;
+    return rng;
+  }
+
   get state(): bigint {
     return this.value;
   }

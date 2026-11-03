@@ -118,6 +118,30 @@ export class BoardEngine {
     this.assignDebugTileIds();
   }
 
+  /**
+   * An independent copy that plays exactly like this engine from here on: same board, goals, move limit, rng and
+   * history. It skips level setup. Every field must be listed: a field added to the class needs a line here.
+   */
+  fork(): BoardEngine {
+    const fields = {
+      level: this.level,
+      grid: this.grid.clone(cloneCell),
+      moveCountValue: this.moveCountValue,
+      objectiveProgressValue: { ...this.objectiveProgressValue },
+      objectiveTargetsValue: { ...this.objectiveTargetsValue },
+      spawnRule: this.spawnRule,
+      rng: SeededRNG.fromState(this.rng.state),
+      nextDebugTileId: this.nextDebugTileId,
+      chainDepthValue: this.chainDepthValue,
+      actionHistory: this.actionHistory.map(cloneAction),
+      moveLimitBonus: this.moveLimitBonus,
+      panesHitThisMove: new Set(this.panesHitThisMove),
+      malwareRemovedThisMove: this.malwareRemovedThisMove,
+      lastSwapPreferredPositions: this.lastSwapPreferredPositions.map((position) => ({ ...position }))
+    };
+    return Object.assign(Object.create(BoardEngine.prototype) as BoardEngine, fields);
+  }
+
   get snapshot(): BoardSnapshot {
     return this.snapshotAt(this.grid, this.rng.state.toString());
   }
