@@ -1,6 +1,62 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
+
+## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. Local branch only; NOT pushed, NOT on the dev site, NOT in production
+
+**Where it lives.** Local branch `dev/level-campaign`, started from `dev/feel-pieces-effects` at
+`a475b87`. Not pushed, not merged, and `npm run cf:dev-instance` has not been run from it, so this branch
+has never been on the dev site. Spec `docs/superpowers/specs/2026-11-02-gridwatch-match-levels-design.md`,
+plan `docs/superpowers/plans/2026-11-02-gridwatch-match-levels.md`: Tasks 1-12 done, 13 and 14 wait
+on Russ.
+
+- **Implementation (built).** Panes really block (a frozen piece cannot swap, refills stop at the
+  pane), the malware goal is "Remove all malware", and pane and lock goals count toward winning, with
+  goal chips, flights and a one-time intro card for each blocker. Play On without 500 coins now says what it costs and keeps the mission open
+  instead of ending it.
+  Per-level star thresholds (`starMoves`), checked by the score server from `worker/level-stars.json`.
+  A test bot and level tool under `scripts/levels/` (`npm run levels`) build levels 11-200 from
+  sector recipes into ordinary `public/levels/level_NNN.json` files; levels 1-10 are unchanged.
+  Sectors 11-20 open with their villains and dossiers; the five new portraits are placeholders.
+  Every built level must open with at least 4 legal swaps on the board the game really deals
+  (`levelSeed(id)`), unless its recipe cannot deal that many (below).
+- **Verification (what was run, 2026-11-03, at the rebuild commit).** `npx tsc --noEmit` clean;
+  `npx vitest run` 845/845; `npm run validate:levels` 200 passed, 0 failed; `npm run build` clean.
+  Rebuild of 11-200 (200 games a level, mistake rate 0.2): 174/190 in band, 16 out of band, 0 dead
+  boards. Full dark e2e (chromium and mobile projects): 300 passed, 0 failed, 0
+  skipped, 0 flaky, 15.1 min, including "level 150 opens and can be won". Port 4173 was held by a leftover `vite preview` (pid 93660,
+  this repo) that could not be stopped, so `CI=1` refuses to start: the build was made with the
+  Playwright config's `VITE_*` env and the suite ran without `CI`, reusing that server (it served
+  the new level files). The classic-theme run was not done. No phone has played any of it.
+- **Acceptance: waits on Russ.**
+  - **Task 13 calibration is a gate, not a formality.** Russ plays about 12 levels on first sight
+    and the bot's mistake rate is set from that. It may force a recipe or band rework and a full
+    rebuild; nothing here is final difficulty until then.
+  - **Task 14 portraits.** Dread, Vyrus, Shard, Lotus and Malus show placeholder art.
+  - **Out of band (fail rate against target), written as the closest candidate:** 26 0.285 vs 0.10
+    (too hard); 33 0.13 vs 0.225, 34 0.09 vs 0.20, 35 0.10 vs 0.24, 38 0.09 vs 0.24, 39 0.15 vs 0.29,
+    40 0.15 vs 0.30; 52 0.20 vs 0.37, 56 0.12 vs 0.40, 57 0.21 vs 0.44, 59 0.165 vs 0.49, 60 0.025 vs
+    0.50; 163 0.145 vs 0.525, 165 0.245 vs 0.54, 167 0.31 vs 0.555, 170 0.505 vs 0.60. Sector 6
+    (52-60) is new since the opening-moves rule: its stretched ring layouts never deal 4 swaps, so it
+    stays unstretched and too easy.
+  - **Four levels open with one legal swap: 151, 153, 154, 158.** Sector 16's recipe fills the whole
+    inner ring with panes at 17 cells or more, so no layout can do better. The levers are recipe
+    changes and his: a different pattern, fewer than 17 blocked cells, or a ring with gaps.
+  - **Move-limit steps over 6 between neighbouring sectors** (median built limit): 1->2 26.5 to 14.5,
+    3->4 20 to 12, 5->6 15 to 24, 6->7 24 to 13, 7->8 13 to 27, 10->11 29 to 16.5, 12->13 20.5 to 28,
+    13->14 28 to 17, 15->16 19 to 30, 16->17 30 to 12, 17->18 12 to 31. The spec says limits never
+    jump; the bot may simply be stronger than people, which calibration decides.
+  - **Sectors 4 and 17 (lock-only recipes) are too easy for the bot even at 12 moves**, the floor:
+    4/10 and 6/10 in band.
+  - **The shared campaign leaderboard is kept** (`gridwatch-match / campaign / r1`), Russ's decision,
+    although rebuilt levels 11-100 change what old scores on them mean.
+- **Deployment (not done; order for the eventual production release).** The score server's
+  `worker/level-limits.json` and `worker/level-stars.json` must go live together with the level
+  files: they are one unit. `levelUrl` (`src/data/assets.ts`) is an unhashed path
+  (`levels/level_NNN.json`), so a browser or CDN can hold an old level file. An old cached level
+  against the new server, or a new level against the old server, rejects real wins with "Implausible
+  move count." or "Star count does not match move usage." This cache risk needs handling before the
+  release (cache headers, purge, or versioned level URLs); the caching was not changed here.
 
 ## 🟡 2026-11-02: Coins buy power-ups. On the dev site; NOT pushed, NOT in production
 
