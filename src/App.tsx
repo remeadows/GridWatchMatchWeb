@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { areaForLevel, areas, type AreaInfo } from "./data/areas";
+import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
 import { intelFiles, threatReports } from "./data/intel";
@@ -353,7 +353,7 @@ export default function App() {
     appliedInitialRoute.current = true;
     const params = new URLSearchParams(window.location.search);
     const requestedLevel = Number(params.get("level"));
-    if (params.has("gwTestMode") && Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= 100) {
+    if (params.has("gwTestMode") && Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= campaignLevelCount) {
       setScreen({ name: "game", levelId: requestedLevel });
     }
   }, [save]);
@@ -524,7 +524,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
   const area = currentArea(save);
   const hero = heroes.find((candidate) => candidate.id === save.selectedHeroId) ?? heroes[0];
   const completedLevels = Object.keys(save.levels).length;
-  const nextLevel = Math.min(100, Math.max(1, completedLevels + 1));
+  const nextLevel = Math.min(campaignLevelCount, Math.max(1, completedLevels + 1));
   const areaCompleted = completedLevelsInArea(save, area);
   const areaTotal = area.lastLevel - area.firstLevel + 1;
   const homeStyle = {
@@ -545,14 +545,14 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
           </div>
           <div className="campaign-uplink">
             <span>Campaign uplink</span>
-            <strong>{String(nextLevel).padStart(2, "0")} / 100</strong>
+            <strong>{String(nextLevel).padStart(2, "0")} / {campaignLevelCount}</strong>
           </div>
         </div>
 
         <div className="home-copy">
           <span className="home-kicker">Cyber defense command</span>
           <h1><span>GridWatch</span> <strong>Match</strong></h1>
-          <p>Build combos, trigger countermeasures, and defend the city through 100 cyberpunk match-3 operations.</p>
+          <p>Build combos, trigger countermeasures, and defend the city through {campaignLevelCount} cyberpunk match-3 operations.</p>
           <div className="hero-actions">
             <button className="primary-action" onClick={() => navigate({ name: "areas" })}>Resume Operations</button>
             <button className="quick-deploy-action" onClick={() => navigate({ name: "game", levelId: nextLevel })}>Quick Deploy</button>
@@ -607,7 +607,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
         </section>
 
         <div className="home-stats">
-          <Stat label="Completed Levels" value={`${completedLevels}/100`} />
+          <Stat label="Completed Levels" value={`${completedLevels}/${campaignLevelCount}`} />
           <Stat label="Best Area Progress" value={areaProgressLabel(save, area)} />
         </div>
 
@@ -1403,9 +1403,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
             : `${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
           coins={winReward && winReward.total > 0 ? <ResultCoins reward={winReward} balance={save.coins} /> : undefined}
           note={submitStatusLine(submitState)}
-          primary={levelId < 100 ? "Next Level" : "Operations"}
+          primary={levelId < campaignLevelCount ? "Next Level" : "Operations"}
           secondary="Level Select"
-          onPrimary={() => navigate(levelId < 100 ? { name: "game", levelId: levelId + 1 } : { name: "areas" })}
+          onPrimary={() => navigate(levelId < campaignLevelCount ? { name: "game", levelId: levelId + 1 } : { name: "areas" })}
           onSecondary={() => navigate({ name: "levels", areaId: area.id })}
         />
       )}

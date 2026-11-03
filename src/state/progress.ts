@@ -1,4 +1,4 @@
-import { areaForLevel, areas, type AreaInfo } from "../data/areas";
+import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "../data/areas";
 import { coinsPerLeftoverMove, powerUpPrices } from "../data/store";
 import type { BoosterType } from "../engine";
 import type { SaveState } from "./save";
@@ -130,5 +130,5 @@ export function areaProgressLabel(save: SaveState, area: AreaInfo): string {
 }
 
 export function currentArea(save: SaveState): AreaInfo {
-  return areaForLevel(Math.min(100, Math.max(1, highestCompletedLevel(save) + 1)));
+  return areaForLevel(Math.min(campaignLevelCount, Math.max(1, highestCompletedLevel(save) + 1)));
 }

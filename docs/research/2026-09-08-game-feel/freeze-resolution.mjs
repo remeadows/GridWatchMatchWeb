@@ -52,8 +52,8 @@ const hashes = Object.fromEntries(paths.map(path => {
 const { BoardEngine } = await import(new URL('../../../src/engine/boardEngine.ts', import.meta.url));
 const { SeededRNG } = await import(new URL('../../../src/engine/rng.ts', import.meta.url));
 const { levelSeed } = await import(new URL('../../../src/state/progress.ts', import.meta.url));
-const levels = readdirSync(root + 'public/levels').filter(name => /^level_\d+\.json$/.test(name)).sort()
-  .map(name => JSON.parse(readFileSync(root + 'public/levels/' + name, 'utf8')));
+const levels = readdirSync(root + 'src/tests/fixtures/resolution/levels').filter(name => /^level_\d+\.json$/.test(name)).sort()
+  .map(name => JSON.parse(readFileSync(root + 'src/tests/fixtures/resolution/levels/' + name, 'utf8')));
 const specimens = [];
 
 function result(engine, action) {

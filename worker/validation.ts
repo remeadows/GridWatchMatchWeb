@@ -35,7 +35,7 @@ export function validateSubmission(body: unknown):
   if (typeof body !== "object" || body === null) return { ok: false, error: "Malformed body." };
   const b = body as Record<string, unknown>;
   const levelId = b.levelId;
-  if (!isInt(levelId) || levelId < 1 || levelId > 100) return { ok: false, error: "Unknown level." };
+  if (!isInt(levelId) || levelId < 1) return { ok: false, error: "Unknown level." };
   const moveLimit = moveLimitFor(levelId);
   if (moveLimit === null) return { ok: false, error: "Unknown level." };
 

@@ -211,7 +211,7 @@ for (const method of ["apply", "applyWithResolution"] as const) {
       const levels = new Map<number, LevelDefinition>();
       let actions = 0;
       for (const run of runs) {
-        if (!levels.has(run.level)) levels.set(run.level, read(`public/levels/level_${String(run.level).padStart(3, "0")}.json`));
+        if (!levels.has(run.level)) levels.set(run.level, read(`src/tests/fixtures/resolution/levels/level_${String(run.level).padStart(3, "0")}.json`));
         const engine = new BoardEngine(levels.get(run.level)!, run.seed);
         expect(digest(snapshotRecord(engine.snapshot))).toBe(run.initialHash);
         run.actions.forEach((action, index) => {

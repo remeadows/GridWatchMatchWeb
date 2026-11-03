@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { assetManifest, assetUrl } from "../data/assets";
+import { campaignLevelCount } from "../data/areas";
 import { heroes } from "../data/heroes";
 import { areaProgressLabel, completedLevelsInArea, currentArea } from "../state/progress";
 import type { SaveState } from "../state/save";
@@ -27,7 +28,7 @@ export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy
   const hero = heroes.find((candidate) => candidate.id === save.selectedHeroId) ?? heroes[0];
   const tish = heroes.find((candidate) => candidate.id === "tish");
   const completedLevels = Object.keys(save.levels).length;
-  const nextLevel = Math.min(100, Math.max(1, completedLevels + 1));
+  const nextLevel = Math.min(campaignLevelCount, Math.max(1, completedLevels + 1));
   const areaCompleted = completedLevelsInArea(save, area);
   const areaTotal = area.lastLevel - area.firstLevel + 1;
 
@@ -56,13 +57,13 @@ export function DarkHomeScreen({ save, onTitle, onEnter, onResume, onQuickDeploy
           </button>
         )}
         <div className="dr-home-campaign">
-          <span>Campaign <strong>{completedLevels} / 100</strong></span>
+          <span>Campaign <strong>{completedLevels} / {campaignLevelCount}</strong></span>
           <div
             className="dr-home-track"
             role="progressbar"
             aria-label="Campaign progress"
             aria-valuemin={0}
-            aria-valuemax={100}
+            aria-valuemax={campaignLevelCount}
             aria-valuenow={completedLevels}
           >
             <span style={{ width: `${completedLevels}%` }} />

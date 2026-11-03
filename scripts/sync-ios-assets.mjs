@@ -22,7 +22,6 @@ const audioOut = path.join(publicRoot, "assets/audio");
 const audioOverrideOut = path.join(audioOut, "web-overrides");
 const lottieOut = path.join(publicRoot, "assets/lottie");
 const videoOut = path.join(publicRoot, "assets/video");
-const levelsOut = path.join(publicRoot, "levels");
 const generatedAssetManifestPath = path.join(repoRoot, "src/data/assetManifest.generated.ts");
 const assetSyncStatePath = path.join(repoRoot, "src/data/assetSyncState.generated.json");
 const localImageSyncManifestPath = path.join(imageOut, ".sync-manifest.json");
@@ -454,8 +453,7 @@ async function main() {
     cleanSyncedImages(),
     cleanSyncedAudio(),
     rm(lottieOut, { recursive: true, force: true }),
-    rm(videoOut, { recursive: true, force: true }),
-    rm(levelsOut, { recursive: true, force: true })
+    rm(videoOut, { recursive: true, force: true })
   ]);
 
   for (const [sourceRelative, destRelative] of imageCopies) {
@@ -472,12 +470,6 @@ async function main() {
 
   await copyRelative("Resources/WarSignalLabsIPhone.mp4", "assets/video/WarSignalLabsIPhone.mp4");
 
-  await copyDirectoryFiles(
-    path.join(sourceRoot, "Levels"),
-    levelsOut,
-    (name) => /^level_\d{3}\.json$/.test(name)
-  );
-
   const resolvedImages = await resolveImageManifest(images);
   validateImageManifestMapping(resolvedImages);
   const imageChecksums = await buildImageChecksumState();
@@ -488,7 +480,7 @@ async function main() {
   await writeLocalImageSyncManifest();
   printAssetDiffSummary(assetDiff);
 
-  console.log(`Synced assets and levels from ${sourceRoot}`);
+  console.log(`Synced assets from ${sourceRoot}`);
 }
 
 main().catch((error) => {

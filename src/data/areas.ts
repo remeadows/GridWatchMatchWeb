@@ -25,6 +25,8 @@ export const areas: AreaInfo[] = [
   { id: 10, name: "Final Breach", subtitle: "End the war for the grid", firstLevel: 91, lastLevel: 100, theme: "finalBreach", villainKey: "helix", villainName: "HELIX", accent: "#ff4fd8", icon: "unlock", completionReward: 1000 }
 ];
 
+export const campaignLevelCount = areas[areas.length - 1].lastLevel;
+
 export function areaForLevel(levelId: number): AreaInfo {
   return areas.find((area) => levelId >= area.firstLevel && levelId <= area.lastLevel) ?? areas[0];
 }
