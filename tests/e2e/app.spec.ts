@@ -926,11 +926,10 @@ const GOAL_SETS = {
     { id: "c3", target: 20, displayName: "Keys", tileType: "key" }
   ]
 } as const;
-const SCRATCH = "/private/tmp/claude-501/-Users-russmeadows-Dev-1---WarSignalLabs-4---Games-GridWatchMatchWeb/1f1b1e21-0505-4a48-a3a9-7d10c03868c3/scratchpad";
 
 for (const [width, height] of [[375, 550], [440, 748]] as const) {
   for (const [name, goals] of Object.entries(GOAL_SETS)) {
-    test(`blocker goals fit one phone screen: ${name} at ${width}x${height}`, async ({ page }) => {
+    test(`blocker goals fit one phone screen: ${name} at ${width}x${height}`, async ({ page }, testInfo) => {
       await page.setViewportSize({ width, height });
       await openBlockerLevel(page, realBoard(), goals as never);
       await darkOnly(page);
@@ -957,7 +956,77 @@ for (const [width, height] of [[375, 550], [440, 748]] as const) {
       expect(box.width).toBeGreaterThanOrEqual(240);
       expect(box.y + box.height).toBeLessThanOrEqual(tray.y);
       expect(tray.y + tray.height).toBeLessThanOrEqual(height);
-      await page.screenshot({ path: `${SCRATCH}/blocker-goals-7x7-${name.replace(/[^a-z]+/g, "-")}-${width}x${height}.png` });
+      await page.screenshot({ path: testInfo.outputPath(`blocker-goals-7x7-${name.replace(/[^a-z]+/g, "-")}-${width}x${height}.png`) });
     });
   }
 }
+
+
+// --- Blocker intro cards, and Play On when short of coins --------------------------------------------------------------
+
+test("the first pane goal shows its card once", async ({ page }, testInfo) => {
+  // No seedSave here: its init script would rewrite the save on the reload and forget "Got it".
+  await page.setViewportSize({ width: 440, height: 748 });
+  await openBlockerLevel(page, PANE_BOARD("k#1"), PANES_GOAL, "&gwIntroCards=1");
+  await darkOnly(page);
+  const card = page.getByTestId("blocker-intro");
+  await expect(card).toBeVisible();
+  await expect(card.locator("img.blocker-intro-picture")).toBeVisible();
+  await expect(card.getByRole("heading", { name: "Encrypted pane" })).toBeVisible();
+  await expect(card).toContainText("The piece underneath is frozen. Make matches next to the pane, or hit it with a power-up, to break it. Each move removes one layer.");
+  await page.screenshot({ path: testInfo.outputPath("blocker-intro-card.png") });
+  await card.getByRole("button", { name: "Got it" }).click();
+  await expect(card).toHaveCount(0);
+  await page.reload();
+  await waitForBoardReady(page);
+  await expect(page.locator('[data-objective-id="panes"]')).toBeVisible();
+  await expect(card).toHaveCount(0);
+});
+
+test("a mission with two new blockers shows one card at a time", async ({ page }) => {
+  await openBlockerLevel(page, realBoard(), GOAL_SETS["pane, lock and malware"] as never, "&gwIntroCards=1");
+  const card = page.getByTestId("blocker-intro");
+  for (const title of ["Encrypted pane", "Locked cell", "Malware"]) {
+    await expect(card.getByRole("heading", { name: title })).toBeVisible();
+    await expect(page.locator(".blocker-intro")).toHaveCount(1);
+    await card.getByRole("button", { name: "Got it" }).click();
+  }
+  await expect(card).toHaveCount(0);
+});
+
+test("the card stops the boss clock", async ({ page }) => {
+  const level = testLevel(PANE_BOARD("k#1"), { moveLimit: 20, objectives: PANES_GOAL });
+  level.bossLevel = true;
+  level.bossTimerSeconds = 90;
+  await page.route("**/levels/level_001.json", route => route.fulfill({ json: level }));
+  await page.goto("./?gwTestMode=1&level=1&gwIntroCards=1");
+  await expect(page.getByTestId("blocker-intro")).toBeVisible();
+  const shown = await page.locator(".timer strong").textContent();
+  await page.waitForTimeout(2500);
+  await expect(page.locator(".timer strong")).toHaveText(shown!);
+  await page.getByRole("button", { name: "Got it" }).click();
+  await expect.poll(() => page.locator(".timer strong").textContent(), { timeout: 5000 }).not.toBe(shown);
+});
+
+test("Play On short of coins keeps the mission open", async ({ page }) => {
+  await seedSave(page, { coins: 100 });
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-fail").click();
+  await expect(page.getByText("Play On costs 500 coins. You have 100.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play On" })).toBeDisabled();
+  await expect(page.getByText("Grid compromised")).not.toBeVisible();
+  await page.getByRole("button", { name: "End Mission" }).click();
+  await expect(page.getByText("Grid compromised")).toBeVisible();
+});
+
+test("Play On with enough coins still works", async ({ page }) => {
+  await seedSave(page, { coins: 800 });
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await page.getByTestId("qa-fail").click();
+  await expect(page.getByText("Spend 500 coins for 5 extra moves. You have 800.")).toBeVisible();
+  await page.getByRole("button", { name: "Play On" }).click();
+  await expect(page.getByText("Mission at risk")).not.toBeVisible();
+  await expect(page.getByText("Play On accepted: +5 moves.")).toBeVisible();
+});

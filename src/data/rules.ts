@@ -24,8 +24,9 @@ export const rulesSections = [
   {
     title: "Threats",
     rows: [
-      "Encrypted volumes need repeated hits or power-up damage.",
-      "Malware spreads if the grid is left exposed.",
+      "Encrypted pane: The piece underneath is frozen. Make matches next to the pane, or hit it with a power-up, to break it. Each move removes one layer.",
+      "Locked cell: This piece can't move. Match it, or hit it with a power-up, to free the cell.",
+      "Malware: Clear pieces on or next to malware to remove it. If your move removes none, it spreads.",
       "Honeypots generate mission targets below them."
     ]
   },

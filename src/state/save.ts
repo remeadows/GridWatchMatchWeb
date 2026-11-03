@@ -28,6 +28,7 @@ export interface SaveState {
   levels: Record<string, LevelRecord>;
   areaRewards: Record<string, boolean>;
   intelSeen: Record<string, boolean>;
+  blockerIntrosSeen: Record<string, boolean>;
   settings: SettingsState;
 }
 
@@ -48,6 +49,7 @@ export function defaultSaveState(): SaveState {
     levels: {},
     areaRewards: {},
     intelSeen: {},
+    blockerIntrosSeen: {},
     settings: {
       musicEnabled: true,
       sfxEnabled: true,
@@ -90,6 +92,7 @@ export function normalizeSave(value: Partial<SaveState>): SaveState {
     levels: { ...(value.levels ?? {}) },
     areaRewards: { ...(value.areaRewards ?? {}) },
     intelSeen: { ...(value.intelSeen ?? {}) },
+    blockerIntrosSeen: { ...(value.blockerIntrosSeen ?? {}) },
     settings: { ...defaults.settings, ...(value.settings ?? {}) }
   };
 }

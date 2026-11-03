@@ -8,6 +8,8 @@ import { rulesSections, tutorialSteps } from "./data/rules";
 import { clearancePass, coinPacks, coinsPerLeftoverMove, playOnCost, playOnExtraMoves, powerUpPrices } from "./data/store";
 import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_SEQUENCE_LEAD_IN_MS } from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
+import type { BlockerKind } from "./engine/types";
+import { blockerIntros, blockerOfObjective } from "./data/blockerIntros";
 import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
 import { winSequenceDurationMs } from "./game/motion";
@@ -709,6 +711,20 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [queueDepth, setQueueDepth] = useState(0);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
+  // The first blocker this mission asks about that the player has not been told of yet. One card at a
+  // time, and never over the rules. Tests skip it unless they ask (`gwIntroCards=1`).
+  const introCardsOn = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !params.has("gwTestMode") || params.has("gwIntroCards");
+  }, []);
+  const introKind: BlockerKind | null = useMemo(() => {
+    if (!introCardsOn || showTutorial || !level || status === "loading") return null;
+    for (const objective of level.objectives) {
+      const kind = blockerOfObjective(objective.id);
+      if (kind && !save.blockerIntrosSeen[kind]) return kind;
+    }
+    return null;
+  }, [introCardsOn, showTutorial, level, status, save.blockerIntrosSeen]);
   const [runId, setRunId] = useState(0);
   // Pieces in the air to an objective hold its count back until they land (src/game/objectiveFlight.ts).
   const [flightCounts, setFlightCounts] = useState<ObjectiveFlightCounts>({});
@@ -870,11 +886,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [requestBossExpiry]);
 
   useEffect(() => {
-    tutorialVisibleRef.current = showTutorial || powerUpOffer !== null;
+    tutorialVisibleRef.current = showTutorial || powerUpOffer !== null || introKind !== null;
     tickBossClock();
     const timer = window.setInterval(() => tickBossClock(), 100);
     return () => window.clearInterval(timer);
-  }, [showTutorial, powerUpOffer, status, level?.id, tickBossClock]);
+  }, [showTutorial, powerUpOffer, introKind, status, level?.id, tickBossClock]);
 
   const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition, options: { animate?: boolean } = {}) => {
     if (finalRef.current || engineRef.current !== engine) return;
@@ -1178,12 +1194,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
 
   const acceptPlayOn = () => {
     const engine = engineRef.current;
-    if (!engine || saveRef.current.coins < playOnCost) {
-      setMessage("Not enough coins.");
-      audioService.playVoice("gridCompromised");
-      setStatus("failed");
-      return;
-    }
+    // Short of coins the button is disabled; a stray call leaves the mission open rather than ending it.
+    if (!engine || saveRef.current.coins < playOnCost) return;
     const next = cloneSave(saveRef.current);
     next.coins -= playOnCost;
     commitSave(next);
@@ -1385,11 +1397,31 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           onSecondary={() => setPowerUpOffer(null)}
         />
       )}
+      {introKind && status === "running" && (
+        <div className="overlay">
+          <div className="modal blocker-intro" role="dialog" aria-labelledby="blocker-intro-title" data-testid="blocker-intro">
+            {matchV2BlockerAsset(introKind) && <img className="blocker-intro-picture" src={assetUrl(matchV2BlockerAsset(introKind)!.path)} alt="" />}
+            <h2 id="blocker-intro-title">{blockerIntros[introKind].title}</h2>
+            <p>{blockerIntros[introKind].body}</p>
+            <div className="modal-actions">
+              <button className="primary-action" onClick={() => {
+                const next = cloneSave(saveRef.current);
+                next.blockerIntrosSeen[introKind] = true;
+                commitSave(next);
+                saveRef.current = next;
+              }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
       {status === "playOn" && (
         <ResultModal
           title="Mission at risk"
-          message={`Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves. You have ${save.coins.toLocaleString()}.`}
+          message={save.coins < playOnCost
+            ? `Play On costs ${playOnCost} coins. You have ${save.coins.toLocaleString()}.`
+            : `Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves. You have ${save.coins.toLocaleString()}.`}
           primary="Play On"
+          primaryDisabled={save.coins < playOnCost}
           secondary="End Mission"
           onPrimary={acceptPlayOn}
           onSecondary={() => {

@@ -1076,3 +1076,23 @@ describe("createCloudSync outstanding stores", () => {
     expect(onStored).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("blockerIntrosSeen", () => {
+  it("defaults to none", () => {
+    expect(normalizeSave({}).blockerIntrosSeen).toEqual({});
+    expect(normalizeSave({ blockerIntrosSeen: { pane: true } }).blockerIntrosSeen).toEqual({ pane: true });
+  });
+
+  it("is not sent to the cloud (the kit's campaign schema has no such property)", () => {
+    const save = { ...defaultSaveState(), blockerIntrosSeen: { pane: true } };
+    expect(toCampaignPayload(save)).not.toHaveProperty("blockerIntrosSeen");
+    expect(projection(save, "campaign")).not.toHaveProperty("blockerIntrosSeen");
+  });
+
+  it("is kept when a cloud copy is applied", () => {
+    const save = { ...defaultSaveState(), blockerIntrosSeen: { lock: true } };
+    const applied = applyCloudPayload(save, "campaign", { ...toCampaignPayload(defaultSaveState()), coins: 40 });
+    expect(applied.coins).toBe(40);
+    expect(applied.blockerIntrosSeen).toEqual({ lock: true });
+  });
+});

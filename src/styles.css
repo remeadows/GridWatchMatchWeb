@@ -1096,6 +1096,14 @@ a.primary-action:focus-visible {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
 }
 
+.blocker-intro-picture {
+  display: block;
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 8px;
+  object-fit: contain;
+}
+
 .tutorial-modal {
   align-self: end;
   margin-bottom: 8vh;
