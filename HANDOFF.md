@@ -2,11 +2,14 @@
 
 Last updated: 2026-11-03
 
-## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. Local branch only; NOT pushed, NOT on the dev site, NOT in production
+## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. On the dev site as `5a76b7d-dev`; NOT pushed, NOT in production
 
 **Where it lives.** Local branch `dev/level-campaign`, started from `dev/feel-pieces-effects` at
-`a475b87`. Not pushed, not merged, and `npm run cf:dev-instance` has not been run from it, so this branch
-has never been on the dev site. Spec `docs/superpowers/specs/2026-11-02-gridwatch-match-levels-design.md`,
+`a475b87`. Not pushed, not merged. On Russ's word ("Put on dev", 2026-11-03) `5a76b7d` went to the
+dev site (version `d089a357`), replacing `470d122-dev`, which Russ had not phone-checked; this build
+carries that feel work too. Checked on the live dev site: badge `5a76b7d-dev`, campaign 0/200, all 20
+sectors listed with DREAD, VYRUS, SHARD, LOTUS and MALUS, levels 101 and 200 served. The five new
+villains show placeholder portraits until Russ's images arrive. Spec `docs/superpowers/specs/2026-11-02-gridwatch-match-levels-design.md`,
 plan `docs/superpowers/plans/2026-11-02-gridwatch-match-levels.md`: Tasks 1-12 done, 13 and 14 wait
 on Russ.
 
