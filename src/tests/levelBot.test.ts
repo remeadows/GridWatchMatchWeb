@@ -168,7 +168,7 @@ describe("level bot", () => {
     expect(bot.failRate).toBeLessThanOrEqual(random.failRate);
     // A margin, so a bot no better than random cannot pass on fail rate alone.
     expect(bot.avgMovesLeft).toBeGreaterThanOrEqual(random.avgMovesLeft + 3);
-  });
+  }, 30_000); // 60 simulated games: about 3 s here, past the 5 s default on GitHub's runners
 
   it("a game's real refills are unaffected by the lookahead seeds", () => {
     for (const id of [41, 90]) {

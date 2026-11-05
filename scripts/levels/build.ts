@@ -5,7 +5,7 @@
 // The same command on the same commit writes the same files: nothing in them depends on time or worker count.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { normalizeLevel } from "../../src/data/levels";
@@ -100,7 +100,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
   mkdirSync(settings.levelsDir, { recursive: true });
   for (const levelId of settings.levelIds) {
     const file = levelFile(settings.levelsDir, levelId);
-    const text = existsSync(file) ? readFileSync(file, "utf8") : undefined;
+    const text = readIfPresent(file) ?? undefined;
     const existing = text === undefined ? undefined : (JSON.parse(text) as LevelDefinition);
     const handTuned = existing?.handTuned === true;
     const name = handTuned ? existing!.name : levelName(levelId);
@@ -128,7 +128,7 @@ export async function runBuild(settings: BuildSettings, run: JobRunner, log: (li
     let row: BuildRow;
     if (done.kind === "tune") {
       const text = levelJson(done.result.level);
-      if (!existsSync(file) || readFileSync(file, "utf8") !== text) writeFileSync(file, text);
+      if (readIfPresent(file) !== text) writeFileSync(file, text);
       row = rowFor(done.result.level, done.result.report, done.result.inBand, fingerprints.get(levelId)!, hash(text), done.result);
     } else {
       const text = readFileSync(file, "utf8");
@@ -319,9 +319,10 @@ export function median(values: number[]): number {
 
 function readPreviousRows(out: string): Map<number, BuildRow> {
   const rows = new Map<number, BuildRow>();
-  if (!existsSync(out)) return rows;
+  const text = readIfPresent(out);
+  if (text === null) return rows;
   try {
-    const report = JSON.parse(readFileSync(out, "utf8")) as { rows?: BuildRow[] };
+    const report = JSON.parse(text) as { rows?: BuildRow[] };
     for (const row of report.rows ?? []) if (typeof row.fingerprint === "string") rows.set(row.id, row);
   } catch {
     // An unreadable report is rebuilt from scratch.
@@ -392,4 +393,14 @@ function rangeText(ids: number[]): string {
 
 function round(value: number): number {
   return Math.round(value * 10_000) / 10_000;
+}
+
+/** The file's text, or null when there is none: one read, no separate existence check to race. */
+function readIfPresent(file: string): string | null {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
 }
