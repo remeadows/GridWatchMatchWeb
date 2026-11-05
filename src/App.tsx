@@ -25,6 +25,7 @@ import { DarkHomeScreen } from "./components/DarkHomeScreen";
 import { activeBoardTheme, matchV2BlockerAsset, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
+import { haptics } from "./services/haptics";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
 import { buildLabel, isDevInstance } from "./services/buildInfo";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
@@ -364,6 +365,7 @@ export default function App() {
   useEffect(() => {
     if (!save) return;
     audioService.configure(save.settings);
+    haptics.configure(save.settings);
     if (screen.name === "game") return;
     audioService.playMusic("menu");
   }, [save, screen.name]);
@@ -1860,6 +1862,7 @@ function settingLabel(key: keyof SaveState["settings"]): string {
     musicEnabled: "Music",
     sfxEnabled: "Sound Effects",
     voiceEnabled: "Voice Lines",
+    hapticsEnabled: "Haptics",
     reducedMotion: "Reduced Motion"
   }[key];
 }

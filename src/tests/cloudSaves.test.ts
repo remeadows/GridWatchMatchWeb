@@ -18,7 +18,7 @@ describe("slot projections", () => {
     expect(campaign).not.toHaveProperty("settings");
     expect(campaign.coins).toBe(40);
     expect(campaign.levels["1"].stars).toBe(3);
-    expect(toSettingsPayload(save)).toEqual({ musicEnabled: false, sfxEnabled: true, voiceEnabled: true, reducedMotion: false });
+    expect(toSettingsPayload(save)).toEqual({ musicEnabled: false, sfxEnabled: true, voiceEnabled: true, hapticsEnabled: true, reducedMotion: false });
     expect(projection(save, "campaign")).toEqual(campaign);
     expect(projection(save, "settings")).toEqual(toSettingsPayload(save));
   });
@@ -32,7 +32,8 @@ describe("slot projections", () => {
     expect(merged.settings.musicEnabled).toBe(false);          // settings untouched
     expect(merged.boosters.rocket).toBe(3);                    // defaults filled in
     const withSettings = applyCloudPayload(local, "settings", { musicEnabled: true, sfxEnabled: false, voiceEnabled: true, reducedMotion: true });
-    expect(withSettings.settings).toEqual({ musicEnabled: true, sfxEnabled: false, voiceEnabled: true, reducedMotion: true });
+    // A payload saved before Haptics existed keeps the local setting.
+    expect(withSettings.settings).toEqual({ musicEnabled: true, sfxEnabled: false, voiceEnabled: true, hapticsEnabled: true, reducedMotion: true });
     expect(withSettings.coins).toBe(40);
   });
   it("tolerates junk from the cloud by falling back to defaults", () => {

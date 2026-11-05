@@ -211,12 +211,12 @@ describe("isCurrentProjection", () => {
     // normalizeSave spreads the defaults FIRST, so every save the app holds projects its keys in the
     // defaults' order regardless of how the caller's literal was written.
     const scrambled = normalizeSave({
-      settings: { reducedMotion: false, voiceEnabled: true, sfxEnabled: true, musicEnabled: false },
+      settings: { reducedMotion: false, hapticsEnabled: true, voiceEnabled: true, sfxEnabled: true, musicEnabled: false },
       coins: 5,
     });
     const canonical = normalizeSave({
       coins: 5,
-      settings: { musicEnabled: false, sfxEnabled: true, voiceEnabled: true, reducedMotion: false },
+      settings: { musicEnabled: false, sfxEnabled: true, voiceEnabled: true, hapticsEnabled: true, reducedMotion: false },
     });
     expect(isCurrentProjection(scrambled, "settings", projection(canonical, "settings"))).toBe(true);
     expect(isCurrentProjection(scrambled, "campaign", projection(canonical, "campaign"))).toBe(true);
@@ -230,7 +230,7 @@ describe("isCurrentProjection", () => {
     const save = defaultSaveState();
     const ordered = projection(save, "settings");
     const reordered = {
-      reducedMotion: ordered.reducedMotion, voiceEnabled: ordered.voiceEnabled,
+      reducedMotion: ordered.reducedMotion, hapticsEnabled: ordered.hapticsEnabled, voiceEnabled: ordered.voiceEnabled,
       sfxEnabled: ordered.sfxEnabled, musicEnabled: ordered.musicEnabled,
     };
     expect(reordered).toEqual(ordered);

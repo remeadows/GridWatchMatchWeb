@@ -50,6 +50,7 @@ const enabledSettings: SettingsState = {
   musicEnabled: true,
   sfxEnabled: true,
   voiceEnabled: true,
+  hapticsEnabled: true,
   reducedMotion: false
 };
 

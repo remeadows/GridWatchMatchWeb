@@ -104,6 +104,7 @@ import { BlastSpill } from "./blastSpill";
 import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, fallOrderInColumn, orderCascadeMoves, quadraticFlightPath, radialStagger, refillStartRows, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
 import { blastCuePlayback, cascadeFallDurationMs, cascadeFallEase, cascadeJoltPx, cascadeLandingPlan, cascadeReboundPx, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
+import { haptics, type HapticKind } from "../services/haptics";
 import { blastCore, boardDimmer, burst, ensureVfxTextures, heavyDebris, impactBurst, laneBeam, laneBlast, screenFlash, setVfxTileSize, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
@@ -1590,6 +1591,7 @@ export class BoardScene extends Phaser.Scene {
           gain: 0.3 + index * 0.035,
           playbackRate: 0.92 + index * 0.02
         });
+        if (rowPositions.length > 0) haptics.pulse(row === 0 ? "bigCombo" : "match");
         for (const position of rowPositions) {
           this.playWinTilePop(sourceSnapshot, position, seed);
         }
@@ -1845,6 +1847,7 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
     this.recordPresentation("invalid-swap-attempt");
+    haptics.pulse("invalid");
 
     const drag = this.drag;
     // Primary: snap the committed live sprites back to their homes -- the tile
@@ -2056,6 +2059,7 @@ export class BoardScene extends Phaser.Scene {
     const dimmer = this.createComboDimmer(plan.key);
     this.recordPresentation("combo-charge", plan.key);
     this.cueBoardAudio("comboCharge");
+    haptics.pulse("launch");
     this.playComboChargeVisual(plan, group, center);
 
     this.vfxCleanup.schedule(this, plan.chargeAtMs, () => {
@@ -2069,7 +2073,7 @@ export class BoardScene extends Phaser.Scene {
       if (!this.sys.isActive() || !this.fxLayer?.active) return;
       this.recordPresentation("combo-impact", plan.key);
       this.cueBoardAudio("comboImpact");
-      audioService.vibrate(comboVibration(plan.key));
+      haptics.pulse(comboHaptic(plan.key));
       this.playComboPrimaryImpact(plan, center);
       for (const event of group.events) {
         if (!plan.finalStatePositions.some(position => positionKey(position) === positionKey(event.origin))) {
@@ -2549,6 +2553,7 @@ export class BoardScene extends Phaser.Scene {
         if (!playedClusterBody) {
           playedClusterBody = true;
           this.cueBoardAudio("tileClusterBody", clearCuePlayback(popObjects.length));
+          haptics.pulse(popObjects.length >= 5 ? "bigMatch" : "match");
         }
         const variation = tilePopVariation(entry.position, seed);
         this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
@@ -2981,6 +2986,7 @@ export class BoardScene extends Phaser.Scene {
           if (landed && !landed.cued && voicedLandings.has(fallDuration)) {
             landed.cued = true;
             this.cueBoardAudio("cascadeLand", landingCuePlayback(landing.strength, landed.count));
+            haptics.pulse("land");
           }
           if (joltPx > 0 && !jolted && entry.distanceCells >= joltFromCells) {
             jolted = true;
@@ -3090,6 +3096,7 @@ export class BoardScene extends Phaser.Scene {
         const impactAtMs = this.time.now;
         this.recordPresentation("powerup-create-impact", creation.powerUp.kind);
         this.cueBoardAudio("powerUpCreate", { gain: 0.58 });
+        haptics.pulse("create");
         const landing = cascadeLandingPlan(CASCADE_LANDING_FULL_STRENGTH_CELLS, pieceDisplayProfile(this.tileSize).pieceSizePx, this.tileSize);
         const stable = () => {
           const markStable = () => {
@@ -3195,6 +3202,7 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("tnt-arm");
     this.recordPresentation("powerup-charge", "tnt");
     this.cueBoardAudio("tntArm");
+    haptics.pulse("launch");
     if (this.markTargets([event.origin, ...event.affectedPositions], 0xff9a43, plan.detonationAtMs, { asOneArea: true })) {
       this.recordPresentation("target-mark", "tnt");
     }
@@ -3238,7 +3246,7 @@ export class BoardScene extends Phaser.Scene {
       onContact?.(event.origin);
       this.recordPresentation("powerup-impact", "tnt");
       this.cueBoardAudio("tntBlast", blastCuePlayback("tnt", event.affectedPositions.length));
-      audioService.vibrate([18, 35, 28]);
+      haptics.pulse("blast");
       if (onImpact) {
         this.vfxCleanup.schedule(this, TNT_CASCADE_AFTER_DETONATION_MS, () => {
           onImpact();
@@ -3340,6 +3348,7 @@ export class BoardScene extends Phaser.Scene {
     );
     this.recordPresentation("powerup-charge", "rocket");
     this.cueBoardAudio("rocketLaunch");
+    haptics.pulse("launch");
     this.recordRocketLaunch(plan.heads.length);
     if (this.reducedMotion) return;
     const laneMs = plan.ignitionMs + Math.max(0, ...plan.heads.map((head) => head.flightMs));
@@ -3465,6 +3474,7 @@ export class BoardScene extends Phaser.Scene {
             this.recordPresentation("rocket-edge-impact", positionKey(head.destination));
             this.recordPresentation("powerup-impact", "rocket");
             this.cueBoardAudio("rocketImpact", blastCuePlayback("rocket", head.passTimes.length));
+            haptics.pulse("impact");
             if (hasTrailBudget) trail.stop();
             blastCore(this, layer, end.x, end.y, {
               radiusPx: this.tileSize * ROCKET_EDGE_BLOOM_CELLS,
@@ -3518,6 +3528,7 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("powerup-charge", "propeller");
     this.recordPresentation("propeller-lift");
     this.cueBoardAudio("propellerLift");
+    haptics.pulse("launch");
     const drone = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpTextures.propeller);
     icon.setDisplaySize(this.tileSize * PROPELLER_DRONE_SCALE, this.tileSize * PROPELLER_DRONE_SCALE);
@@ -3579,7 +3590,7 @@ export class BoardScene extends Phaser.Scene {
             onContact?.(plan.target);
             this.recordPresentation("powerup-impact", "propeller");
             this.cueBoardAudio("propellerImpact");
-            audioService.vibrate(18);
+            haptics.pulse("impact");
             drone.destroy();
             this.recordPropellerStrike(targets.length);
             impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.9, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
@@ -3670,7 +3681,7 @@ export class BoardScene extends Phaser.Scene {
       this.recordPresentation("powerup-impact", "lightBall");
       this.recordPresentation("lightBall-release");
       this.cueBoardAudio("lightBallRelease", blastCuePlayback("lightBall", targets.length));
-      audioService.vibrate(18);
+      haptics.pulse("blast");
       if (this.fxScreen) {
         this.recordPresentation("screen-flash", "alpha=0.22;durationMs=80");
         screenFlash(this, this.fxScreen, { alpha: 0.22, durationMs: 80, tint: 0xe6d8ff }, this.vfxCleanup);
@@ -3721,6 +3732,7 @@ export class BoardScene extends Phaser.Scene {
       this.recordPresentation("powerup-charge", "lightBall");
       this.recordPresentation("lightBall-charge", undefined, LIGHTBALL_DIM_MS);
       this.cueBoardAudio("lightBallCharge");
+      haptics.pulse("launch");
       const charge = this.add.graphics({ x: origin.x, y: origin.y });
       const radius = this.tileSize * 0.48;
       charge.lineStyle(7, 0x70f2ea, 0.6);
@@ -4200,6 +4212,7 @@ export class BoardScene extends Phaser.Scene {
     const movedDistance = Phaser.Math.Distance.Between(pointer.x, pointer.y, drag.pointerStart.x, drag.pointerStart.y);
     if (cell?.powerUp && movedDistance < this.tileSize * 0.16) {
       this.releaseDrag(drag);
+      haptics.pulse("tap");
       this.onAction({ kind: "tap", at: drag.start });
       return;
     }
@@ -4215,6 +4228,7 @@ export class BoardScene extends Phaser.Scene {
   // purely as a safety net in case that handoff never arrives.
   private commitSwap(drag: ActiveDrag, target: GridPosition): void {
     drag.committed = true;
+    haptics.pulse("swap");
     drag.blockedMarker?.destroy();
     drag.blockedMarker = null;
     this.commitSettled = false;
@@ -4719,10 +4733,8 @@ function comboTint(key: CanonicalComboKey): number {
   return 0x58e6ff;
 }
 
-function comboVibration(key: CanonicalComboKey): number[] {
-  if (key === "tnt+tnt" || key === "lightBall+lightBall") return [24, 35, 34];
-  if (key.includes("tnt")) return [20, 30, 28];
-  return [16, 28, 22];
+function comboHaptic(key: CanonicalComboKey): HapticKind {
+  return key === "tnt+tnt" || key === "lightBall+lightBall" ? "bigCombo" : "combo";
 }
 
 function hiddenPositionsFor(action: BoardAction): Set<string> {

@@ -15,6 +15,7 @@ export interface SettingsState {
   musicEnabled: boolean;
   sfxEnabled: boolean;
   voiceEnabled: boolean;
+  hapticsEnabled: boolean;
   reducedMotion: boolean;
 }
 
@@ -54,6 +55,7 @@ export function defaultSaveState(): SaveState {
       musicEnabled: true,
       sfxEnabled: true,
       voiceEnabled: true,
+      hapticsEnabled: true,
       reducedMotion: false
     }
   };

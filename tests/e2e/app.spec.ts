@@ -82,6 +82,29 @@ test("after 6 seconds without a move the board shows a hint, which goes on a tou
   expect(await hint()).toBeNull();
 });
 
+test("a swap and its match are felt, and Haptics off in Settings keeps the phone still", async ({ page }) => {
+  // Russ, 2026-11-05: "phone haptics so when pieces move, explode, fall, etc the player feels it".
+  const felt = () => page.evaluate(() => (window as Window & { __gwHaptics?: string[] }).__gwHaptics ?? []);
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+  await waitForResolutionComplete(page);
+  const onFeel = await felt();
+  expect(onFeel[0]).toBe("swap");
+  expect(onFeel).toContain("match");
+
+  await page.goto("./?gwTestMode=1");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Haptics")).toBeChecked();
+  await page.getByLabel("Haptics").uncheck();
+  await page.goto("./?gwTestMode=1&level=1");
+  await waitForBoardReady(page);
+  await dragBoardCells(page, { row: 0, col: 0 }, { row: 1, col: 0 });
+  await waitForResolutionComplete(page);
+  await expect(page.getByText("24/25")).toBeVisible();
+  expect(await felt()).toEqual([]);
+});
+
 test("navigates Home to Operations to Level 1 and applies a deterministic swap", async ({ page }) => {
   await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Operations", exact: true }).click();
