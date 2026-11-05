@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- Dev-only check for Russ's iPhone, 2026-11-05. Remove before the production release. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Haptics check</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 16px; background: #0b0f17; color: #e8eef8; font: 17px/1.4 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { margin: 0 0 16px; color: #9fb0c8; }
+  button { display: block; width: 100%; margin: 0 0 12px; padding: 16px; font: inherit; font-weight: 600; color: #0b0f17; background: #ffd27a; border: 0; border-radius: 10px; text-align: left; }
+  button small { display: block; font-weight: 400; color: #3a3220; }
+  .row { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; margin: 0 0 12px; background: #182131; border-radius: 10px; }
+  pre { white-space: pre-wrap; word-break: break-word; background: #182131; padding: 12px; border-radius: 10px; font-size: 13px; }
+  .hidden-switch { display: none; }
+  .offscreen-switch { position: fixed; left: -200px; top: 0; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<h1>Haptics check</h1>
+<p>Tap each one and tell Claude which you felt. A = 1, B = 2, and so on.</p>
+
+<div class="row"><span><b>1.</b> Flip this switch by hand</span><input type="checkbox" switch aria-label="Test switch"></div>
+<button id="now"><b>2.</b> Tick now<small>Hidden switch, the way the game does it</small></button>
+<button id="later"><b>3.</b> Tick 1 second after the tap<small>Like a blast or a cascade, after your finger has lifted</small></button>
+<button id="offscreen"><b>4.</b> Tick now, other hiding style<small>Switch moved off screen instead of hidden</small></button>
+<button id="triple"><b>5.</b> Three ticks<small>How a big combo would feel</small></button>
+<button id="vibrate"><b>6.</b> Vibrate<small>The Android way; expected to do nothing on iPhone</small></button>
+
+<label class="hidden-switch" aria-hidden="true"><input type="checkbox" switch tabindex="-1" id="h1"></label>
+<label class="offscreen-switch" aria-hidden="true"><input type="checkbox" switch tabindex="-1" id="h2"></label>
+
+<pre id="info"></pre>
+<script>
+  const hidden = document.getElementById("h1").parentElement;
+  const offscreen = document.getElementById("h2").parentElement;
+  const log = [];
+  const info = document.getElementById("info");
+  function render() {
+    const session = navigator.audioSession;
+    info.textContent = [
+      "Browser: " + navigator.userAgent,
+      "navigator.vibrate: " + (typeof navigator.vibrate === "function" ? "yes" : "no"),
+      "Audio session: " + (session ? session.type : "not offered"),
+      "",
+      ...log
+    ].join("\n");
+  }
+  function note(text) { log.unshift(new Date().toLocaleTimeString() + "  " + text); render(); }
+  document.getElementById("now").onclick = () => { hidden.click(); note("2: ticked now"); };
+  document.getElementById("later").onclick = () => { note("3: waiting 1 s"); setTimeout(() => { hidden.click(); note("3: ticked"); }, 1000); };
+  document.getElementById("offscreen").onclick = () => { offscreen.click(); note("4: ticked (off screen)"); };
+  document.getElementById("triple").onclick = () => { [0, 70, 140].forEach((ms) => setTimeout(() => hidden.click(), ms)); note("5: three ticks"); };
+  document.getElementById("vibrate").onclick = () => {
+    const ok = typeof navigator.vibrate === "function" && navigator.vibrate([30, 40, 30]);
+    note("6: vibrate " + (ok ? "sent" : "not available"));
+  };
+  render();
+</script>
+</body>
+</html>
