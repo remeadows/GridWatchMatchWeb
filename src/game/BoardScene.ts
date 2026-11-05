@@ -485,6 +485,8 @@ export class BoardScene extends Phaser.Scene {
   private hint: BoardHint | null = null;
   private hintNodes: Phaser.GameObjects.GameObject[] = [];
   private hintTweens: Phaser.Tweens.Tween[] = [];
+  /** Where and how big each piece the hint moves was before it moved, to put it back exactly. */
+  private hintRestores: Array<{ node: Phaser.GameObjects.Container; x: number; y: number; scaleX: number; scaleY: number }> = [];
   private boardJolt: { startMs: number; x: number; y: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
@@ -1088,12 +1090,15 @@ export class BoardScene extends Phaser.Scene {
     this.hintTweens = [];
     for (const node of this.hintNodes) node.destroy();
     this.hintNodes = [];
-    if (!this.hint) return;
-    // Nudged pieces go back to the middle of their cells.
-    for (const position of this.hint.cells) {
-      const node = this.occupantNodes.get(positionKey(position));
-      if (node?.active) node.setPosition(this.cellCenter(position).x, this.cellCenter(position).y);
+    // Nudged and swollen pieces go back exactly as they were, whether or not the hint is still set.
+    for (const { node, x, y, scaleX, scaleY } of this.hintRestores) {
+      if (node.active) node.setPosition(x, y).setScale(scaleX, scaleY);
     }
+    this.hintRestores = [];
+  }
+
+  private noteHintRestore(node: Phaser.GameObjects.Container): void {
+    this.hintRestores.push({ node, x: node.x, y: node.y, scaleX: node.scaleX, scaleY: node.scaleY });
   }
 
   /**
@@ -1172,6 +1177,7 @@ export class BoardScene extends Phaser.Scene {
 
     if (hint.action.kind !== "swap") {
       const node = this.occupantNodes.get(positionKey(hint.action.at));
+      if (node) this.noteHintRestore(node);
       if (node) this.hintTweens.push(this.tweens.add({ targets: node, scale: 1.1, duration: BOARD_HINT_NUDGE_MS, ease: "Sine.easeInOut", yoyo: true, repeat: -1, repeatDelay: BOARD_HINT_NUDGE_REST_MS, delay: BOARD_HINT_FADE_IN_MS }));
       return;
     }
@@ -1180,6 +1186,7 @@ export class BoardScene extends Phaser.Scene {
     for (const [mover, toward] of [[from, to], [to, from]] as const) {
       const node = this.occupantNodes.get(positionKey(mover));
       if (!node) continue;
+      this.noteHintRestore(node);
       const home = this.cellCenter(mover);
       this.hintTweens.push(this.tweens.add({
         targets: node,
@@ -1751,18 +1758,42 @@ export class BoardScene extends Phaser.Scene {
     this.objectiveClears = new Map(step.clears
       .filter(clear => clear.contributedToObjective && clear.objectiveId !== null)
       .map(clear => [positionKey(clear.position), clear]));
-    for (const blocker of step.blockerClears) this.collectBlocker(blocker);
+    // A broken blocker flies to its goal when it is struck (PR #92 review): one a power-up reaches
+    // goes when that power-up's contact lands on its cell, one broken beside a match goes when the
+    // match pops, and any still waiting goes before the step ends, so no goal count misses one.
+    const struckByPowerUp = new Set(events.flatMap(event => [event.origin, ...event.affectedPositions].map(positionKey)));
+    const waitingBlockers = new Map<string, BlockerClear[]>();
+    const besideMatch: BlockerClear[] = [];
+    for (const blocker of step.blockerClears) {
+      const key = positionKey(blocker.position);
+      if (!struckByPowerUp.has(key)) besideMatch.push(blocker);
+      else waitingBlockers.set(key, [...(waitingBlockers.get(key) ?? []), blocker]);
+    }
+    const releaseAt = (key: string) => {
+      for (const blocker of waitingBlockers.get(key) ?? []) this.collectBlocker(blocker);
+      waitingBlockers.delete(key);
+    };
+    const releaseBesideMatch = () => {
+      for (const blocker of besideMatch.splice(0)) this.collectBlocker(blocker);
+    };
+    if (keys.size === 0) releaseBesideMatch();
     let popsDone = keys.size === 0;
     let effectsDone = events.length === 0;
     let finished = false;
     const finish = () => {
       if (finished || !popsDone || !effectsDone) return;
       finished = true;
+      releaseBesideMatch();
+      for (const key of [...waitingBlockers.keys()]) releaseAt(key);
       complete();
     };
     const effects = (contact: PowerUpContact) => {
       if (events.length === 0) return;
-      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, contact, groups);
+      const struck: PowerUpContact = (event, position) => {
+        releaseAt(positionKey(position));
+        contact(event, position);
+      };
+      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, struck, groups);
       this.recordPowerUpFxAfterPopRender();
     };
     if (keys.size === 0) {
@@ -1784,7 +1815,7 @@ export class BoardScene extends Phaser.Scene {
       if (events.length === 0) this.recordPresentation("match-recognition-complete", String(step.ordinal));
       this.playTilePops(step.before, keys, pacing, () => { popsDone = true; finish(); },
         clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
-        undefined, events.length === 0, groups);
+        undefined, events.length === 0, groups, releaseBesideMatch);
     };
     if (events.length === 0) {
       this.recordPresentation("match-recognition-start", String(step.ordinal));
@@ -2445,7 +2476,8 @@ export class BoardScene extends Phaser.Scene {
     afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
     allowMatchShake = true,
-    powerUpGroups: readonly PowerUpPresentationGroup[] = []
+    powerUpGroups: readonly PowerUpPresentationGroup[] = [],
+    onImpact?: () => void
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -2540,6 +2572,7 @@ export class BoardScene extends Phaser.Scene {
       const impact = () => {
         if (opened || !entry.object.active) return;
         opened = true;
+        onImpact?.();
         this.tweens.killTweensOf(popTarget);
         const visibleBefore = popTarget.visible;
         popTarget.setVisible(false);
@@ -3966,12 +3999,22 @@ export class BoardScene extends Phaser.Scene {
       __gwPreviewPowerUpCombo?: ((combo: CanonicalComboKey) => void) | null;
       __gwPreviewPresentationEffect?: ((effect: PresentationEffectKey) => void) | null;
       __gwStopBoardScene?: (() => void) | null;
+      __gwPieceDisplacement?: ((row: number, col: number) => { dx: number; dy: number; scale: number } | null) | null;
     };
     target.__gwBoardReady = ready;
     target.__gwBoardCellClientPoint = ready ? (row, col) => this.cellClientPoint(row, col) : null;
     target.__gwPreviewPowerUpCombo = ready ? (combo) => this.previewPowerUpCombo(combo) : null;
     target.__gwPreviewPresentationEffect = ready ? (effect) => this.previewPresentationEffect(effect) : null;
     target.__gwStopBoardScene = ready ? () => this.scene.stop() : null;
+    target.__gwPieceDisplacement = ready ? (row, col) => this.pieceDisplacement({ row, col }) : null;
+  }
+
+  /** Test mode: how far a piece sits from the middle of its cell, and its scale. */
+  private pieceDisplacement(position: GridPosition): { dx: number; dy: number; scale: number } | null {
+    const node = this.occupantNodes.get(positionKey(position));
+    if (!node?.active) return null;
+    const home = this.cellCenter(position);
+    return { dx: node.x - home.x, dy: node.y - home.y, scale: node.scaleX };
   }
 
   private cellClientPoint(row: number, col: number): { x: number; y: number } | null {

@@ -68,9 +68,27 @@ test("after 6 seconds without a move the board shows a hint, which goes on a tou
   expect(shown.action.kind).toBe("swap");
   expect(shown.cells.length).toBeGreaterThanOrEqual(3);
 
-  await clickBoardPoint(page, await boardCellPoint(page, { row: 0, col: 0 }));
+  // Taken down mid-nudge, the hinted pieces go straight back to the middle of their cells (PR #92 review).
+  const swapped = [shown.action.from!, shown.action.to!];
+  const displacement = (cell: { row: number; col: number }) => page.evaluate(({ row, col }) =>
+    (window as Window & { __gwPieceDisplacement?: (r: number, c: number) => { dx: number; dy: number; scale: number } | null })
+      .__gwPieceDisplacement?.(row, col) ?? null, cell);
+  await expect.poll(async () => Math.max(...(await Promise.all(swapped.map(async (cell) => {
+    const d = await displacement(cell);
+    return d ? Math.hypot(d.dx, d.dy) : 0;
+  })))), { timeout: 3_000, message: "the pair nudges" }).toBeGreaterThan(2);
+  const untouched = [{ row: 0, col: 0 }, { row: 0, col: 1 }, { row: 1, col: 0 }, { row: 4, col: 4 }, { row: 3, col: 3 }]
+    .filter((cell) => !swapped.some((s) => s.row === cell.row && s.col === cell.col));
+  const [dismissAt, sizeReference] = untouched;
+  await clickBoardPoint(page, await boardCellPoint(page, dismissAt));
   expect(await hint(), "a touch takes the hint down").toBeNull();
-  await clickBoardPoint(page, await boardCellPoint(page, { row: 0, col: 0 }));
+  for (const cell of swapped) {
+    const d = await displacement(cell);
+    expect(d, `piece at ${cell.row},${cell.col}`).not.toBeNull();
+    expect(Math.hypot(d!.dx, d!.dy), `piece at ${cell.row},${cell.col} is back in its cell`).toBeLessThan(0.5);
+    expect(d!.scale, "and back to its size").toBeCloseTo((await displacement(sizeReference))!.scale, 3);
+  }
+  await clickBoardPoint(page, await boardCellPoint(page, dismissAt));
   await expect.poll(hint, { timeout: 8_000 }).not.toBeNull();
 
   // The hinted move is a real one: playing it spends a move.
@@ -890,6 +908,25 @@ test("a broken pane flies to its goal and the count waits for it", async ({ page
   for (const text of whileFlying) expect(text).toContain("Panes: 0/2");
   expect((await objectiveFlights(page)).some(detail => detail?.startsWith("panes:3,2"))).toBe(true);
   await expect(chip).toContainText("Panes: 1/2");
+});
+
+test("a pane the drone strikes starts its flight only when the drone reaches it", async ({ page }) => {
+  // PR #92 review: blocker flights left at the start of the clear, before the drone had even lifted.
+  const rows = PANE_BOARD("k#1");
+  rows[0] = rows[0].replace("f#2", "f"); // one pane on the board, so the drone has one target
+  await openBlockerLevel(page, rows);
+  await darkOnly(page);
+  await page.getByTestId("booster-propeller").click();
+  await clickBoardPoint(page, await boardCellPoint(page, { row: 0, col: 0 }));
+  await waitForResolutionComplete(page);
+  const trace = await page.evaluate(() =>
+    ((window as Window & { __gwPresentationTrace?: Array<{ kind: string; detail?: string }> }).__gwPresentationTrace ?? [])
+      .map(({ kind, detail }) => ({ kind, detail })));
+  const struck = trace.findIndex((entry) => entry.kind === "propeller-impact" && entry.detail === "3,2");
+  const flew = trace.findIndex((entry) => entry.kind === "objective-fly" && (entry.detail ?? "").startsWith("panes:3,2"));
+  expect(struck, "the drone strikes the pane").toBeGreaterThanOrEqual(0);
+  expect(flew, "the pane flies to its goal").toBeGreaterThanOrEqual(0);
+  expect(flew, "and only once it is struck").toBeGreaterThan(struck);
 });
 
 test("a pane's strength number drops when a match beside it removes a layer", async ({ page }) => {
