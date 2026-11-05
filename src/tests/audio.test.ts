@@ -13,7 +13,8 @@ import {
   voiceFile,
   type BoardAudioBackend,
   type BoardAudioPlayback,
-  type BoardAudioSource
+  type BoardAudioSource,
+  respectSilentSwitch
 } from "../services/audio";
 import type { SettingsState } from "../state/save";
 
@@ -503,5 +504,18 @@ describe("Tish's voice lines", () => {
     const { service } = createService(backend);
     await service.preloadVoice();
     expect(backend.preloaded).toHaveLength(lines.length);
+  });
+});
+
+describe("the silent switch", () => {
+  it("declares the page's sound ambient where the browser offers an audio session", () => {
+    const nav = { audioSession: { type: "auto" } };
+    expect(respectSilentSwitch(nav)).toBe(true);
+    expect(nav.audioSession.type).toBe("ambient");
+  });
+
+  it("does nothing where there is no audio session", () => {
+    expect(respectSilentSwitch({})).toBe(false);
+    expect(respectSilentSwitch(undefined)).toBe(false);
   });
 });
