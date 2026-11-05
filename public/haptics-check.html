@@ -22,15 +22,19 @@
 <h1>Haptics check</h1>
 <p>Tap each one and tell Claude which you felt. A = 1, B = 2, and so on.</p>
 
-<div class="row"><span><b>1.</b> Flip this switch by hand</span><input type="checkbox" switch aria-label="Test switch"></div>
+<div class="row"><span><b>1.</b> Flip this switch by hand</span><input type="checkbox" switch aria-label="Test switch" id="visible"></div>
 <button id="now"><b>2.</b> Tick now<small>Hidden switch, the way the game does it</small></button>
 <button id="later"><b>3.</b> Tick 1 second after the tap<small>Like a blast or a cascade, after your finger has lifted</small></button>
 <button id="offscreen"><b>4.</b> Tick now, other hiding style<small>Switch moved off screen instead of hidden</small></button>
 <button id="triple"><b>5.</b> Three ticks<small>How a big combo would feel</small></button>
+<button id="codeVisible"><b>7.</b> Flip switch 1 from code<small>The visible switch above, flipped by this button</small></button>
+<button id="inputDirect"><b>8.</b> Tick now, switch itself<small>Clicks the hidden switch, not its label</small></button>
+<button id="tiny"><b>9.</b> Tick now, almost-visible switch<small>A 2-pixel switch in the corner</small></button>
 <button id="vibrate"><b>6.</b> Vibrate<small>The Android way; expected to do nothing on iPhone</small></button>
 
 <label class="hidden-switch" aria-hidden="true"><input type="checkbox" switch tabindex="-1" id="h1"></label>
 <label class="offscreen-switch" aria-hidden="true"><input type="checkbox" switch tabindex="-1" id="h2"></label>
+<label style="position:fixed;right:0;bottom:0;width:2px;height:2px;overflow:hidden;opacity:0.02"><input type="checkbox" switch tabindex="-1" id="h3"></label>
 
 <pre id="info"></pre>
 <script>
@@ -49,10 +53,14 @@
     ].join("\n");
   }
   function note(text) { log.unshift(new Date().toLocaleTimeString() + "  " + text); render(); }
-  document.getElementById("now").onclick = () => { hidden.click(); note("2: ticked now"); };
   document.getElementById("later").onclick = () => { note("3: waiting 1 s"); setTimeout(() => { hidden.click(); note("3: ticked"); }, 1000); };
   document.getElementById("offscreen").onclick = () => { offscreen.click(); note("4: ticked (off screen)"); };
   document.getElementById("triple").onclick = () => { [0, 70, 140].forEach((ms) => setTimeout(() => hidden.click(), ms)); note("5: three ticks"); };
+  const flipped = (input, run) => { const before = input.checked; run(); return before !== input.checked ? "flipped" : "did not flip"; };
+  document.getElementById("now").onclick = () => { note("2: hidden switch " + flipped(document.getElementById("h1"), () => hidden.click())); };
+  document.getElementById("codeVisible").onclick = () => { const v = document.getElementById("visible"); note("7: switch 1 " + flipped(v, () => v.click())); };
+  document.getElementById("inputDirect").onclick = () => { const i = document.getElementById("h1"); note("8: hidden switch " + flipped(i, () => i.click())); };
+  document.getElementById("tiny").onclick = () => { const t = document.getElementById("h3"); note("9: tiny switch " + flipped(t, () => t.parentElement.click())); };
   document.getElementById("vibrate").onclick = () => {
     const ok = typeof navigator.vibrate === "function" && navigator.vibrate([30, 40, 30]);
     note("6: vibrate " + (ok ? "sent" : "not available"));
