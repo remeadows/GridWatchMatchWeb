@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-05
 
-## 🟡 2026-11-05: DEADBOLT joins the allies. Local branch `dev/deadbolt-and-csp`, NOT pushed, NOT in production
+## 🟡 2026-11-05: DEADBOLT joins the allies. PR #93 (`dev/deadbolt-ally`), accepted on dev, NOT in production
 
 **Russ's words, 2026-11-05.** "The Allies have a new addition, DEADBOLT. His images are in the same Drive as the
 rest of the team. I would like to add him to the roster."
@@ -18,6 +18,9 @@ rest of the team. I would like to add him to the roster."
 - **Verification.** Unit 866/866 (roster tests: 12 allies, DEADBOLT present). Playwright "every ally can be picked"
   now picks DEADBOLT and checks his portrait loads: passed on chromium and mobile. Screenshots of Account (desktop)
   and home (phone) checked by eye.
+- **Dev site.** Deployed as `86409b6-dev` (`npm run cf:dev-instance`); the portrait is served as `image/jpeg`.
+- **Acceptance (Russ, 2026-11-05).** After trying `86409b6-dev`: "Good to go. push". Pushed and opened PR #93.
+- **Deployment.** Not in production. Merge and the production deploy are Russ's.
 - **Console message (separate repo).** Fixed in `gridwatch-command-nexus` branch `fix/csp-nonce-for-cloudflare-jsd`
   (see that repo); nothing changes in Match.
 
