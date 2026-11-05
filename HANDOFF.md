@@ -2,6 +2,25 @@
 
 Last updated: 2026-11-05
 
+## 🟡 2026-11-05: DEADBOLT joins the allies. Local branch `dev/deadbolt-and-csp`, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-05.** "The Allies have a new addition, DEADBOLT. His images are in the same Drive as the
+rest of the team. I would like to add him to the roster."
+
+- **Implementation.** `deadbolt` added to `allyPortraits` and `heroes` (12 allies; villains unchanged at 11). Role
+  from his operator dossier: "Combat engineer. Breaching, field systems and security overrides." He has no Match
+  avatar like the others' `GridWatch-Match-Avatar-*-v1.png`, so his portrait is cut from
+  `GridWatchArt/0 - Gridwatch-Assets/24 - DEADBOLT/GridWatch_DEADBOLT_Roster_04_Shoulders-Up_v2.png`: the city
+  behind him replaced with black by macOS subject lifting (Vision `VNGenerateForegroundInstanceMaskRequest`),
+  cropped square on his head, 768 px JPEG, light vignette. If Russ makes a matching avatar, swap the file only.
+- **Account sync.** `selectedHeroId` is a free string in account-kit (max 64), so Nexus and the cloud save need no
+  change. No other repo keeps an ally list.
+- **Verification.** Unit 866/866 (roster tests: 12 allies, DEADBOLT present). Playwright "every ally can be picked"
+  now picks DEADBOLT and checks his portrait loads: passed on chromium and mobile. Screenshots of Account (desktop)
+  and home (phone) checked by eye.
+- **Console message (separate repo).** Fixed in `gridwatch-command-nexus` branch `fix/csp-nonce-for-cloudflare-jsd`
+  (see that repo); nothing changes in Match.
+
 ## 🟢 2026-11-05: Campaign live. #92 merged and deployed to production on Russ's word
 
 **Russ's words, 2026-11-05.** "Merged." Then, playing level 50 on Nexus: "I'm not seeing the helper
