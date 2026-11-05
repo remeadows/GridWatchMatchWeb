@@ -1,6 +1,47 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-11-03
+Last updated: 2026-11-05
+
+## 🟡 2026-11-05: Haptics, and the pre-ship check. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-05.** After testing on PC and iPhone: "The levels have been great. Challenging
+for sure. The phone test is great. Everything fits. We're about ready to ship". Then: "Are we able to
+code in phone haipics (spelled wrong) so when pieces move, explode, fall, etc the player feels it?"
+
+- **Acceptance (Russ, 2026-11-05).** The 12 sample levels play well and are challenging; the phone
+  layout fits. Calibration is closed on his word: no bot or level changes. Later, after haptics and
+  the silent-mode fix: "Game looks great".
+- **Implementation (built).** `src/services/haptics.ts`. Android browsers vibrate a pattern per
+  moment (`navigator.vibrate`). Felt on: swap, power-up tap, refused swap, match (bigger from 5
+  pieces), landing, power-up made, rocket/TNT/drone/light-ball/combo launch and impact, and the win's
+  row pops. A pulse never cuts off a heavier one still playing; pulses within 45 ms are thinned.
+  Settings has a **Haptics** switch, on by default, shown only on a device that can vibrate. It stays
+  on the device: the account kit's settings schema (`MATCH_SETTINGS_V1`, kit v0.3.0, also enforced by
+  the Nexus) rejects unknown keys, so it is never sent to the cloud and a cloud copy never changes it
+  (`cloudSaves.ts`, as `blockerIntrosSeen`). Sending it had broken every cloud settings store: caught
+  by the full e2e run (22 cloud-save failures), fixed in `5663029`. Test mode records
+  `window.__gwHaptics`.
+- **iPhone: no haptics, tested.** Safari and Chrome on iPhone have no vibration API. The iOS 18
+  workaround (clicking a hidden `<input type="checkbox" switch>` from code) was tried on Russ's
+  iPhone in Chrome with a dev-only check page: hidden by `display:none`, moved off screen, a 2 px
+  switch, the input itself, the visible switch flipped from code, in the tap and 1 s after it. Only
+  his own finger on the switch gave a tick. The iPhone path and the page were removed; Russ approved.
+- **Silent switch.** Russ, on the iPhone in silent mode: "The sound is still playing". The page now
+  declares its audio session `ambient` (`navigator.audioSession`, WebKit, iOS 17+), so the music's
+  `<audio>` obeys the switch (`respectSilentSwitch`, `audio.ts`). **Accepted:** Russ, on the iPhone
+  (Chrome, `3a581d1-dev`): "Game respects silent mode".
+- **Pre-ship check on `7fc386b` (before haptics).** Levels 200/200 valid, unit 856/856, `npm audit`
+  0 vulnerabilities, build clean. Classic suite (`GW_THEME=classic`, `CI=1`): 260 passed, 46
+  skipped, 0 failed: its first run on this branch. Dark `CI=1`: 301 passed, 5 failed, all desktop,
+  all power-up timing (`playback-lifecycle.spec.ts` three tests; propeller creation; damage-only
+  TNT), each a timeout. The five pass alone, the two files pass whole (67/67), and a full desktop
+  re-run passed 153/153: intermittent, not reproduced. Watch for them.
+- **After haptics.** Unit 865/865 (new `haptics.test.ts`; a cloudSaves test that Haptics is never
+  sent nor replaced). New e2e: a swap and its match are felt; with Haptics off nothing is. Cloud-save,
+  carry-over and haptics e2e 50/50 after the fix. Final runs on `6f856ce` (`CI=1`, no
+  retries): dark 308 passed, 0 failed; classic 262 passed, 46 skipped, 0 failed. The five intermittent
+  power-up timeouts from the morning did not recur.
+- **Ready to push on Russ's word.** Nothing pushed; production unchanged.
 
 ## 🟡 2026-11-03: A hint after 6 seconds without a move. Same branch, NOT pushed, NOT in production
 
