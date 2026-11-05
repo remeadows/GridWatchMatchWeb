@@ -2,7 +2,37 @@
 
 Last updated: 2026-11-05
 
-## 🟡 2026-11-05: Haptics, and the pre-ship check. Same branch, NOT pushed, NOT in production
+## 🟢 2026-11-05: Campaign live. #92 merged and deployed to production on Russ's word
+
+**Russ's words, 2026-11-05.** "Merged." Then, playing level 50 on Nexus: "I'm not seeing the helper
+happen after 6 seconds". Nexus was still serving the 2026-10-10 build (no hint, 100 levels): the merge
+had not been deployed. Then: "deploy".
+
+- **Review fixes before the merge** (Autofix on PR #92): `1c8ddd8` (the bot test gets 30 s on GitHub's
+  runners; `readIfPresent` replaces exists-then-read in the level build, CodeQL `js/file-system-race`)
+  and `669eb85` (hinted pieces go back exactly when a hint is taken down mid-nudge; a blocker starts its
+  flight to the goal only when it is struck). Unit 865/865, dark e2e 310/310. The three review threads
+  were answered and resolved. #92 was squash-merged as `e4103e7`; its tree equals `669eb85`.
+- **Deployed, 2026-11-05.** From a clean detached checkout of `origin/main` `e4103e7` with no `.env`:
+  `npm ci`; levels 200/200; unit 865/865; `npm audit --audit-level=high` 0 vulnerabilities;
+  `npm run build` (no `localhost:4173`, no dev label, dark theme attribute, 200 level files, the hint
+  and haptics in the bundle); `release-check.mjs` under `csp-server.mjs` clean on desktop Chromium and
+  iPhone-15 WebKit. Then `npx wrangler deploy --tag match-campaign-e4103e7` with
+  `CLOUDFLARE_ACCOUNT_ID` set. **Version `d2a4ced2-9b79-4a74-8ac9-af71b6ac0955`. Rollback target:
+  `1556f47a-be79-45ed-ab24-0dad5cb6ff92`** (tag `match-dark-default-2cfd470`). `SUPABASE_SERVICE_ROLE_KEY`
+  still bound. The score server's level limits and stars went out in the same worker.
+  - **Checked live** at `https://nexus.warsignallabs.net/play/match/`: serves the built bundle
+    `index-B0UJgNWO.js`; `level_200.json` is served; `GET /api/score` answers 405; the old hostname 301s
+    to Nexus. `release-check.mjs` against Nexus: dark on open, board drawn, no failed requests, both
+    browsers. Level 50 through Nexus: the hint showed at 5.4 s, then came back after each of three
+    hinted moves played.
+  - **One console message on Nexus, not ours.** Cloudflare's network adds a bot-detection inline script
+    (`/cdn-cgi/challenge-platform/.../jsd`) to the Nexus page; the game's `script-src 'self'` blocks it,
+    so the console logs one CSP refusal. The built page has no inline script. The game is unaffected.
+    It is a setting on the Nexus Cloudflare zone; whether to change it is Russ's call.
+- **Acceptance: open.** One real signed-in win on Mac or PC and one on iPhone, each landing its score.
+
+## 2026-11-05: Haptics, and the pre-ship check (since merged in #92 and deployed, above)
 
 **Russ's words, 2026-11-05.** After testing on PC and iPhone: "The levels have been great. Challenging
 for sure. The phone test is great. Everything fits. We're about ready to ship". Then: "Are we able to
