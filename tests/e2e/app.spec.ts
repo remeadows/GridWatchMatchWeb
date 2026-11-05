@@ -41,15 +41,19 @@ test("every ally can be picked as the avatar from the start", async ({ page }) =
   await page.locator(".main-nav").getByRole("button", { name: "Account", exact: true }).click();
 
   const cards = page.locator(".hero-card");
-  await expect(cards).toHaveCount(11);
-  await expect(cards.getByRole("button", { name: "Select", exact: true })).toHaveCount(10);
+  await expect(cards).toHaveCount(12);
+  await expect(cards.getByRole("button", { name: "Select", exact: true })).toHaveCount(11);
   await expect(cards.filter({ hasText: "Rusty" }).getByRole("button", { name: "Selected" })).toBeDisabled();
 
-  await cards.filter({ has: page.getByRole("heading", { name: "AURORA-6", exact: true }) }).getByRole("button", { name: "Select" }).click();
-  await expect(cards.filter({ hasText: "AURORA-6" }).getByRole("button", { name: "Selected" })).toBeDisabled();
+  // DEADBOLT, the newest ally (Russ, 2026-11-05), is open like the rest.
+  await cards.filter({ has: page.getByRole("heading", { name: "DEADBOLT", exact: true }) }).getByRole("button", { name: "Select" }).click();
+  await expect(cards.filter({ hasText: "DEADBOLT" }).getByRole("button", { name: "Selected" })).toBeDisabled();
 
   await page.reload();
-  await expect(page.getByTestId("home-command-deck").getByRole("img", { name: "AURORA-6, selected agent" })).toBeVisible();
+  const avatar = page.getByTestId("home-command-deck").getByRole("img", { name: "DEADBOLT, selected agent" });
+  await expect(avatar).toBeVisible();
+  // The portrait really loads, not a broken image.
+  await expect.poll(() => avatar.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth)).toBeGreaterThan(0);
 });
 
 test("after 6 seconds without a move the board shows a hint, which goes on a touch and comes back", async ({ page }) => {

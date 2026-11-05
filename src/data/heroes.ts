@@ -19,7 +19,9 @@ export const heroes: HeroInfo[] = [
   { id: "mack", displayName: "MACK", description: "Field operative in prototype armor." },
   { id: "core", displayName: "CORE", description: "Bionic GridWatch operative." },
   { id: "june", displayName: "June", description: "Field engineer. Autonomous robotic warfare." },
-  { id: "aurora6", displayName: "AURORA-6", description: "AI guardian." }
+  { id: "aurora6", displayName: "AURORA-6", description: "AI guardian." },
+  // Joined 2026-11-05. Role from his operator dossier in Drive, GridWatchArt / 0 - Gridwatch-Assets / 24 - DEADBOLT.
+  { id: "deadbolt", displayName: "DEADBOLT", description: "Combat engineer. Breaching, field systems and security overrides." }
 ];
 
 export const defaultHeroId = "rusty";

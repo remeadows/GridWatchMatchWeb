@@ -50,10 +50,16 @@ describe("villains", () => {
 });
 
 describe("allies", () => {
-  it("offers all 11 allies as avatars, none locked", () => {
+  it("offers all 12 allies as avatars, none locked", () => {
     expect(heroes.map((hero) => hero.id).sort()).toEqual(Object.keys(allyPortraits).sort());
-    expect(heroes).toHaveLength(11);
+    expect(heroes).toHaveLength(12);
     for (const hero of heroes) expect(Object.keys(hero).sort()).toEqual(["description", "displayName", "id"]);
+  });
+
+  it("has DEADBOLT, the combat engineer who joined the team on 2026-11-05", () => {
+    // Russ, 2026-11-05: "The Allies have a new addition, DEADBOLT."
+    expect(heroes.find((hero) => hero.id === "deadbolt")).toMatchObject({ displayName: "DEADBOLT" });
+    expect(allyPortraits.deadbolt).toBe("assets/images/characters/allies/deadbolt.jpg");
   });
 });
 
