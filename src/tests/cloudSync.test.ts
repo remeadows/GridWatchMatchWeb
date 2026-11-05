@@ -230,7 +230,7 @@ describe("isCurrentProjection", () => {
     const save = defaultSaveState();
     const ordered = projection(save, "settings");
     const reordered = {
-      reducedMotion: ordered.reducedMotion, hapticsEnabled: ordered.hapticsEnabled, voiceEnabled: ordered.voiceEnabled,
+      reducedMotion: ordered.reducedMotion, voiceEnabled: ordered.voiceEnabled,
       sfxEnabled: ordered.sfxEnabled, musicEnabled: ordered.musicEnabled,
     };
     expect(reordered).toEqual(ordered);

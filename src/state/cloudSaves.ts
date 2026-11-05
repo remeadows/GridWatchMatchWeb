@@ -6,6 +6,9 @@ export type CloudSlot = (typeof CLOUD_SLOTS)[number];
 /** `blockerIntrosSeen` stays on this device: the kit's campaign schema (MATCH_CAMPAIGN_V1) rejects
  *  properties it does not list, so sending it would make every cloud store fail. */
 export type CampaignPayload = Omit<SaveState, "version" | "settings" | "blockerIntrosSeen">;
+/** `hapticsEnabled` stays on this device too, for the same reason (MATCH_SETTINGS_V1 does not list
+ *  it), and because a phone's buzz is a choice about that phone. */
+export type SettingsPayload = Omit<SettingsState, "hapticsEnabled">;
 
 /** The kit reports a slot as a plain `string` (its own config is a `readonly string[]`), so anything
  *  arriving from a kit callback has to be narrowed before it can index the app's per-slot state. */
@@ -18,8 +21,9 @@ export function toCampaignPayload(save: SaveState): CampaignPayload {
   return campaign;
 }
 
-export function toSettingsPayload(save: SaveState): SettingsState {
-  return { ...save.settings };
+export function toSettingsPayload(save: SaveState): SettingsPayload {
+  const { hapticsEnabled: _haptics, ...settings } = save.settings;
+  return settings;
 }
 
 export function projection(save: SaveState, slot: CloudSlot): Record<string, unknown> {
@@ -41,7 +45,8 @@ function asRecord(value: unknown): Record<string, unknown> {
 export function applyCloudPayload(save: SaveState, slot: CloudSlot, payload: unknown): SaveState {
   const incoming = asRecord(payload);
   if (slot === "settings") {
-    return normalizeSave({ ...save, settings: { ...save.settings, ...(incoming as Partial<SettingsState>) } });
+    const settings = { ...save.settings, ...(incoming as Partial<SettingsState>), hapticsEnabled: save.settings.hapticsEnabled };
+    return normalizeSave({ ...save, settings });
   }
   const { version: _version, settings: _settings, blockerIntrosSeen: _introsSeen, ...campaign } = incoming as Partial<SaveState>;
   // Cards already seen on this device stay seen, whatever the cloud copy says.
