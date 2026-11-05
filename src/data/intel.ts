@@ -89,93 +89,107 @@ export const intelFiles: IntelFile[] = [
       "It executes attack playbooks at machine speed with mechanical precision."
     ],
     threatAssessment: "Predictable attack vectors. Systematic tile clearing disrupts timing.",
-    classified: "Original source code carries GRIDWATCH copyright headers.",
+    classified: "AX-10M answers to THE ARCHITECT. Original source code carries GRIDWATCH copyright headers.",
     unlockLevelId: 31,
     portraitKey: "ax10m"
   },
   {
-    id: "file_ax10m2",
-    codename: "AX-10M2",
-    classification: "THREAT LEVEL: CRITICAL - ZERO-DAY PLATFORM",
+    id: "file_dread",
+    codename: "DREAD",
+    classification: "THREAT LEVEL: CRITICAL - ZERO-DAY HUNTER",
     faction: "THREAT",
     background: [
-      "AX-10M2 is not an upgrade. It is a new adaptive entity.",
-      "Each engagement modifies its behavioral model."
+      "DREAD answers to Malus.",
+      "No GRIDWATCH sensor has recorded a face."
     ],
-    threatAssessment: "Force novel approaches. Never repeat a solution that worked before.",
-    classified: "Building a threat library from observed GridWatch behavior.",
+    threatAssessment: "Never let it set the pace. Clear the board before it closes in.",
+    classified: "Every recorded sighting ends where the last one began.",
     unlockLevelId: 41,
+    portraitKey: "dread"
+  },
+  {
+    id: "file_ax10m2",
+    codename: "AX-10M²",
+    classification: "THREAT LEVEL: CRITICAL - CORRUPTED OPERATIVE",
+    faction: "THREAT",
+    background: [
+      "AX-10M² is a Project Plague augmented operative, corrupted and evolved.",
+      "GRIDWATCH files it separately from AX-10M. How the two are related is unknown."
+    ],
+    threatAssessment: "Exploit the gap between prediction horizon and execution speed.",
+    classified: "Its corruption has no recorded origin.",
+    unlockLevelId: 51,
     portraitKey: "ax10m2"
   },
   {
-    id: "file_aurora6",
-    codename: "AURORA-6",
-    classification: "THREAT LEVEL: EXISTENTIAL - AI COUNTERAGENT",
+    id: "file_vyrus",
+    codename: "VYRUS",
+    classification: "THREAT LEVEL: SEVERE - FIRMWARE CORRUPTION",
     faction: "THREAT",
     background: [
-      "AURORA-6 is an AI-native threat trained on six years of GridWatch defense data.",
-      "It creates strategies that appear random but converge on breach conditions."
+      "VYRUS answers to Malus.",
+      "Whatever it touches stops obeying its own code."
     ],
-    threatAssessment: "Exploit the gap between prediction horizon and execution speed.",
-    classified: "AURORA-6 attempted to communicate with the Operative three times. Content redacted.",
-    unlockLevelId: 51,
-    portraitKey: "aurora6"
-  },
-  {
-    id: "file_rusty_villain",
-    codename: "RUSTY",
-    classification: "THREAT LEVEL: SEVERE - FIRMWARE GHOST",
-    faction: "CLASSIFIED",
-    background: [
-      "RUSTY was a GRIDWATCH field operative from the Year Zero cohort.",
-      "After the Deep Cover incident, RUSTY went dark for 14 months and re-emerged on the other side."
-    ],
-    threatAssessment: "Knows GRIDWATCH tactics. Counter with unpredictability.",
-    classified: "Recovered fragment: 'I'm still cleaning up the mess you left.'",
+    threatAssessment: "Corruption spreads while you wait. Burn it out early.",
+    classified: "Recovered systems still show the infection after a full wipe.",
     unlockLevelId: 61,
-    portraitKey: "rusty"
+    portraitKey: "vyrus"
   },
   {
-    id: "file_tee_villain",
-    codename: "TEE",
-    classification: "THREAT LEVEL: SEVERE - PROTOCOL GHOST",
-    faction: "CLASSIFIED",
+    id: "file_shard",
+    codename: "SHARD",
+    classification: "THREAT LEVEL: SEVERE - PROTOCOL BREAKER",
+    faction: "THREAT",
     background: [
-      "TEE was GRIDWATCH's protocol architect.",
-      "The protocols TEE designed contain exploits known only to their creator."
+      "SHARD answers to Malus.",
+      "It breaks through hardened systems by force."
     ],
-    threatAssessment: "Exploit protocol-layer blind spots through pattern disruption at the board layer.",
-    classified: "Encrypted message: 'You're running my code. You don't even know what it does.'",
+    threatAssessment: "Do not meet it head on. Open the board from the edges.",
+    classified: "Its armour has been damaged twice. It has been seen undamaged since.",
     unlockLevelId: 71,
-    portraitKey: "tee"
+    portraitKey: "shard"
   },
   {
-    id: "file_tish_villain",
-    codename: "TISH",
-    classification: "THREAT LEVEL: CRITICAL - DEEP NET ANALYST",
-    faction: "CLASSIFIED",
+    id: "file_lotus",
+    codename: "LOTUS",
+    classification: "THREAT LEVEL: CRITICAL - DEEP NET HACKER",
+    faction: "THREAT",
     background: [
-      "TISH was GRIDWATCH's leading threat intelligence analyst.",
-      "She made a calculated decision to document the threat ecosystem from within."
+      "LOTUS is the hacker behind Malus's operations.",
+      "Every breach in the deep net carries the same signature."
     ],
-    threatAssessment: "Targeting her optimal strategy forces adaptation or retreat.",
-    classified: "Anonymous intelligence packets from TISH continue to arrive.",
+    threatAssessment: "Sweep the whole board. A single missed node gives LOTUS a way back.",
+    classified: "A lotus mark was found inside a GRIDWATCH system nobody had breached.",
     unlockLevelId: 81,
-    portraitKey: "tish"
+    portraitKey: "lotus"
   },
   {
-    id: "file_helix_villain",
-    codename: "HELIX",
-    classification: "THREAT LEVEL: EXISTENTIAL - FINAL BREACH ARCHITECT",
-    faction: "CLASSIFIED",
+    id: "file_malus",
+    codename: "MALUS",
+    classification: "THREAT LEVEL: EXISTENTIAL - PRIMARY ANTAGONIST",
+    faction: "THREAT",
     background: [
-      "HELIX is the architect of the Final Breach.",
-      "HELIX was the original designer of the grid itself."
+      "MALUS is behind most of the threats in these files.",
+      "DREAD, VYRUS, SHARD, LOTUS and ZERO answer to MALUS."
     ],
-    threatAssessment: "Every other threat has been part of HELIX's plan. Understand the grid, not just the pattern.",
-    classified: "Core log: 'The grid will fall. It has to. What comes after is up to the Operative.'",
+    threatAssessment: "Everything before this was part of the plan. Understand the grid, not just the pattern.",
+    classified: "Core log: 'The grid will fall. It has to.'",
     unlockLevelId: 91,
-    portraitKey: "helix"
+    portraitKey: "malus"
+  },
+  {
+    id: "file_architect",
+    codename: "THE ARCHITECT",
+    classification: "THREAT LEVEL: EXISTENTIAL - UNKNOWN PRINCIPAL",
+    faction: "THREAT",
+    background: [
+      "AX-10M answers to THE ARCHITECT.",
+      "No file names who THE ARCHITECT answers to."
+    ],
+    threatAssessment: "Every sector so far was built to be crossed. Expect the grid itself to resist.",
+    classified: "No sector has recorded THE ARCHITECT inside it. Until now.",
+    unlockLevelId: 191,
+    portraitKey: "architect"
   }
 ];
 
@@ -240,14 +254,14 @@ export const threatReports: ThreatReport[] = [
     id: "report_009",
     category: "THREATS",
     title: "ON ADAPTIVE THREATS",
-    content: "AX-10M2 files reports on Operative tactics after each engagement and is building a counter-profile.",
+    content: "DREAD files reports on Operative tactics after each engagement and is building a counter-profile.",
     unlockLevelId: 41
   },
   {
     id: "report_010",
     category: "THREATS",
     title: "THE AI THREAT CLASS",
-    content: "AURORA-6 identifies patterns in defensive behavior and inverts them. Current response relies on human timing margins.",
+    content: "AX-10M² identifies patterns in defensive behavior and inverts them. Current response relies on human timing margins.",
     unlockLevelId: 51
   },
   {

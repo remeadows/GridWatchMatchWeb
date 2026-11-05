@@ -3,25 +3,25 @@
   "name": "Reinforcement Loop",
   "gridRows": 7,
   "gridCols": 7,
-  "moveLimit": 46,
+  "moveLimit": 21,
   "objectives": [
     {
-      "id": "collect_key",
-      "target": 23,
-      "displayName": "Collect 23 Keys",
-      "tileType": "key"
+      "id": "panes",
+      "target": 20,
+      "displayName": "Clear 20 encrypted panes",
+      "tileType": null
     },
     {
-      "id": "collect_zeroDay",
-      "target": 17,
-      "displayName": "Collect 17 Zero-Days",
+      "id": "collect",
+      "target": 25,
+      "displayName": "Collect 25 Zero-Days",
       "tileType": "zeroDay"
     }
   ],
   "cellMap": [
     [
       {
-        "tile": "threat",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -29,7 +29,7 @@
         "locked": false
       },
       {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -37,7 +37,7 @@
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -45,7 +45,15 @@
         "locked": false
       },
       {
-        "tile": "zeroDay",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -53,7 +61,7 @@
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -61,15 +69,7 @@
         "locked": false
       },
       {
-        "tile": "threat",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -79,7 +79,7 @@
     ],
     [
       {
-        "tile": "zeroDay",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -87,47 +87,47 @@
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "threat",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "zeroDay",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_1",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -137,7 +137,7 @@
     ],
     [
       {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -145,7 +145,15 @@
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -153,7 +161,7 @@
         "locked": false
       },
       {
-        "tile": "zeroDay",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -161,7 +169,7 @@
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -169,7 +177,25 @@
         "locked": false
       },
       {
-        "tile": "threat",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      }
+    ],
+    [
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -177,7 +203,15 @@
         "locked": false
       },
       {
-        "tile": "packet",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -185,7 +219,31 @@
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": null,
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_1",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -195,7 +253,23 @@
     ],
     [
       {
-        "tile": "firewall",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -203,7 +277,7 @@
         "locked": false
       },
       {
-        "tile": "threat",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -211,7 +285,7 @@
         "locked": false
       },
       {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -219,7 +293,25 @@
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      }
+    ],
+    [
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -227,23 +319,47 @@
         "locked": false
       },
       {
-        "tile": "zeroDay",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
-        "overlay": null,
+        "overlay": "encryptedVolume_2",
         "underlay": null,
         "generator": null,
         "locked": false
       },
       {
-        "tile": "threat",
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_1",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_1",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
+        "powerUp": null,
+        "overlay": "encryptedVolume_2",
+        "underlay": null,
+        "generator": null,
+        "locked": false
+      },
+      {
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -253,7 +369,7 @@
     ],
     [
       {
-        "tile": "key",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -261,7 +377,7 @@
         "locked": false
       },
       {
-        "tile": "zeroDay",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -269,7 +385,7 @@
         "locked": false
       },
       {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -277,7 +393,7 @@
         "locked": false
       },
       {
-        "tile": "threat",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -285,7 +401,7 @@
         "locked": false
       },
       {
-        "tile": "packet",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -293,7 +409,7 @@
         "locked": false
       },
       {
-        "tile": "key",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -301,123 +417,7 @@
         "locked": false
       },
       {
-        "tile": "zeroDay",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      }
-    ],
-    [
-      {
-        "tile": "threat",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "packet",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "key",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "zeroDay",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "firewall",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "threat",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "packet",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      }
-    ],
-    [
-      {
-        "tile": "zeroDay",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "firewall",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "threat",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "packet",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "key",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "zeroDay",
-        "powerUp": null,
-        "overlay": null,
-        "underlay": null,
-        "generator": null,
-        "locked": false
-      },
-      {
-        "tile": "firewall",
+        "tile": null,
         "powerUp": null,
         "overlay": null,
         "underlay": null,
@@ -427,12 +427,16 @@
     ]
   ],
   "spawnWeights": {
-    "packet": 0.23,
-    "firewall": 0.21,
+    "packet": 0.2,
+    "firewall": 0.2,
     "key": 0.2,
-    "threat": 0.17,
-    "zeroDay": 0.19
+    "threat": 0.2,
+    "zeroDay": 0.2
   },
   "bossLevel": false,
-  "bonusLevel": false
+  "bonusLevel": false,
+  "starMoves": {
+    "two": 3,
+    "three": 5
+  }
 }

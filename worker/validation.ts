@@ -1,4 +1,5 @@
 import limits from "./level-limits.json";
+import starMovesByLevel from "./level-stars.json";
 
 export const LEVEL_SCORE_CAP = 25000;
 export const GAME_SLUG = "gridwatch-match";
@@ -15,9 +16,16 @@ export interface Telemetry {
   durationSec?: number;
 }
 
-// MUST mirror src/App.tsx starsEarned — change together.
-export function starsFor(moveCount: number, moveLimit: number): number {
-  const ratio = (moveLimit - moveCount) / Math.max(1, moveLimit);
+// MUST mirror src/data/stars.ts starsForMovesLeft — change together (parity test: src/tests/stars.test.ts).
+export function starsFor(moveCount: number, moveLimit: number, levelId?: number): number {
+  const movesLeft = moveLimit - moveCount;
+  const custom = levelId === undefined ? undefined : (starMovesByLevel as Record<string, { two: number; three: number }>)[String(levelId)];
+  if (custom) {
+    if (movesLeft >= custom.three) return 3;
+    if (movesLeft >= custom.two) return 2;
+    return 1;
+  }
+  const ratio = movesLeft / Math.max(1, moveLimit);
   if (ratio >= 0.5) return 3;
   if (ratio >= 0.2) return 2;
   return 1;
@@ -35,7 +43,7 @@ export function validateSubmission(body: unknown):
   if (typeof body !== "object" || body === null) return { ok: false, error: "Malformed body." };
   const b = body as Record<string, unknown>;
   const levelId = b.levelId;
-  if (!isInt(levelId) || levelId < 1 || levelId > 100) return { ok: false, error: "Unknown level." };
+  if (!isInt(levelId) || levelId < 1) return { ok: false, error: "Unknown level." };
   const moveLimit = moveLimitFor(levelId);
   if (moveLimit === null) return { ok: false, error: "Unknown level." };
 
@@ -61,7 +69,7 @@ export function validateSubmission(body: unknown):
   if (!isInt(chainSum) || chainSum < 0 || chainSum > moveCount * 5)
     return { ok: false, error: "Implausible cascade depth." };
   if (!isInt(stars) || stars < 1 || stars > 3) return { ok: false, error: "Implausible star count." };
-  if (!playOnUsed && stars !== starsFor(moveCount, moveLimit))
+  if (!playOnUsed && stars !== starsFor(moveCount, moveLimit, levelId))
     return { ok: false, error: "Star count does not match move usage." };
 
   const actionLog = Array.isArray(b.actionLog) ? b.actionLog : null;

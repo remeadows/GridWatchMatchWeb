@@ -1,3 +1,5 @@
+import type { BoosterType } from "../engine";
+
 export interface StoreItem {
   id: string;
   title: string;
@@ -23,3 +25,11 @@ export const clearancePass: StoreItem = {
 
 export const playOnCost = 500;
 export const playOnExtraMoves = 5;
+export const coinsPerLeftoverMove = 5;
+export const powerUpPrices: Record<BoosterType, number> = {
+  rocket: 100,
+  rocketVertical: 100,
+  propeller: 150,
+  tnt: 200,
+  lightBall: 300
+};

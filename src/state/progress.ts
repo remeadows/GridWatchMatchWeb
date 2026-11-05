@@ -1,4 +1,6 @@
-import { areaForLevel, areas, type AreaInfo } from "../data/areas";
+import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "../data/areas";
+import { coinsPerLeftoverMove, powerUpPrices } from "../data/store";
+import type { BoosterType } from "../engine";
 import type { SaveState } from "./save";
 
 export function starsForLevel(save: SaveState, levelId: number): number {
@@ -37,10 +39,27 @@ export function isAreaComplete(save: SaveState, area: AreaInfo): boolean {
   return completedLevelsInArea(save, area) >= area.lastLevel - area.firstLevel + 1;
 }
 
-export function isHeroUnlocked(save: SaveState, unlockAreaId: number | null): boolean {
-  if (unlockAreaId === null) return true;
-  const area = areas.find((candidate) => candidate.id === unlockAreaId);
-  return area ? isAreaComplete(save, area) : false;
+export interface LevelCoinReward {
+  starCoins: number;
+  leftoverMoves: number;
+  moveCoins: number;
+  total: number;
+}
+
+// Coins are paid once per level, so replaying an easy one cannot farm them, and not after Play On,
+// whose moves were bought.
+export function levelCoinReward(
+  save: SaveState,
+  levelId: number,
+  stars: number,
+  leftoverMoves: number,
+  playOnUsed: boolean
+): LevelCoinReward {
+  const firstWin = stars > 0 && (save.levels[String(levelId)]?.stars ?? 0) === 0;
+  if (playOnUsed || !firstWin) return { starCoins: 0, leftoverMoves, moveCoins: 0, total: 0 };
+  const starCoins = stars * 10;
+  const moveCoins = leftoverMoves * coinsPerLeftoverMove;
+  return { starCoins, leftoverMoves, moveCoins, total: starCoins + moveCoins };
 }
 
 export function awardLevelCompletion(
@@ -48,9 +67,11 @@ export function awardLevelCompletion(
   levelId: number,
   stars: number,
   score: number,
-  playOnUsed: boolean
+  playOnUsed: boolean,
+  leftoverMoves: number
 ): SaveState {
   const next = cloneSave(save);
+  next.coins += levelCoinReward(save, levelId, stars, leftoverMoves, playOnUsed).total;
   const current = next.levels[String(levelId)];
   const bestStars = Math.max(current?.stars ?? 0, stars);
   const bestScore = Math.max(current?.score ?? 0, score);
@@ -59,11 +80,17 @@ export function awardLevelCompletion(
     score: bestScore,
     completedAt: current?.completedAt ?? new Date().toISOString()
   };
-  if (!playOnUsed && stars > 0 && (current?.stars ?? 0) === 0) {
-    next.coins += stars * 10;
-  }
   next.completedTutorial = true;
   next.tutorialReplayRequested = false;
+  return next;
+}
+
+export function buyPowerUp(save: SaveState, booster: BoosterType): SaveState | null {
+  const price = powerUpPrices[booster];
+  if (save.coins < price) return null;
+  const next = cloneSave(save);
+  next.coins -= price;
+  next.boosters[booster] = (next.boosters[booster] ?? 0) + 1;
   return next;
 }
 
@@ -97,5 +124,5 @@ export function areaProgressLabel(save: SaveState, area: AreaInfo): string {
 }
 
 export function currentArea(save: SaveState): AreaInfo {
-  return areaForLevel(Math.min(100, Math.max(1, highestCompletedLevel(save) + 1)));
+  return areaForLevel(Math.min(campaignLevelCount, Math.max(1, highestCompletedLevel(save) + 1)));
 }

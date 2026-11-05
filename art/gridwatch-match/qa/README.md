@@ -37,5 +37,6 @@ To probe a real build without uploading it: `npm run cf:dev-instance -- --dry-ru
 Each run takes about 16 minutes and builds from the working tree when it starts; do not
 run a Blender build at the same time (both are CPU-bound and the timing tests are sensitive).
 Useful URLs: `?gwTestMode=1&level=N` jumps to a level; `?theme=classic` / `?theme=dark`;
-`?hidpi=0`. Level 54 has zero-day tiles; level 34 has locked, encrypted and malware cells; level 100 has
-every board power-up but the propeller and every cell state, generators included.
+`?hidpi=0`. Level 52 collects zero-day tiles; level 17 has locked, encrypted and malware cells; level 94 has the
+same with more of each; level 180 has locks, encrypted cells and honeypot generators. No level places
+power-ups on the board at the start, and none mixes generators with malware.

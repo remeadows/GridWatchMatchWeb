@@ -684,6 +684,14 @@ a.primary-action:focus-visible {
   border-color: color-mix(in srgb, var(--accent), transparent 58%);
 }
 
+.area-grid .area-tour-heading {
+  grid-column: 1 / -1;
+  margin: 10px 0 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .area-card.locked,
 .intel-card.locked {
   filter: grayscale(0.9);
@@ -806,6 +814,11 @@ a.primary-action:focus-visible {
   background: #050b12;
 }
 
+.game-board-slot,
+.booster-tray .qa-tools {
+  display: contents;
+}
+
 .board-canvas {
   width: 100%;
   height: 100%;
@@ -882,6 +895,30 @@ a.primary-action:focus-visible {
 
 /* Dev instance only (scripts/dev-instance.mjs): which build is on screen. Fixed and inert, so it
    takes no part in layout and never intercepts a board touch. */
+.coin-mark {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-right: 0.35em;
+  border: 2px solid var(--gold);
+  border-radius: 50%;
+  vertical-align: -0.04em;
+  box-shadow: 0 0 10px var(--gold-glow), inset 0 0 4px var(--gold-glow);
+}
+
+.result-coins {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  margin: 2px 0 12px;
+  color: var(--muted);
+}
+
+.result-coins strong {
+  color: var(--gold);
+  font-size: 1.2rem;
+}
+
 .dev-build-badge {
   position: fixed;
   left: 6px;
@@ -1026,6 +1063,31 @@ a.primary-action:focus-visible {
   color: var(--gold);
 }
 
+.power-up-shop {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  margin-bottom: 14px;
+}
+
+.power-up-shop img,
+.power-up-offer {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.power-up-offer {
+  margin: 6px auto;
+}
+
+.booster-tray button.is-empty img {
+  opacity: 0.32;
+}
+
+.booster-tray button.is-empty strong {
+  color: var(--gold);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -1040,6 +1102,14 @@ a.primary-action:focus-visible {
   width: min(460px, 100%);
   padding: 20px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+}
+
+.blocker-intro-picture {
+  display: block;
+  width: 84px;
+  height: 84px;
+  margin: 0 auto 8px;
+  object-fit: contain;
 }
 
 .tutorial-modal {

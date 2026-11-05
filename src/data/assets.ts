@@ -1,4 +1,4 @@
-import { assetManifest, audioManifest, lottieManifest } from "./assetManifest.generated";
+import { assetManifest, audioManifest, lottieManifest } from "./assetManifest";
 import { presentationAudioManifest, type PresentationAudioKey } from "./presentationAssets";
 
 export { assetManifest, audioManifest, lottieManifest };

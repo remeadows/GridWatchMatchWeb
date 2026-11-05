@@ -35,7 +35,7 @@ is not done is listed in §7.
 - **Board size** comes from level JSON (`public/levels/`, `snapshot.grid.rows/cols`); nothing in
   the art or the integration assumes 7×7. Cell size is `floor(min(canvas) / max(rows, cols))`.
 - **Engine** (`src/engine`) is a pure deterministic state machine. The art work does not touch it.
-- **Pieces** load through `src/data/assetManifest.generated.ts` (iOS art, with web overrides under
+- **Pieces** load through `src/data/assetManifest.ts` (web-owned since the iOS sync was removed on 2026-11-03; older replacements under
   `public/assets/images/web-overrides/`). A piece is drawn at `0.85 × cell`.
 - **Persistence:** campaign, settings and inventory are saved to IndexedDB (localStorage fallback)
   and, signed in, to cloud saves through `@gridwatch/account-kit`; scores go through `/api/score`.
@@ -193,8 +193,19 @@ Not done, or done only in part. None of it blocks playing the dev build.
   the game goes straight from the level tile to the board, and the brief says not to add a step.
 - **`cell_blocked` has not been seen in play.** No shipped level starts with a blocked cell, so it
   is verified as a render and a mapping test only.
-- **Effects are the classic effects.** Match bursts, rocket trails, the TNT blast and the rest
-  keep their shapes, colours and timing. On a 3× canvas their drawn lines are a third as wide.
+- **Effects are the classic effects with bigger blasts on top** (2026-11-01, `HANDOFF.md`). Sizes
+  now follow the tile on a 3× canvas, and blasts gained blooms, beams and metal debris. Match
+  bursts, rocket trails and the rest keep their shapes and timing. Only a blast's glow and shards
+  pass the canvas, as page elements (`src/game/blastSpill.ts`, 2026-11-02).
+- **On a phone a level fits one screen** (2026-11-02). The top bar stands aside, the board takes the
+  height the HUD, objective and dock leave (`.game-board-slot`), and nothing scrolls. A screen under
+  480 px tall keeps the scrolling page.
+- **A first win pays coins:** 10 per star and 5 per unused move, not on a replay and not after Play
+  On (`levelCoinReward`, `src/state/progress.ts`). Web-only so far.
+- **Coins buy power-ups** (`powerUpPrices`, `buyPowerUp`): in the Store, or by tapping an empty
+  power-up during a level. Play On is still 500 coins for 5 moves.
+- **Pieces follow Royal Match's measured motion** (2026-11-02, `HANDOFF.md`), except that the next
+  match still waits for the last landing, where Royal Match starts it while pieces are landing.
 - **Intel, Account, Store, Rules** carry the shared treatment through common classes. They were
   checked for layout at both sizes, not designed screen by screen against a concept.
 - **Heap after repeated level entry** climbs about 0.16 MB per entry over thirty entries, by the
@@ -275,7 +286,9 @@ What this does and does not show: the dark board is lighter to download and hold
 memory, and on this Mac both themes sit on the 60 Hz frame cap at every size, with the CPU slowed
 four times as well. Load times are over loopback, so they compare the two themes and say nothing
 about a network. The dark canvas has four times the pixels on the desktop and nine times on the
-phone; a slowed CPU does not model a phone's GPU, so **a real phone's frame rate is unmeasured.**
+phone; a slowed CPU does not model a phone's GPU, so that said nothing about a phone. **Measured on
+Russ's iPhone on 2026-11-02 (one screen recording, 60 fps):** no frame over 18 ms in play, including
+a 49-tile blast. Android and Safari proper are unmeasured; see the top `HANDOFF.md` entry.
 
 ### Acceptance list (brief §8)
 

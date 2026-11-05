@@ -1,5 +1,5 @@
 import manifestJson from "../data/matchV2Manifest.generated.json";
-import type { BoosterType, TileType } from "../engine/types";
+import type { BlockerKind, BoosterType, TileType } from "../engine/types";
 import { defaultBoardTheme } from "../services/buildInfo";
 
 // The one selection point between the game's look, the Blender-built dark-realism set
@@ -76,6 +76,11 @@ export function matchV2PowerUpAsset(powerUp: MatchV2PowerUpId): MatchV2Asset | u
 export function matchV2BoosterAsset(booster: BoosterType): MatchV2Asset | undefined {
   const powerUp: MatchV2PowerUpId = booster === "rocket" ? "rocket_horizontal" : booster === "rocketVertical" ? "rocket_vertical" : booster;
   return matchV2PowerUpAsset(powerUp);
+}
+
+/** The picture of a removed blocker, for its flight to the goal. */
+export function matchV2BlockerAsset(kind: BlockerKind): MatchV2Asset | undefined {
+  return matchV2BoardPartAsset(kind === "pane" ? "overlay:encryptedVolume" : kind === "lock" ? "cell:locked" : "underlay:malwarePropagation");
 }
 
 export type MatchV2CellState = "movable" | "held" | "blocked";

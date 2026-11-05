@@ -1,6 +1,413 @@
 # GridWatch Match Web Handoff
 
-Last updated: 2026-10-10
+Last updated: 2026-11-05
+
+## 🟡 2026-11-05: Haptics, and the pre-ship check. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-05.** After testing on PC and iPhone: "The levels have been great. Challenging
+for sure. The phone test is great. Everything fits. We're about ready to ship". Then: "Are we able to
+code in phone haipics (spelled wrong) so when pieces move, explode, fall, etc the player feels it?"
+
+- **Acceptance (Russ, 2026-11-05).** The 12 sample levels play well and are challenging; the phone
+  layout fits. Calibration is closed on his word: no bot or level changes. Later, after haptics and
+  the silent-mode fix: "Game looks great".
+- **Implementation (built).** `src/services/haptics.ts`. Android browsers vibrate a pattern per
+  moment (`navigator.vibrate`). Felt on: swap, power-up tap, refused swap, match (bigger from 5
+  pieces), landing, power-up made, rocket/TNT/drone/light-ball/combo launch and impact, and the win's
+  row pops. A pulse never cuts off a heavier one still playing; pulses within 45 ms are thinned.
+  Settings has a **Haptics** switch, on by default, shown only on a device that can vibrate. It stays
+  on the device: the account kit's settings schema (`MATCH_SETTINGS_V1`, kit v0.3.0, also enforced by
+  the Nexus) rejects unknown keys, so it is never sent to the cloud and a cloud copy never changes it
+  (`cloudSaves.ts`, as `blockerIntrosSeen`). Sending it had broken every cloud settings store: caught
+  by the full e2e run (22 cloud-save failures), fixed in `5663029`. Test mode records
+  `window.__gwHaptics`.
+- **iPhone: no haptics, tested.** Safari and Chrome on iPhone have no vibration API. The iOS 18
+  workaround (clicking a hidden `<input type="checkbox" switch>` from code) was tried on Russ's
+  iPhone in Chrome with a dev-only check page: hidden by `display:none`, moved off screen, a 2 px
+  switch, the input itself, the visible switch flipped from code, in the tap and 1 s after it. Only
+  his own finger on the switch gave a tick. The iPhone path and the page were removed; Russ approved.
+- **Silent switch.** Russ, on the iPhone in silent mode: "The sound is still playing". The page now
+  declares its audio session `ambient` (`navigator.audioSession`, WebKit, iOS 17+), so the music's
+  `<audio>` obeys the switch (`respectSilentSwitch`, `audio.ts`). **Accepted:** Russ, on the iPhone
+  (Chrome, `3a581d1-dev`): "Game respects silent mode".
+- **Pre-ship check on `7fc386b` (before haptics).** Levels 200/200 valid, unit 856/856, `npm audit`
+  0 vulnerabilities, build clean. Classic suite (`GW_THEME=classic`, `CI=1`): 260 passed, 46
+  skipped, 0 failed: its first run on this branch. Dark `CI=1`: 301 passed, 5 failed, all desktop,
+  all power-up timing (`playback-lifecycle.spec.ts` three tests; propeller creation; damage-only
+  TNT), each a timeout. The five pass alone, the two files pass whole (67/67), and a full desktop
+  re-run passed 153/153: intermittent, not reproduced. Watch for them.
+- **After haptics.** Unit 865/865 (new `haptics.test.ts`; a cloudSaves test that Haptics is never
+  sent nor replaced). New e2e: a swap and its match are felt; with Haptics off nothing is. Cloud-save,
+  carry-over and haptics e2e 50/50 after the fix. Final runs on `6f856ce` (`CI=1`, no
+  retries): dark 308 passed, 0 failed; classic 262 passed, 46 skipped, 0 failed. The five intermittent
+  power-up timeouts from the morning did not recur.
+- **Ready to push on Russ's word.** Nothing pushed; production unchanged.
+
+## 🟡 2026-11-03: A hint after 6 seconds without a move. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03.** "One more change before I go into full test mode. When a user is looking
+at the board for more than 6 seconds looking for a match, give an animated hint (check screen
+recordings for reference)".
+
+- **Reference.** In his Royal Match recording (`ScreenRecording_11-01-2026 03-28-47_1.mp4`, about
+  42 s in), a pale outline fades in round the two pieces of one move after a few seconds of stillness,
+  with sparkles on it, and stays until he touches the board. Found by charting where the frames
+  change, since the game's ambient animation never stops.
+- **Implementation (built).**
+  - `findHint(grid)` (engine, pure) picks the move. Two power-ups swapped together come first, then
+    the swap making the biggest match, then a power-up swapped into a plain piece, then a power-up
+    tapped. It returns the move and the pieces to outline (the swapped pair plus the rest of the
+    match), where they sit now.
+  - The board starts counting when it waits on the player. It only counts while the level is in play
+    with no tutorial, intro card or power-up offer over it (`hintsAllowed` from the app), with no
+    booster picked and moves left. At 6 s it draws one warm outline round the pieces; the outline
+    fades in over 0.3 s, then breathes, with sparks twinkling at its corners. The swapped pair nudge
+    toward each other every ~1.1 s; a tapped power-up swells instead. Any touch takes it down and
+    restarts the count, as does every move or animation. With reduced motion, the outline holds
+    still and nothing nudges.
+  - Times are in `presentationTiming.ts` (`BOARD_HINT_*`).
+- **On the dev site** as `14de1ff-dev` (version `62f3aa86`).
+- **Verification (automated).** Unit 856/856 (new `hint.test.ts`: the biggest match wins and its
+  pieces are outlined where they sit; two power-ups come first; a frozen piece is never asked to move;
+  a lone power-up is tapped). Dark e2e 306/306, desktop and mobile, including a new test: no hint at
+  5 s, a hint by 7 s, gone on a touch, back after another 6 s, and the hinted swap really spends a
+  move. Run without `CI=1` against the leftover port-4173 preview. Classic suite not run. Screenshot
+  of level 1 checked by eye. Russ has not seen it yet.
+
+## 🟡 2026-11-03: Drone timing and targets, glowing locks, ally roles. Same branch, NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03,** playing `4204fd9-dev` on PC: "Everything is playing smooth. Two changes
+in animation please 1. drone - slow the animation down when first launched, then quickly targets a
+tile 2. drone - priority targets caged or iced or locked tiles". Then, with a screenshot of a locked
+cell: "The cell lock is great and works well. The issue is I can hardly see it. Maybe something that
+glows". And: "The rosters and info are in GridWatch Art --> GridWatch Assets".
+
+- **Implementation (built).**
+  - **Drone targets (engine):** pieces under a pane and locked pieces now come before every other
+    cell, whatever the goal (`choosePropellerTargets`). Its occasional second choice stays among blocked
+    pieces while any are left. Boards without panes or locks pick exactly as before, random stream
+    included. The frozen replays were re-recorded: 34,164 actions, up from 33,885.
+  - **Drone motion:** it climbs off its cell slowly (340 ms, was 105; rising 0.4 cell, was 0.25),
+    then strikes fast (210 ms, was 340). One drone's sequence is about 100 ms longer in all. Combo
+    drones keep their own timings.
+  - **Locks on the dark board:** an amber frame with a soft halo and a padlock badge in the top-left
+    corner. Every lock on the board pulses together, once every 1.8 s; with reduced motion it holds
+    steady.
+  - **Allies:** the 11 one-liners now follow the character cards and roster in
+    `GridWatchArt / 0 - Gridwatch-Assets` (Helix had been "Grid war veteran", which is wrong: she is
+    The Light). The AX-10M² dossier now uses its card ("Project Plague augmented operative, corrupted
+    and evolved").
+- **Not measured.** Since the drone favours blockers, pane and lock levels should play somewhat
+  easier. Bot fail rates have not been re-run; that belongs with Task 13 calibration.
+- **On the dev site** as `7d518f6-dev` (version `378ae649`).
+- **Verification (automated).** Unit 852/852 (new `droneTargets.test.ts`: a lock across the board
+  beats goal pieces beside the drone on 200 seeds; panes and locks come before any plain piece;
+  honeypots never count; with no blockers it still follows the goal). Dark e2e 304/304, desktop and
+  mobile, including a new test that level 7's two locks glow and the glow changes brightness. Run
+  without `CI=1` against the leftover port-4173 preview. Classic suite not run. Screenshot of level 7
+  checked by eye: both locks clearly lit. Russ has not seen it yet.
+
+## 🟡 2026-11-03: 11 allies, 11 villains, fresh portraits, no iOS sync. On the dev site as `4204fd9-dev`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-03.** "I have made image files for every character and created a roster in
+the Match folder. ... A player can choose an avatar from the allied list. There are 11 villains and 11
+allies. Fresh imagery for every character." On the open sectors he chose AX-10M² for sectors 6 and 16
+and The Architect as the last boss (sector 20). Then: "Get rid of iOS sync. No need until I take it to
+Xcode… which is no time soon".
+
+- **Implementation (built).** The roster is Drive `GridWatchArt / 4 - GridWatch Match /
+  GridWatch-Match-Allied-Villain-Roster-v1.md`. All 22 portraits come from the files it names, resized
+  to 768 px JPEGs under `public/assets/images/characters/` (3.1 MB in all, against about 16 MB
+  before) and listed in `src/data/portraits.ts`. AURORA-6 is an ally now: AX-10M² takes sectors 6 and
+  16, THE ARCHITECT takes sector 20 ("THE ARCHITECT steps forward"), and Malus keeps sector 10 only.
+  The Account screen offers all 11 allies with no unlocks (`unlockAreaId` and `isHeroUnlocked`
+  removed). Old saves keep their pick, since the four old ids are unchanged. The sector 6 dossier is
+  now AX-10M²'s, The Architect has one (opens at level 191), AX-10M's says he answers to The Architect,
+  and Malus's no longer claims every threat. The iOS sync is gone: `scripts/sync-ios-assets.mjs`,
+  `npm run sync:assets`, `assetSyncState.generated.json` and the `.sync-manifest.json` ignore line.
+  `assetManifest.generated.ts` became the hand-kept `assetManifest.ts`. README, AGENTS, SKILLS,
+  MEMORY and the CodeRabbit config no longer mention the sync.
+- **My calls, open to Russ.** These texts are drafts: the ally one-liners (June's and AURORA-6's are
+  just "GridWatch operative", since the roster gives no role), the sector 20 subtitle, and the
+  AX-10M² and Architect dossiers. The home screen's large Tish is scene art, not a portrait, so it
+  stays. The CodeRabbit config still asks reviewers for iOS animation parity; only its sync rules were
+  removed.
+- **Verification (automated).** Unit 848/848 with new roster tests (11 allies, none locked; all 11
+  villains used and each with a dossier; every portrait on disk), tsc clean. Dark e2e 302/302 (desktop
+  and mobile), including a new test that picks AURORA-6 on the Account screen and finds her on the
+  home screen after a reload; run without `CI=1` against the leftover port-4173 preview after a build
+  with the test origins. Classic-theme suite not run. On the dev site as `4204fd9-dev`
+  (version `d6be4b36`): the menu screenshot probe shows no console errors and no sideways scroll on
+  any screen at desktop or iPhone 15 size, and the new portraits and sector names are served. Russ has
+  not looked at it yet.
+
+## 🟡 2026-11-03: A 200-level campaign on `dev/level-campaign`. On the dev site as `5a76b7d-dev`; NOT pushed, NOT in production
+
+**Where it lives.** Local branch `dev/level-campaign`, started from `dev/feel-pieces-effects` at
+`a475b87`. Not pushed, not merged. On Russ's word ("Put on dev", 2026-11-03) `5a76b7d` went to the
+dev site (version `d089a357`), replacing `470d122-dev`, which Russ had not phone-checked; this build
+carries that feel work too. Checked on the live dev site: badge `5a76b7d-dev`, campaign 0/200, all 20
+sectors listed with DREAD, VYRUS, SHARD, LOTUS and MALUS, levels 101 and 200 served. The five new
+villains show placeholder portraits until Russ's images arrive. Spec `docs/superpowers/specs/2026-11-02-gridwatch-match-levels-design.md`,
+plan `docs/superpowers/plans/2026-11-02-gridwatch-match-levels.md`: Tasks 1-12 done, 13 and 14 wait
+on Russ.
+
+- **Implementation (built).** Panes really block (a frozen piece cannot swap, refills stop at the
+  pane), the malware goal is "Remove all malware", and pane and lock goals count toward winning, with
+  goal chips, flights and a one-time intro card for each blocker. Play On without 500 coins now says what it costs and keeps the mission open
+  instead of ending it.
+  Per-level star thresholds (`starMoves`), checked by the score server from `worker/level-stars.json`.
+  A test bot and level tool under `scripts/levels/` (`npm run levels`) build levels 11-200 from
+  sector recipes into ordinary `public/levels/level_NNN.json` files; levels 1-10 are unchanged.
+  Sectors 11-20 open with their villains and dossiers; the five new portraits are placeholders.
+  Every built level must open with at least 4 legal swaps on the board the game really deals
+  (`levelSeed(id)`), unless its recipe cannot deal that many (below).
+- **Verification (what was run, 2026-11-03, at the rebuild commit).** `npx tsc --noEmit` clean;
+  `npx vitest run` 845/845; `npm run validate:levels` 200 passed, 0 failed; `npm run build` clean.
+  Rebuild of 11-200 (200 games a level, mistake rate 0.2): 174/190 in band, 16 out of band, 0 dead
+  boards. Full dark e2e (chromium and mobile projects): 300 passed, 0 failed, 0
+  skipped, 0 flaky, 15.1 min, including "level 150 opens and can be won". Port 4173 was held by a leftover `vite preview` (pid 93660,
+  this repo) that could not be stopped, so `CI=1` refuses to start: the build was made with the
+  Playwright config's `VITE_*` env and the suite ran without `CI`, reusing that server (it served
+  the new level files). The classic-theme run was not done. No phone has played any of it.
+- **Acceptance: waits on Russ.**
+  - **Task 13 calibration is a gate, not a formality.** Russ plays about 12 levels on first sight
+    and the bot's mistake rate is set from that. It may force a recipe or band rework and a full
+    rebuild; nothing here is final difficulty until then.
+  - **Task 14 portraits.** Dread, Vyrus, Shard, Lotus and Malus show placeholder art.
+  - **Out of band (fail rate against target), written as the closest candidate:** 26 0.285 vs 0.10
+    (too hard); 33 0.13 vs 0.225, 34 0.09 vs 0.20, 35 0.10 vs 0.24, 38 0.09 vs 0.24, 39 0.15 vs 0.29,
+    40 0.15 vs 0.30; 52 0.20 vs 0.37, 56 0.12 vs 0.40, 57 0.21 vs 0.44, 59 0.165 vs 0.49, 60 0.025 vs
+    0.50; 163 0.145 vs 0.525, 165 0.245 vs 0.54, 167 0.31 vs 0.555, 170 0.505 vs 0.60. Five of
+    sector 6 (52, 56, 57, 59, 60) are new since the opening-moves rule: their stretched ring layouts
+    never deal 4 swaps, so they stay unstretched and too easy (51, 53, 54, 55, 58 stretched and landed
+    in band).
+  - **Four levels open with one legal swap: 151, 153, 154, 158.** Sector 16's recipe fills the whole
+    inner ring with panes at 17 cells or more, so no layout can do better. The levers are recipe
+    changes and his: a different pattern, fewer than 17 blocked cells, or a ring with gaps.
+  - **Move-limit steps over 6 between neighbouring sectors** (median built limit): 1->2 26.5 to 14.5,
+    3->4 20 to 12, 5->6 15 to 24, 6->7 24 to 13, 7->8 13 to 27, 10->11 29 to 16.5, 12->13 20.5 to 28,
+    13->14 28 to 17, 15->16 19 to 30, 16->17 30 to 12, 17->18 12 to 31. The spec says limits never
+    jump; the bot may simply be stronger than people, which calibration decides.
+  - **Sectors 4 and 17 (lock-only recipes) are too easy for the bot even at 12 moves**, the floor:
+    4/10 and 6/10 in band.
+  - **The shared campaign leaderboard is kept** (`gridwatch-match / campaign / r1`), Russ's decision,
+    although rebuilt levels 11-100 change what old scores on them mean.
+- **Deployment (not done; order for the eventual production release).** The score server's
+  `worker/level-limits.json` and `worker/level-stars.json` must go live together with the level
+  files: they are one unit. `levelUrl` (`src/data/assets.ts`) is an unhashed path
+  (`levels/level_NNN.json`), so a browser or CDN can hold an old level file. An old cached level
+  against the new server, or a new level against the old server, rejects real wins with "Implausible
+  move count." or "Star count does not match move usage." This cache risk needs handling before the
+  release (cache headers, purge, or versioned level URLs); the caching was not changed here.
+
+## 🟡 2026-11-02: Coins buy power-ups. On the dev site; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** "Coins should be able to buy power-ups. what is the total coin
+potential add per level?"
+
+- **Built.** `powerUpPrices` (`data/store.ts`) and `buyPowerUp` (`state/progress.ts`). The Store has
+  a power-ups section with pictures and owned counts; a price button greys out when the coins fall
+  short. In a level, an empty power-up shows a gold + and tapping it offers one for coins; buying
+  arms it, ready for a tile. The breach timer stops while the offer is open.
+- **Prices are my call, not his:** Rocket H and V 100, Propeller 150, TNT 200, Light Ball 300,
+  about one to three levels of earnings. One table.
+- **Coins per level, from `public/levels` and a random-tap bot (30 runs a level, engine only, level
+  seeds):** ceiling 30 + 5 x (moves - 1): 110 at 17 moves, 265 at 48; 24,450 for the campaign with
+  5,500 of sector rewards, and not reachable. The bot left 15, 10, 12, 9, 9, 23, 24, 22, 21, 20
+  moves per sector, so with 3 stars about 73-105 a level in sectors 1-5, 129-152 in 6-10, 113
+  overall, roughly 16,800 for a campaign. Russ left 17 of 29 and 19 of 29 where the bot left 15 and
+  11, so a real player earns somewhat more.
+- **Finding, not acted on:** the random bot wins 92-100% per sector, and sectors 6-10 have 34-48
+  moves where 1-5 have 17-29. Coins and Play On matter little unless levels get harder.
+- **Verified:** unit 626/626. Full e2e at `470d122`: dark 268 passed; classic 238 passed, 30 skipped
+  (dark-only tests). Store, empty power-up and offer read by eye at 440x748. No real phone yet.
+- **Under discussion, nothing built (Russ: "Dont make code changes yet, let's talk about it first").**
+  He suspects levels feel alike because blockers are moderate and do not count toward winning, and
+  he is right: objectives are only `collect*` and `clear`, levels 51-55 have no blockers, every
+  board is a full 7x7. Levels are synced from iOS and `scripts/sync-ios-assets.mjs` wipes
+  `public/levels`, and `worker/level-limits.json` follows the move limits. Open with him: a
+  web-only level set, and how hard late levels should be. My advice: ship the feel work first.
+
+## 🟡 2026-11-02: Leftover moves pay coins, and a level fits one phone screen. On the dev site as `331b3cb-dev`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** He played `1c07acc-dev` on his iPhone: "The gameplay is getting really
+good." Leftover-moves payout: "yes they should." Next match during landing: "I would leave it out.
+The game doesnt feel slow". Layout: "For mobile, scrolling is annoying because touching the screen
+during gameplay comes with consequence. Perhaps shrinking the header to allow more room to fit the
+gameplay onto one screen." He also asked what coins do.
+
+- **Payout (`levelCoinReward` in `state/progress.ts`, `coinsPerLeftoverMove` in `data/store.ts`).**
+  5 coins per unused move on top of 10 per star. My calls, not his: the rate, and paying under the
+  old rule (a level's first win only, never after Play On), so an easy level cannot be farmed and
+  bought moves do not pay. A 3-star first win with 18 moves left pays 120; Play On costs 500.
+  Web-only: iOS has not been changed.
+- **Presentation.** No new effects. `WinPayout` on the banner counts the moves down and the coins
+  up across the row destruction; `ResultCoins` itemises the reward and the new total. Not each
+  leftover move as its own blast, as Royal Match does: the rows already blow up.
+- **One screen (end of `darkRealism.css`, portrait phones, dark board).** On his phone the page was
+  889 px in a 748 px view: 141 px over. `.top-bar` is hidden during a level (Back is in the HUD; the
+  40 px Nexus account bar stays, it is shared), the gaps go from 12-24 to 6, and the new
+  `.game-board-slot` is a size container, so the board is `min(100cqw, 100cqh)` and a level with
+  three objectives or a shorter phone shrinks it rather than scrolling. Board width, then and now:
+  440x748 412 to 424; 393x652 322 to 376; 375x550 280 to 277. "Last clear" is hidden on a phone
+  outside test mode, messages lie over the board and fade, and the Queue line goes below 700 px.
+  Test mode's tools sit below the fold in `.qa-tools`, so e2e sees a player's layout.
+- **Words.** The top bar said "Credits" and everything else "coins": it now says Coins. The Play On
+  dialog shows the balance, since the top bar is gone on a phone.
+- **The recording (`ScreenRecording_11-02-2026 11-39-17_1.mp4`, 3:08, `1c07acc-dev`).** Banner,
+  stars and shards all played. Frames: median 16.67 ms; to 176 s, 3.5% stuck during movement, 177
+  gaps over 25 ms against 13 on the last clip. Nearly all are single 33 ms frames, 9 over 40 ms, the
+  longest 67 ms once. They fall at 1.3-3% whether the screen is still or mid-blast (1.6% on the
+  biggest motion), so the shards are not the cause; the cause is unknown.
+- **Coins, as built:** the one thing they buy is Play On. Power-ups start at 3 each and nothing
+  restocks them; the store is a disabled stub. A Play On press without 500 coins ends the mission.
+- **Verified:** unit 622/622. The 14 new and banner e2e pass on Chromium and WebKit at phone size,
+  including no page scroll at all three sizes. Result panel, banner and level read by eye at 440x748.
+  Full e2e at `331b3cb`: dark 262 passed; classic 232 passed, 30 skipped (dark-only tests). This is
+  the first full dark pass since the swap-to-impact limits moved, so that open item is closed.
+- **Not done / open.** No real phone has seen `331b3cb-dev`, so `100dvh` under Chrome's bars on iOS
+  is unmeasured. His call: whether coins should buy power-ups. Still open: the arrival tick, bloom
+  strength, iOS timings, seven dependency PRs.
+
+## 🟡 2026-11-02: Royal Match feel, part 3: the end of a level, and blasts past the board. On the dev site as `1c07acc-dev`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** "Let's finish the feel work and then we will update production when
+we're done". So the empty-board fix below goes out with this work, not on its own. The order was
+the one given to him earlier: win banner, then effects past the board.
+
+- **No pause after a swap.** `MATCH_RECOGNITION_HOLD_MS` is 0, from his phone recording. Later waves
+  keep their 20 ms beat, because their pieces have only just landed.
+- **Win banner (`WinBanner` in `App.tsx`, `.dr-win-*`).** A steel plate with the level number and
+  GRID / SECURED stamps in over the board while its rows blow away, with gold and teal sparks. It
+  lasts as long as the row destruction, so no win timing changed. Dark board only; not under
+  either reduced-motion setting.
+- **Three stars (`ResultStars`).** The result panel lands one to three gold stars left to right;
+  the unearned stay as dull steel. Dark board only; the classic panel keeps its "3 star(s)" line.
+- **Blasts past the board (`src/game/blastSpill.ts`, `spillBlast` in `BoardScene`).** The canvas
+  stays board-sized: growing it would lay it over the objective and tray. What escapes is page
+  elements in a fixed layer, like the flying pieces: a soft glow and tumbling metal shards. TNT,
+  rockets, propellers, light balls, combos and the win's last burst use it; a rocket's shards carry
+  on in the way it was going. At most 40 elements, nothing per frame, and the glow is 220 px scaled
+  up so a 3× phone never rasters a board-sized gradient. Dark board only.
+- **Verified:** unit 617/617. e2e dark at `1c07acc`: 248 passed, 2 failed, both one test pinning the
+  swap-to-impact window at the old 120-140 ms; it read 100 ms, the intended result of removing the
+  pause. Limits moved to 90-110 at `470d48a`, then that test passed 6/6 (three repeats, both
+  devices); the full dark suite was not rerun after that test-only change. e2e classic at `470d48a`:
+  228 passed, 22 skipped. Frames read by eye at phone size: banner, stars, and a TNT blast whose
+  shards cross the board's left and bottom edges.
+- **Not done / open.** The next full e2e on both themes comes before any push. No real phone has
+  seen part 3, so the banner and shards' cost and look there are unmeasured. His calls: the
+  leftover-moves payout (coin economy) and starting the next match while pieces land (engine
+  order). Also still open: the arrival tick unheard, bloom strength, iOS timings, seven dependency
+  PRs. Light ball stages and level-start power-ups were not touched.
+
+## 🟡 2026-11-02: Empty-board hang fixed, first real-phone measurement. On the dev site as `341f830-dev`; NOT pushed; **the hang is still in production**
+
+**Russ's words, 2026-11-02.** He asked "How do we measure a real phone?", recorded `02d99b0-dev` on
+his iPhone (Drive, `GridWatchArt / 4 - GridWatch Match`, `ScreenRecording_11-02-2026 07-02-48_1.mp4`)
+and said "Screen capture is in the folder. It catches a big bug towards the end."
+
+- **The bug.** Level 4, 25/29 moves, Light Ball swapped with Rocket V. All 49 cells cleared in one
+  step; the chained TNT and two propellers then ran with the board already empty. The engine gave
+  those propellers no targets (correct), and `playPropellerPowerUpEffect` returned without calling
+  back, so the step never finished and the refill never came. `playLightBallPowerUpEffect` had the
+  same hole. The recording's score proves the stopping point: 1,441 is 510 plus 49/61 of 1,160.
+- **Not caused by the feel work.** The same two lines are on `main`, so **production has this hang**
+  whenever a blast empties the board before a propeller or Light Ball fires.
+- **Fix (`341f830`).** Every early return in the power-up effects now reports back. New e2e case
+  rebuilds his exact board and move, for a chained propeller and a chained Light Ball; it failed
+  before the fix and passes on both devices. Refill frames read by eye on the replay.
+- **Recovery is harsh and left as it was.** The watchdog budget doubles every step's worst case, so
+  this resolution would have sat for about 80 s (measured 81.5 s in Chrome) and then failed the
+  mission with "Board playback was interrupted. Retry the mission." Not changed.
+- **Verified at `341f830`:** unit 613/613; e2e dark 244 passed; classic fallback 224 passed, 20
+  skipped. The upload to the dev site answered 200; Russ has not replayed it.
+- **Phone measured, one recording, his iPhone (1320×2868), Chrome.** The recorder runs at 60 fps.
+  Frame interval during play: median 16.67 ms, worst 18 ms, none over 30 ms, including the 49-tile
+  blast (1.32% of its active frames stuck). During movement 3.6% of frames were stuck against 0.48%
+  and 0.16% on his two Royal Match recordings, measured the same way. The longest stuck runs are 3
+  frames at the end of a swap: that is `MATCH_RECOGNITION_HOLD_MS` (30 ms), a deliberate hold, not a
+  dropped frame; Royal Match pops on the next frame. So the 3× canvas shows no cost on this phone
+  and a `?hidpi=0` recording was not needed. Limits: the recorder itself takes some power and caps
+  at 60, this is one phone, and Android and Safari proper are unmeasured. Scripts stayed in the
+  session scratch folder: raw frames from ffmpeg, frame differences over the board, stuck means
+  under 12% of the motion around it.
+
+## 🟡 2026-11-02: Royal Match feel, part 2: pieces move as one train. Local on `dev/feel-pieces-effects`; NOT pushed, NOT in production
+
+**Russ's words, 2026-11-02.** After playing part 1 on the dev site: "I'm happy with effects so far",
+then "One item I would address is the smoothness animation of pieces moving like you saw in royal
+match game." Rules as before; numbers are measured from his recordings, nothing else is taken.
+
+- **Measured (60 fps, `03-20-53` recording, around 40.9 s and 57.6 s).** Every piece at every distance
+  sits on one curve: it leaves already moving at 3.6 cells/s and gains 29 cells/s². Each piece in a
+  column leaves 3 frames (50 ms) after the one below it. Refills are the tail of the same train,
+  spaced a cell apart. A landing stops dead with no squash or stretch (piece height stays constant)
+  and bobs up 0.02 cell after a two-cell drop, 0.06 after five, over about 250 ms. A swap takes 10
+  frames, full speed then slowing (fits Cubic.easeOut), and the pop starts on the next frame.
+- **What was wrong here.** Gravity and refill were two separate steps: everything fell, landed,
+  hopped and settled, and only then did new pieces start. Every refilling piece also started on one
+  spot above the board, stacked on the others. Falls started from rest (250 ms for one cell against
+  166), and a 140 ms hold sat between the swap and the pop.
+- **What changed.** The gravity step plays its refill too (`playResolutionSteps`), so a column comes
+  down once. `refillStartRows` spaces refills above the board, `fallOrderInColumn` staggers them,
+  `cascadeFallDurationMs` and `cascadeFallEase` are the measured curve, `cascadeReboundPx` the bob.
+  `clipToBoardTop` cuts entering pieces along the board's top edge by cropping their images: a mask
+  on the layer would add a full-canvas pass per frame on a phone. Swap 165 ms Cubic.easeOut with no
+  lift or set-down (was 175 + 60). Holds 30 and 20 ms (were 140 and 100). Shuffles keep their 235 ms.
+  **His October "more weight" squash, hop and stretch are gone from falls and swaps**; the rebound,
+  landing sound and board jolt carry the weight now. Creation landings keep theirs.
+- **Not copied:** Royal Match starts the next match while pieces are still landing. Here the next
+  step waits for the last landing and its bob. The bob is 160 ms, not 250, so a chain does not wait
+  on it. That concurrency would be an engine-order change, not a timing change.
+- **Verified at `7e8a016`:** unit 613/613; e2e on the dark default 238 passed, 2 failed; on a
+  classic-default build 220 passed, 20 skipped. Both failures were one test in
+  `objective-flight.spec.ts`, which sampled a flight from outside the page twice: with the pop this
+  close behind the swap the flight was late in its path by then. It now watches one flight every
+  frame in the page, and that spec passed 24/24 (three repeats, both devices); nothing else was
+  rerun after that test-only change. Frames read by eye for a TNT refill and an ordinary match
+  (`motion-probe.mjs`): columns come down spaced, refills are cut at the board's top edge. Not
+  measured: a real phone, and the frame rate of this change, which adds no drawing of note.
+
+## 🟡 2026-11-01: Royal Match feel, part 1: flying pieces and bigger effects. On the dev site; NOT pushed, NOT in production (branch `dev/feel-pieces-effects`)
+
+**Russ's words, 2026-11-01.** He put two iPhone recordings of Royal Match (levels 181 and 183, audio
+tracks silent) in Drive, `GridWatchArt / 4 - GridWatch Match`, and after a comparison said: "copy
+this feel - start with the flying pieces and bigger effects", then "just start". Rules as before:
+local `dev/...` branch, extensive testing, push only on his word, merge and production his.
+Reference for feel only: nothing is taken from Royal Match's art or sound, and the look stays dark.
+
+- **Flying pieces** (`src/game/objectiveFlight.ts` the path and count, `src/game/pieceFlights.ts`
+  the drawing, `collectPiece` in `BoardScene`): a clear that counts for an objective leaves its cell
+  as it breaks, swells, curves up and lands on the objective's picture, which pulses and ticks
+  (the existing `tilePopB` cue, quiet, rising; no new sound). The count rises on landing, not at
+  the step. The objective is outside the canvas, so flights are page elements in one fixed layer,
+  animated by the browser. 480 ms, 35 ms apart, 14 in the air at most (the rest count at once).
+  Pieces cleared by power-ups fly too. Dark board only; nothing under the reduced-motion setting
+  or the OS preference; leaving a level clears them. They do not hold up play. Trace: `objective-fly`.
+- **Bigger effects** (`src/game/vfx.ts`, `BoardScene`). Two measured limiters came first. Sizes in
+  canvas pixels came out a third as big on a phone's 3x canvas: `setVfxTileSize` now scales the
+  primitives by the tile. And `concurrentEmitters: 12` was spent by the first three pieces of any
+  blast, so the rest broke with no debris (every power-up peaked at 12 with a third to a half of
+  its particles unused): it is 36 now, and the live particle caps (180/110), which now do get
+  reached, are unchanged. New: `blastCore` (a soft bloom that holds, then goes out), `laneBeam`,
+  `heavyDebris` (grey metal chunks that tumble and drop), thicker rings and bolts. TNT, rocket,
+  propeller, light ball, combos and the win use them; a breaking piece's coloured orb is dimmer.
+  Durations of the board's steps did not change. The screen flash limits (0.38, 80 ms) are untouched.
+- **Verified at `1ca9c1e`:** unit 605/605; e2e on the dark default 236 passed, 2 failed; on a
+  classic-default build 216 passed, 20 skipped (title and flight tests), the same 2 failed. Both
+  were the one budget test asserting the old limit of 12 (it saw 20). That literal is now 36 and
+  that test was rerun on both themes; no other test was rerun after that one-line change. Frames
+  read by eye for TNT, rocket, light ball, propeller and a swap (`motion-probe.mjs`, which now
+  re-reads the cell after a booster press scrolls the page). Frame intervals through the five
+  heaviest effects, phone-sized page, CPU slowed 4x: old and new alike, 16.7 ms, none over 33 ms.
+  That rules out script cost, not a phone's GPU filling large glows on a 3x canvas.
+- **Not done / open:** a real phone (frame rate, and whether the blooms are too much); the arrival
+  tick has not been heard by anyone; effects stop at the canvas edge, so they cannot break out past
+  the board as Royal Match's do (a layout change, `.game-board-panel`); the leftover-moves payout
+  and win banner seen in the recordings are not built (the payout changes coin economy: his call);
+  light ball stages and level-start power-ups not touched. Next from him: his verdict on the dev site.
 
 ## 🟢 2026-10-10: Dark theme is the game's look, the menu opens on a title screen, music starts on the first tap. MERGED (`2cfd470`, PR #81) and IN PRODUCTION (version `1556f47a`); Russ's look on a real phone still open
 

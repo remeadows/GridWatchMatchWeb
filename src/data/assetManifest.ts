@@ -1,0 +1,57 @@
+// The web game's image, audio and animation lists. Edit by hand; the iOS asset sync was removed
+// (Russ, 2026-11-03). Character portraits live in portraits.ts.
+
+export const assetManifest = {
+  "images": {
+    "tiles": {
+      "packet": "assets/images/web-overrides/tiles/tile_packet.png",
+      "firewall": "assets/images/web-overrides/tiles/tile_firewall.png",
+      "key": "assets/images/web-overrides/tiles/tile_key.png",
+      "threat": "assets/images/web-overrides/tiles/tile_threat.png",
+      "zeroDay": "assets/images/web-overrides/tiles/tile_zeroday.png"
+    },
+    "powerUps": {
+      "rocketH": "assets/images/web-overrides/powerups/powerup_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/powerups/powerup_rocket_v.png",
+      "propeller": "assets/images/web-overrides/powerups/powerup_propeller.png",
+      "tnt": "assets/images/web-overrides/powerups/powerup_tnt.png",
+      "lightBall": "assets/images/web-overrides/powerups/powerup_lightball.png"
+    },
+    "boosters": {
+      "rocketH": "assets/images/web-overrides/boosters/booster_rocket_h.png",
+      "rocketV": "assets/images/web-overrides/boosters/booster_rocket_v.png",
+      "propeller": "assets/images/web-overrides/boosters/booster_propeller.png",
+      "tnt": "assets/images/web-overrides/boosters/booster_tnt.png",
+      "lightBall": "assets/images/web-overrides/boosters/booster_lightball.png"
+    },
+    "backgrounds": {
+      "home": "assets/images/backgrounds/home_background.png",
+      "gamePanel": "assets/images/backgrounds/game_panel.png"
+    },
+    "appIcon": "assets/images/app/AppIcon_1024.png"
+  }
+} as const;
+
+export const audioManifest = [
+  "bgm_boss.mp3",
+  "bgm_gameplay.mp3",
+  "bgm_menu.mp3",
+  "sfx_breach_alert.mp3",
+  "sfx_chain_cascade.mp3",
+  "sfx_level_complete.mp3",
+  "sfx_level_fail.mp3",
+  "sfx_power_up.mp3",
+  "sfx_tile_clear.mp3",
+  "sfx_ui_tap.mp3",
+  "vo_area_cleared.mp3",
+  "vo_breach_alert.mp3",
+  "vo_connection_secure.mp3",
+  "vo_grid_compromised.mp3",
+  "vo_initiating_countermeasures.mp3"
+] as const;
+
+export const lottieManifest = [
+  "chest_reveal.json",
+  "streak_tierup.json",
+  "win_fanfare.json"
+] as const;

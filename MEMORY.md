@@ -5,7 +5,7 @@ Last updated: 2026-09-08
 ## Durable Context
 
 - This repo is the web port only: `/Users/russmeadows/Dev/1 - WarSignalLabs/4 - Games/GridWatchMatchWeb`.
-- Do not modify the iOS source repo while working on the web game. The iOS repo is authoritative for parity and assets, but web work stays in this repo.
+- Do not modify the iOS source repo while working on the web game. Since 2026-11-02 the web game stands alone: the iOS repo is no longer authoritative for parity or assets, and the asset sync was removed on 2026-11-03.
 - Public GitHub repo: `https://github.com/remeadows/GridWatchMatchWeb`.
 - Public playable URL: `https://nexus.warsignallabs.net/play/match/` (Nexus proxy; the only host since 2026-09-23). Worker origin: `https://gridwatch-match.russell-meadows.workers.dev`, which also serves the game directly at `/play/match/` but is not the URL to give players. The old hostname `GridWatchMatchWeb.warsignallabs.net` 301s to Nexus via a zone redirect rule.
 - The project is for the Community Dev Challenge "Make a game we can play"; the core requirement is a public, immediately playable game link.

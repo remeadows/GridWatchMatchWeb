@@ -27,8 +27,8 @@ describe("SeededRNG", () => {
 describe("production levels", () => {
   const files = readdirSync(levelsDir).filter((name) => /^level_\d{3}\.json$/.test(name)).sort();
 
-  it("contains the current 100 synced iOS levels", () => {
-    expect(files).toHaveLength(100);
+  it("contains the 200 campaign levels", () => {
+    expect(files).toHaveLength(200);
   });
 
   it.each(files)("initializes %s without invariants breaking", (file) => {
@@ -38,6 +38,10 @@ describe("production levels", () => {
     expect(snapshot.grid.rows).toBe(level.gridRows);
     expect(snapshot.grid.cols).toBe(level.gridCols);
     expect(engine.validMoves().length).toBeGreaterThan(0);
+    // Nothing is earned before the first move, and no pane is broken while the board is dealt.
+    for (const [goal, progress] of Object.entries(snapshot.objectiveProgress)) expect(progress, goal).toBe(0);
+    const overlays = snapshot.grid.allPositions.filter((position) => snapshot.grid.get(position).overlay !== null).length;
+    expect(overlays).toBe(level.cellMap.flat().filter((cell) => cell.overlay !== null).length);
   });
 });
 

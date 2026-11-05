@@ -15,6 +15,7 @@ export interface SettingsState {
   musicEnabled: boolean;
   sfxEnabled: boolean;
   voiceEnabled: boolean;
+  hapticsEnabled: boolean;
   reducedMotion: boolean;
 }
 
@@ -28,6 +29,7 @@ export interface SaveState {
   levels: Record<string, LevelRecord>;
   areaRewards: Record<string, boolean>;
   intelSeen: Record<string, boolean>;
+  blockerIntrosSeen: Record<string, boolean>;
   settings: SettingsState;
 }
 
@@ -48,10 +50,12 @@ export function defaultSaveState(): SaveState {
     levels: {},
     areaRewards: {},
     intelSeen: {},
+    blockerIntrosSeen: {},
     settings: {
       musicEnabled: true,
       sfxEnabled: true,
       voiceEnabled: true,
+      hapticsEnabled: true,
       reducedMotion: false
     }
   };
@@ -90,6 +94,7 @@ export function normalizeSave(value: Partial<SaveState>): SaveState {
     levels: { ...(value.levels ?? {}) },
     areaRewards: { ...(value.areaRewards ?? {}) },
     intelSeen: { ...(value.intelSeen ?? {}) },
+    blockerIntrosSeen: { ...(value.blockerIntrosSeen ?? {}) },
     settings: { ...defaults.settings, ...(value.settings ?? {}) }
   };
 }

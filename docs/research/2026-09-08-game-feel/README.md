@@ -3,7 +3,7 @@
 ## Frozen Implementation Baseline
 
 Task 0 fixtures live in `src/tests/fixtures/resolution/`. `manifest.json` contains
-SHA-256 source hashes; `corpus.json` stores 2,000 runs / 34,054 actions, action
+SHA-256 source hashes; `corpus.json` stores 2,000 runs / 34,164 actions, action
 tuples, and complete canonical outcome hashes. Arrays preserve order; object keys
 sort recursively. Each outcome includes delta, error, complete row-major snapshot,
 and cumulative action log. `specimens.json` retains full authored input, initial
@@ -14,8 +14,16 @@ node --experimental-transform-types docs/research/2026-09-08-game-feel/verify-re
 ```
 
 Verification writes nothing. `freeze-resolution.mjs` is provenance only: it checks
-every source byte against `328a1a7` and refuses to overwrite existing fixtures.
-Never regenerate expected outcomes from a changed engine. An initial unpublished
+every engine and frozen-level byte against its own baseline commit (`git rev-parse
+--short HEAD`, recorded in `manifest.json`) and refuses to overwrite existing fixtures.
+Never regenerate expected outcomes from a changed engine, except for an approved rule
+change: the fixtures were first recorded on `328a1a7` (34,054 actions) and re-recorded
+on `a2a415f` after the pane and malware rule changes (panes freeze their piece; malware
+spreads only after a move that removes none; boosters never spread it). To re-record,
+delete `manifest.json`, `specimens.json` and `corpus.json` and run the script; the
+frozen `levels/` folder is the input and is never regenerated. Levels with neither panes
+nor malware replayed identically (ignoring the new `malwareLeft` and `blockerClears`
+fields) before re-recording. An initial unpublished
 specimen draft retained a mutable action-array reference; it was quarantined outside
 source and corrected before the no-write replay gate. Corpus hashes did not change.
 

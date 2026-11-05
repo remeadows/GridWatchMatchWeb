@@ -321,11 +321,6 @@ export class AudioService {
     return true;
   }
 
-  vibrate(pattern: number | number[]): void {
-    const nav = typeof navigator === "undefined" ? null : navigator;
-    if (typeof nav?.vibrate === "function") nav.vibrate(pattern);
-  }
-
   private installGestureUnlock(): void {
     if (this.gestureUnlockInstalled || typeof document === "undefined") return;
     this.gestureUnlockInstalled = true;
@@ -413,6 +408,24 @@ class WebAudioBoardBackend implements BoardAudioBackend {
 }
 
 let audioContext: AudioContext | null | undefined;
+
+/**
+ * Russ, 2026-11-05, on an iPhone in silent mode: "The sound is still playing". iOS lets `<audio>`
+ * (the music) through the silent switch unless the page declares its sound "ambient", which WebKit
+ * allows from iOS 17 (`navigator.audioSession`). Ambient sound is silenced by the switch and mixes
+ * with whatever else is playing. Elsewhere this does nothing.
+ */
+export function respectSilentSwitch(nav: unknown = typeof navigator === "undefined" ? undefined : navigator): boolean {
+  const session = (nav as { audioSession?: { type?: string } } | undefined)?.audioSession;
+  if (!session || typeof session !== "object") return false;
+  try {
+    session.type = "ambient";
+    return session.type === "ambient";
+  } catch {
+    return false;
+  }
+}
+respectSilentSwitch();
 
 /**
  * One audio context for the board sounds, the voice and the music's level. It is made on first

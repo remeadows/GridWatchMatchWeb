@@ -15,9 +15,9 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 
 ## Source Of Truth
 
-- Match rules and data parity come from the current Swift source in the sibling iOS repo.
+- The web game stands alone (Russ, 2026-11-02): it no longer follows the iOS app for rules, levels, timings or art, and the iOS asset sync is gone (2026-11-03).
 - Prefer current source over stale docs when they disagree.
-- Levels are hand-authored JSON copied from the iOS repo; do not add procedural generation.
+- Levels are the web game's own JSON in `public/levels/`, built and checked with `npm run levels` and `npm run validate:levels`.
 - The web port must support all current engine capabilities even when the current 100 levels do not exercise them.
 
 ## Architecture Rules
@@ -61,7 +61,6 @@ Read `SKILLS.md`, `MEMORY.md`, and `HANDOFF.md` before making changes. `SKILLS.m
 ## Commands
 
 - `npm ci`
-- `npm run sync:assets`
 - `npm run validate:levels`
 - `npm run test`
 - `npm run test:e2e`

@@ -167,7 +167,9 @@ function detectSquares(grid: Grid2D<CellState>): { tileType: TileType; positions
 }
 
 function matchableTile(position: GridPosition, grid: Grid2D<CellState>): TileType | null {
-  return grid.get(position).baseTile;
+  const cell = grid.get(position);
+  // A piece under a pane is frozen: it cannot take part in a match.
+  return cell.overlay ? null : cell.baseTile;
 }
 
 function shapeFor(group: MutableMatchGroup): MatchShape {

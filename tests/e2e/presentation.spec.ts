@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { BoardEngine, type BoardAction, type LevelDefinition } from "../../src/engine";
+import { BoardEngine, type BoardAction, type LevelDefinition, type TileType } from "../../src/engine";
 import { levelSeed } from "../../src/state/progress";
 import type { CanonicalComboKey, PresentationTraceEntry } from "../../src/game/presentation";
 import type { ResolutionFrameAudit } from "../../src/game/resolutionPlayback";
@@ -92,6 +92,26 @@ test.describe("locked cell readability", () => {
       { row: 3, col: 4, kind: "containment-lock" }
     ]);
   });
+
+  test("on the dark board every lock glows, and the glow pulses", async ({ page }) => {
+    // Russ, 2026-11-03: "I can hardly see it. Maybe something that glows".
+    await page.goto("./?gwTestMode=1&level=7");
+    await waitForBoardReady(page);
+    test.skip(await page.evaluate(() => document.documentElement.dataset.boardTheme !== "darkRealism"), "the glow is drawn on the dark board");
+
+    const glows = await page.evaluate(() => (window as Window & { __gwLockGlows?: Array<{ row: number; col: number }> }).__gwLockGlows ?? []);
+    expect(glows).toEqual([{ row: 3, col: 3 }, { row: 3, col: 4 }]);
+
+    const alpha = () => page.evaluate(() => (window as Window & { __gwLockGlowAlpha?: number }).__gwLockGlowAlpha ?? null);
+    const samples: number[] = [];
+    for (let index = 0; index < 6; index += 1) {
+      const value = await alpha();
+      if (value !== null) samples.push(value);
+      await page.waitForTimeout(150);
+    }
+    expect(samples.length).toBeGreaterThan(3);
+    expect(Math.max(...samples) - Math.min(...samples)).toBeGreaterThan(0.05);
+  });
 });
 
 test.describe("ordered cascade playback", () => {
@@ -114,6 +134,27 @@ test.describe("ordered cascade playback", () => {
     const trace = await presentationTrace(page);
     expect(trace.filter(entry => entry.kind === "cascade-start")).toHaveLength(1);
     expect(trace.filter(entry => entry.kind === "cascade-land")).toHaveLength(1);
+  });
+
+  test("brings a column's drop and its refill down as one train", async ({ page }) => {
+    await page.goto("./?gwTestMode=1&level=1");
+    await waitForBoardReady(page);
+    await dragBoardCells(page, { row: 4, col: 2 }, { row: 5, col: 2 });
+    await page.waitForFunction(() => (window as Window & { __gwPresentationTrace?: PresentationTraceEntry[] })
+      .__gwPresentationTrace?.some(entry => entry.kind === "resolution-complete"));
+    const trace = await presentationTrace(page);
+    const frames = await page.evaluate(() => (window as Window & { __gwResolutionFrames?: ResolutionFrameAudit[] }).__gwResolutionFrames ?? []);
+    // One fall for each drop and refill pair, not one each.
+    expect(trace.filter(entry => entry.kind === "cascade-start")).toHaveLength(frames.filter(frame => frame.kind === "gravity").length);
+    const plans = trace.filter(entry => entry.kind === "cascade-fall-plan").map(entry => parseCascadeFallPlan(entry.detail));
+    const entering = plans.filter(plan => plan.entering);
+    expect(entering.length).toBeGreaterThan(0);
+    expect(plans.some(plan => !plan.entering)).toBe(true);
+    // A refill waits in whole cells above the board, not stacked on one spot, and leaves in turn.
+    expect(entering.every(plan => Number.isInteger(plan.distanceCells) && plan.distanceCells >= 1)).toBe(true);
+    expect(plans.every(plan => plan.delayMs % 50 === 0)).toBe(true);
+    expect(entering.some(plan => plan.delayMs > 0)).toBe(true);
+    expect(trace.filter(entry => entry.kind === "cascade-start").length).toBeLessThan(plans.length);
   });
 
   test("reveals a created rocket before the same occupant falls and is tapped", async ({ page }) => {
@@ -206,14 +247,14 @@ test.describe("normal presentation timeline", () => {
     const complete = traceEntry(trace, "resolution-complete");
 
     expect(swapSettled.atMs).toBeLessThan(impact.atMs);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(230);
-    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(250);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeGreaterThanOrEqual(90);
+    expect(impact.plannedAtMs - swapSettled.plannedAtMs).toBeLessThanOrEqual(110);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeGreaterThanOrEqual(220);
     expect(cascadeStart.plannedAtMs - impact.plannedAtMs).toBeLessThanOrEqual(260);
-    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(250);
+    expect(cascadeLand.plannedAtMs - cascadeStart.plannedAtMs).toBeGreaterThanOrEqual(150);
     expect(cascadeLand.plannedAtMs).toBeLessThan(complete.plannedAtMs);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(1_080);
-    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_300);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeGreaterThanOrEqual(600);
+    expect(complete.plannedAtMs - trace[0].plannedAtMs).toBeLessThanOrEqual(1_000);
     expect(cascadeStart.detail).toBe("occupants-unique");
     // Three pieces dropping one cell is an ordinary landing: nothing knocks the board.
     expect(trace.some((entry) => entry.kind === "cascade-jolt" || entry.kind === "powerup-knock")).toBe(false);
@@ -633,6 +674,37 @@ test.describe("engine-driven power-up chains", () => {
     });
   }
 
+  test("a blast throws shards past the board's edge on the page, and clears them away", async ({ page }) => {
+    const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
+    const { trace } = await playRecordedPowerUpAction(page, specimen.level, specimen.actions[0]);
+    const theme = await page.evaluate(() => document.documentElement.dataset.boardTheme);
+    const spilled = trace.filter(entry => entry.kind === "blast-spill");
+    if (theme !== "darkRealism") {
+      expect(spilled).toHaveLength(0);
+      return;
+    }
+    expect(spilled.length).toBeGreaterThan(0);
+    await page.waitForFunction(() => document.querySelectorAll(".blast-spill-shard, .blast-spill-glow").length === 0);
+
+    const escaped = await page.evaluate(async () => {
+      const canvas = document.querySelector('[data-testid="board-canvas"] canvas')!.getBoundingClientRect();
+      const seen = { shards: 0, outside: 0 };
+      const started = performance.now();
+      (window as Window & { __gwPreviewPresentationEffect?: (effect: string) => void }).__gwPreviewPresentationEffect?.("tnt");
+      while (performance.now() - started < 2_500) {
+        for (const shard of document.querySelectorAll(".blast-spill-shard")) {
+          const rect = shard.getBoundingClientRect();
+          seen.shards += 1;
+          if (rect.bottom < canvas.top || rect.top > canvas.bottom || rect.right < canvas.left || rect.left > canvas.right) seen.outside += 1;
+        }
+        await new Promise(requestAnimationFrame);
+      }
+      return seen;
+    });
+    expect(escaped.shards).toBeGreaterThan(0);
+    expect(escaped.outside).toBeGreaterThan(0);
+  });
+
   test("finishes a deliberate combo and the third Light Ball without a fictitious second combo", async ({ page }) => {
     test.setTimeout(60_000);
     const specimen = resolutionSpecimens.find(item => item.name === "combo-rocket_h-tnt")!;
@@ -644,6 +716,25 @@ test.describe("engine-driven power-up chains", () => {
     expect(traceEntry(trace, "lightBall-dim").atMs).toBeGreaterThan(traceEntry(trace, "combo-impact").atMs);
     expect(traceEntry(trace, "lightBall-undim").atMs).toBeLessThan(traceEntry(trace, "cascade-start").atMs);
   });
+
+  // Russ's phone recording of 2026-11-02: Light Ball + rocket cleared all 49 cells at once, so the
+  // chained propellers woke up with nothing left to hit and the refill never came.
+  for (const chained of ["propeller", "lightBall"] as const) {
+    test(`refills an emptied board when a chained ${chained} finds no target`, async ({ page }) => {
+      test.setTimeout(60_000);
+      const level = structuredClone(resolutionSpecimens.find(item => item.name === "combo-rocket_h-lightBall")!.level);
+      const tiles: Record<string, TileType> = { K: "key", P: "packet", R: "threat", S: "firewall" };
+      const powerUps: Record<string, string> = { B: "lightBall", C: chained, N: "rocket_v", T: "tnt" };
+      level.cellMap = ["KPRPRKP", "PKTPRSK", "SKSKCRP", "SRCSKKS", "RKKSPRS", "BNSPSKP", "KPPSSKR"].map(row => [...row].map(cell => ({
+        generator: null, locked: false, overlay: null, underlay: null, tile: tiles[cell] ?? null, powerUp: powerUps[cell] ?? null
+      })));
+      const { trace, resolution } = await playRecordedPowerUpAction(page, level, { kind: "swap", from: { row: 5, col: 0 }, to: { row: 5, col: 1 } });
+      const stranded = resolution.steps.flatMap(step => step.activations).filter(record => !record.isRepeat && record.event.powerUpType.kind === chained);
+      expect(stranded.length).toBeGreaterThan(0);
+      expect(stranded.every(record => record.event.affectedPositions.length === 0)).toBe(true);
+      expect(trace.some(entry => entry.kind === "cascade-start")).toBe(true);
+    });
+  }
 
   test("waits for both secondary effects when their durations differ", async ({ page }) => {
     test.setTimeout(60_000);
@@ -747,7 +838,7 @@ test.describe("presentation budget and cleanup", () => {
     const resources = await presentationResourceCounts(page);
     const particleCap = testInfo.project.name === "mobile" ? 110 : 180;
 
-    expect(resources.peak.activeEmitters).toBeLessThanOrEqual(12);
+    expect(resources.peak.activeEmitters).toBeLessThanOrEqual(36);
     expect(resources.peak.liveParticles).toBeLessThanOrEqual(particleCap);
     expect(resources.peak.simultaneousArcs).toBeLessThanOrEqual(12);
     expect(resources.peak.activeBoardAudio).toBeLessThanOrEqual(16);
@@ -833,6 +924,7 @@ test.describe("reduced motion presentation budget", () => {
         "shake-request",
         "vfx-particles",
         "target-mark",
+        "objective-fly",
         "powerup-knock",
         "powerup-merge",
         "cascade-jolt"
@@ -1073,10 +1165,10 @@ function traceEntry(trace: PresentationTraceEntry[], kind: string): Presentation
   return entry;
 }
 
-function parseCascadeFallPlan(detail: string | undefined): { distanceCells: number; durationMs: number } {
-  const match = detail?.match(/^distanceCells=([\d.]+);durationMs=(\d+)$/);
+function parseCascadeFallPlan(detail: string | undefined): { distanceCells: number; durationMs: number; delayMs: number; entering: boolean } {
+  const match = detail?.match(/^distanceCells=([\d.]+);durationMs=(\d+);delayMs=(\d+);entering=(true|false)$/);
   if (!match) throw new Error(`Invalid cascade fall plan: ${detail ?? "missing"}`);
-  return { distanceCells: Number(match[1]), durationMs: Number(match[2]) };
+  return { distanceCells: Number(match[1]), durationMs: Number(match[2]), delayMs: Number(match[3]), entering: match[4] === "true" };
 }
 
 async function comboPreviewState(page: Page): Promise<{

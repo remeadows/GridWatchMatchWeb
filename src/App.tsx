@@ -1,22 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { areaForLevel, areas, type AreaInfo } from "./data/areas";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { areaForLevel, areas, campaignLevelCount, type AreaInfo } from "./data/areas";
 import { assetManifest, assetUrl } from "./data/assets";
 import { heroes } from "./data/heroes";
+import { allyPortraits, villainPortraits } from "./data/portraits";
+import { starsForMovesLeft } from "./data/stars";
 import { intelFiles, threatReports } from "./data/intel";
 import { loadLevel, objectiveLabel } from "./data/levels";
 import { rulesSections, tutorialSteps } from "./data/rules";
-import { clearancePass, coinPacks, playOnCost, playOnExtraMoves } from "./data/store";
+import { clearancePass, coinPacks, coinsPerLeftoverMove, playOnCost, playOnExtraMoves, powerUpPrices } from "./data/store";
+import { WIN_ROW_DESTRUCTION_POP_MS, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_SEQUENCE_LEAD_IN_MS } from "./data/gameplayTiming";
 import { BoardEngine, type BoardAction, type BoardDelta, type BoardResolutionStep, type BoardSnapshot, type BoosterType, type LevelDefinition } from "./engine";
-import { type BoardAnimationEvent } from "./game/BoardScene";
+import type { BlockerKind } from "./engine/types";
+import { blockerIntros, blockerOfObjective } from "./data/blockerIntros";
+import { type BoardAnimationEvent, type CollectedPiece } from "./game/BoardScene";
 import { GameCanvas, type GameCanvasHandle } from "./game/GameCanvas";
+import { winSequenceDurationMs } from "./game/motion";
+import { landPiece, launchPiece, malwareCountShown, objectiveCountShown, skipPiece, type ObjectiveFlightCounts } from "./game/objectiveFlight";
+import { PieceFlights } from "./game/pieceFlights";
 import { advancePlayClock, PlaybackLifecycle, playbackHudAtStep, type PlaybackHud, type PlayClock } from "./game/playbackLifecycle";
 import { accountKit, carryFrom, setBackgroundStoredListener } from "./services/accountKit";
 import { carryCommit, handleCarryOffer, receiveCarrySafely, showsCarryBanner } from "./services/carryOver";
 import { CarryBanner } from "./components/CarryBanner";
 import { DarkHomeScreen } from "./components/DarkHomeScreen";
-import { activeBoardTheme, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
+import { activeBoardTheme, matchV2BlockerAsset, matchV2BoosterAsset, matchV2TileAsset } from "./game/boardTheme";
 import { analytics } from "./services/analytics";
 import { audioService } from "./services/audio";
+import { haptics } from "./services/haptics";
 import { newRunId, submitScore, type SubmitResult } from "./services/scoreApi";
 import { buildLabel, isDevInstance } from "./services/buildInfo";
 import { cloudRetryThrottleMs, createCloudGate, type CloudGate } from "./services/cloudGate";
@@ -28,14 +37,16 @@ import {
   areaProgressLabel,
   awardLevelCompletion,
   bestScoreForLevel,
+  buyPowerUp,
   cloneSave,
   collectAreaReward,
   completedLevelsInArea,
   currentArea,
   isAreaComplete,
   isAreaUnlocked,
-  isHeroUnlocked,
   isLevelUnlocked,
+  levelCoinReward,
+  type LevelCoinReward,
   levelSeed,
   starsForLevel
 } from "./state/progress";
@@ -54,6 +65,15 @@ type Screen =
   | { name: "store" };
 
 const boosterTypes: BoosterType[] = ["rocket", "rocketVertical", "tnt", "propeller", "lightBall"];
+
+function boosterImageFor(booster: BoosterType): string {
+  const classicBoosterImage = booster === "rocket"
+    ? assetManifest.images.boosters.rocketH
+    : booster === "rocketVertical"
+      ? assetManifest.images.boosters.rocketV
+      : assetManifest.images.boosters[booster];
+  return (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
+}
 
 interface BoosterDragState {
   booster: BoosterType;
@@ -337,7 +357,7 @@ export default function App() {
     appliedInitialRoute.current = true;
     const params = new URLSearchParams(window.location.search);
     const requestedLevel = Number(params.get("level"));
-    if (params.has("gwTestMode") && Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= 100) {
+    if (params.has("gwTestMode") && Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= campaignLevelCount) {
       setScreen({ name: "game", levelId: requestedLevel });
     }
   }, [save]);
@@ -345,6 +365,7 @@ export default function App() {
   useEffect(() => {
     if (!save) return;
     audioService.configure(save.settings);
+    haptics.configure(save.settings);
     if (screen.name === "game") return;
     audioService.playMusic("menu");
   }, [save, screen.name]);
@@ -473,7 +494,7 @@ export default function App() {
       {screen.name === "settings" && <SettingsScreen save={save} commitSave={commitSave} />}
       {screen.name === "rules" && <RulesScreen save={save} commitSave={commitSave} />}
       {screen.name === "intel" && <IntelScreen save={save} commitSave={commitSave} />}
-      {screen.name === "store" && <StoreScreen />}
+      {screen.name === "store" && <StoreScreen save={save} commitSave={commitSave} />}
     </main>
   );
 }
@@ -497,7 +518,7 @@ function TopBar({ save, screen, navigate }: { save: SaveState; screen: Screen; n
         <button className={active === "settings" ? "active" : ""} onClick={() => navigate({ name: "settings" })}>Settings</button>
       </nav>
       <div className="currency" aria-label={`${save.coins} coins`}>
-        <span>Credits</span>
+        <span>Coins</span>
         <strong>{save.coins.toLocaleString()}</strong>
       </div>
     </header>
@@ -508,7 +529,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
   const area = currentArea(save);
   const hero = heroes.find((candidate) => candidate.id === save.selectedHeroId) ?? heroes[0];
   const completedLevels = Object.keys(save.levels).length;
-  const nextLevel = Math.min(100, Math.max(1, completedLevels + 1));
+  const nextLevel = Math.min(campaignLevelCount, Math.max(1, completedLevels + 1));
   const areaCompleted = completedLevelsInArea(save, area);
   const areaTotal = area.lastLevel - area.firstLevel + 1;
   const homeStyle = {
@@ -529,14 +550,14 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
           </div>
           <div className="campaign-uplink">
             <span>Campaign uplink</span>
-            <strong>{String(nextLevel).padStart(2, "0")} / 100</strong>
+            <strong>{String(nextLevel).padStart(2, "0")} / {campaignLevelCount}</strong>
           </div>
         </div>
 
         <div className="home-copy">
           <span className="home-kicker">Cyber defense command</span>
           <h1><span>GridWatch</span> <strong>Match</strong></h1>
-          <p>Build combos, trigger countermeasures, and defend the city through 100 cyberpunk match-3 operations.</p>
+          <p>Build combos, trigger countermeasures, and defend the city through {campaignLevelCount} cyberpunk match-3 operations.</p>
           <div className="hero-actions">
             <button className="primary-action" onClick={() => navigate({ name: "areas" })}>Resume Operations</button>
             <button className="quick-deploy-action" onClick={() => navigate({ name: "game", levelId: nextLevel })}>Quick Deploy</button>
@@ -582,7 +603,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
         </section>
 
         <section className="agent-brief">
-          <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt={`${hero.displayName}, selected agent`} />
+          <img src={assetUrl(allyPortraits[hero.id])} alt={`${hero.displayName}, selected agent`} />
           <div>
             <span>Selected agent</span>
             <h2>{hero.displayName}</h2>
@@ -591,7 +612,7 @@ function HomeScreen({ save, navigate }: { save: SaveState; navigate: (screen: Sc
         </section>
 
         <div className="home-stats">
-          <Stat label="Completed Levels" value={`${completedLevels}/100`} />
+          <Stat label="Completed Levels" value={`${completedLevels}/${campaignLevelCount}`} />
           <Stat label="Best Area Progress" value={areaProgressLabel(save, area)} />
         </div>
 
@@ -615,8 +636,10 @@ function AreasScreen({ save, commitSave, navigate }: { save: SaveState; commitSa
           const complete = isAreaComplete(save, area);
           const rewardReady = complete && !save.areaRewards[String(area.id)];
           return (
-            <article className={`area-card ${unlocked ? "" : "locked"}`} key={area.id} style={{ "--accent": area.accent } as React.CSSProperties}>
-              <img src={assetUrl(assetManifest.images.villains[area.villainKey])} alt="" />
+            <Fragment key={area.id}>
+            {area.id === 11 && <h2 className="area-tour-heading">The Return</h2>}
+            <article className={`area-card ${unlocked ? "" : "locked"}`} style={{ "--accent": area.accent } as React.CSSProperties}>
+              <img src={assetUrl(villainPortraits[area.villainKey])} alt="" />
               <div>
                 <div className="card-kicker">Area {area.id} / {area.villainName}</div>
                 <h2>{area.name}</h2>
@@ -634,6 +657,7 @@ function AreasScreen({ save, commitSave, navigate }: { save: SaveState; commitSa
                 </div>
               </div>
             </article>
+            </Fragment>
           );
         })}
       </div>
@@ -680,6 +704,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [level, setLevel] = useState<LevelDefinition | null>(null);
   const [snapshot, setSnapshot] = useState<BoardSnapshot | null>(null);
   const [lastDelta, setLastDelta] = useState<BoardDelta | null>(null);
+  const [winBanner, setWinBanner] = useState(false);
+  const [winReward, setWinReward] = useState<LevelCoinReward | null>(null);
+  const [powerUpOffer, setPowerUpOffer] = useState<BoosterType | null>(null);
   const [animationEvent, setAnimationEvent] = useState<BoardAnimationEvent | null>(null);
   const [status, setStatus] = useState<"loading" | "running" | "resolving" | "playOn" | "wonAnimating" | "won" | "failed">("loading");
   const [message, setMessage] = useState("");
@@ -690,7 +717,41 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   const [queueDepth, setQueueDepth] = useState(0);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [showTutorial, setShowTutorial] = useState(false);
+  // The first blocker this mission asks about that the player has not been told of yet. One card at a
+  // time, and never over the rules. Tests skip it unless they ask (`gwIntroCards=1`).
+  const introCardsOn = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !params.has("gwTestMode") || params.has("gwIntroCards");
+  }, []);
+  const introKind: BlockerKind | null = useMemo(() => {
+    if (!introCardsOn || showTutorial || !level || status === "loading") return null;
+    for (const objective of level.objectives) {
+      const kind = blockerOfObjective(objective.id);
+      if (kind && !save.blockerIntrosSeen[kind]) return kind;
+    }
+    return null;
+  }, [introCardsOn, showTutorial, level, status, save.blockerIntrosSeen]);
   const [runId, setRunId] = useState(0);
+  // Pieces in the air to an objective hold its count back until they land (src/game/objectiveFlight.ts).
+  const [flightCounts, setFlightCounts] = useState<ObjectiveFlightCounts>({});
+  const hudRef = useRef(hud);
+  hudRef.current = hud;
+  const pieceFlightsRef = useRef<PieceFlights | null>(null);
+  useEffect(() => {
+    const flights = new PieceFlights((objectiveId) => setFlightCounts((counts) => landPiece(counts, objectiveId)));
+    pieceFlightsRef.current = flights;
+    return () => {
+      flights.dispose();
+      pieceFlightsRef.current = null;
+      setFlightCounts({});
+    };
+  }, [levelId, runId]);
+  const handlePieceCollected = useCallback((piece: CollectedPiece) => {
+    const progress = piece.objectiveId === "malware" ? hudRef.current?.malwareLeft ?? 0 : hudRef.current?.objectiveProgress[piece.objectiveId] ?? 0;
+    const flew = pieceFlightsRef.current?.launch(piece) ?? false;
+    setFlightCounts((counts) => (flew ? launchPiece(counts, piece.objectiveId, progress) : skipPiece(counts, piece.objectiveId)));
+  }, []);
+
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: "idle" });
   const [selectedBooster, setSelectedBooster] = useState<BoosterType | null>(null);
   const [boosterDrag, setBoosterDrag] = useState<BoosterDragState | null>(null);
@@ -760,6 +821,9 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setQueueDepth(0);
     runStatsRef.current = { tilesCleared: 0, powerUpEvents: 0, chainSum: 0 };
     setSubmitState({ kind: "idle" });
+    setWinBanner(false);
+    setWinReward(null);
+    setPowerUpOffer(null);
     void loadLevel(levelId).then((loaded) => {
       if (!active) return;
       const engine = new BoardEngine(loaded, levelSeed(loaded.id));
@@ -828,11 +892,11 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
   }, [requestBossExpiry]);
 
   useEffect(() => {
-    tutorialVisibleRef.current = showTutorial;
+    tutorialVisibleRef.current = showTutorial || powerUpOffer !== null || introKind !== null;
     tickBossClock();
     const timer = window.setInterval(() => tickBossClock(), 100);
     return () => window.clearInterval(timer);
-  }, [showTutorial, status, level?.id, tickBossClock]);
+  }, [showTutorial, powerUpOffer, introKind, status, level?.id, tickBossClock]);
 
   const finishWin = useCallback((nextScore: number, engine: BoardEngine, currentLevel: LevelDefinition, options: { animate?: boolean } = {}) => {
     if (finalRef.current || engineRef.current !== engine) return;
@@ -841,8 +905,10 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setQueueDepth(0);
     tickBossClock(false);
     const currentSnapshot = engine.snapshot;
-    const stars = starsEarned(currentSnapshot);
-    const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed);
+    const stars = starsEarned(currentSnapshot, currentLevel);
+    const leftoverMoves = Math.max(0, currentSnapshot.moveLimit - currentSnapshot.moveCount);
+    setWinReward(levelCoinReward(saveRef.current, currentLevel.id, stars, leftoverMoves, playOnUsed));
+    const next = awardLevelCompletion(saveRef.current, currentLevel.id, stars, nextScore, playOnUsed, leftoverMoves);
     commitSave(next);
     saveRef.current = next;
 
@@ -868,6 +934,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
     setScore(nextScore);
     const completeWin = () => {
       if (engineRef.current !== engine) return;
+      setWinBanner(false);
       statusRef.current = "won";
       setStatus("won");
       audioService.playSfx("sfx_level_complete.mp3");
@@ -890,6 +957,7 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       completeWin();
     };
     const started = gameCanvasRef.current?.playWinSequence(completeOnce) ?? false;
+    if (started && !completed && activeBoardTheme() === "darkRealism") setWinBanner(true);
     if (!started) {
       setMessage("Board presentation unavailable. Return to level select to continue.");
     }
@@ -1048,12 +1116,28 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       suppressNextBoosterClickRef.current = false;
       return;
     }
+    if (statusRef.current === "running" && (saveRef.current.boosters[booster] ?? 0) <= 0) {
+      setSelectedBooster(null);
+      setPowerUpOffer(booster);
+      return;
+    }
     if (!isBoosterPlayable(booster)) return;
     setSelectedBooster((current) => {
       const next = current === booster ? null : booster;
       setMessage(next ? "Choose a grid tile." : "");
       return next;
     });
+  };
+
+  const acceptPowerUpOffer = () => {
+    if (!powerUpOffer) return;
+    const next = buyPowerUp(saveRef.current, powerUpOffer);
+    if (!next) return;
+    commitSave(next);
+    saveRef.current = next;
+    setSelectedBooster(powerUpOffer);
+    setMessage("Choose a grid tile.");
+    setPowerUpOffer(null);
   };
 
   const handleBoosterPointerDown = (event: React.PointerEvent<HTMLButtonElement>, booster: BoosterType) => {
@@ -1116,12 +1200,8 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
 
   const acceptPlayOn = () => {
     const engine = engineRef.current;
-    if (!engine || saveRef.current.coins < playOnCost) {
-      setMessage("Not enough coins.");
-      audioService.playVoice("gridCompromised");
-      setStatus("failed");
-      return;
-    }
+    // Short of coins the button is disabled; a stray call leaves the mission open rather than ending it.
+    if (!engine || saveRef.current.coins < playOnCost) return;
     const next = cloneSave(saveRef.current);
     next.coins -= playOnCost;
     commitSave(next);
@@ -1200,16 +1280,23 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
       <div className="objective-row">
         {objectives.map((objective) => {
           // Dark realism: a "collect" objective shows the piece it names, so the word has a face.
-          const picture = activeBoardTheme() === "darkRealism" && objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          const dark = activeBoardTheme() === "darkRealism";
+          const blocker = objective.id === "panes" ? "pane" : objective.id === "locks" ? "lock" : objective.id === "malware" ? "malware" : null;
+          const picture = !dark ? undefined : blocker ? matchV2BlockerAsset(blocker) : objective.tileType ? matchV2TileAsset(objective.tileType) : undefined;
+          // Malware is shown as cells left, not progress: a cell still in the air has not gone yet.
+          const shown = objective.id === "malware"
+            ? malwareCountShown(flightCounts, hud?.malwareLeft ?? 0)
+            : objectiveCountShown(flightCounts, objective.id, hud?.objectiveProgress[objective.id] ?? 0);
           return (
-            <div className="objective-chip" key={objective.id}>
+            <div className="objective-chip" data-objective-id={objective.id} key={objective.id}>
               {picture && <img className="objective-picture" src={assetUrl(picture.path)} alt="" />}
-              {objectiveLabel(objective, hud?.objectiveProgress[objective.id] ?? 0)}
+              {objectiveLabel(objective, shown)}
             </div>
           );
         })}
       </div>
 
+      <div className="game-board-slot">
       <div className="game-board-panel">
         <GameCanvas
           key={`${levelId}:${runId}`}
@@ -1218,50 +1305,51 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           animationEvent={animationEvent}
           reducedMotion={save.settings.reducedMotion}
           pendingBooster={selectedBooster}
+          hintsAllowed={status === "running" && !showTutorial && powerUpOffer === null && introKind === null}
           onAction={handleBoardAction}
           onAnimationComplete={handleBoardAnimationComplete}
           onStepComplete={handleBoardStepComplete}
           onAnimationError={handleBoardAnimationError}
+          onPieceCollected={handlePieceCollected}
         />
+      </div>
       </div>
 
       <div className="booster-tray">
         {boosterTypes.map((booster) => {
           const available = save.boosters[booster] ?? 0;
           const selected = selectedBooster === booster;
-          const classicBoosterImage = booster === "rocket"
-            ? assetManifest.images.boosters.rocketH
-            : booster === "rocketVertical"
-              ? assetManifest.images.boosters.rocketV
-              : assetManifest.images.boosters[booster];
-          const boosterImage = (activeBoardTheme() === "darkRealism" ? matchV2BoosterAsset(booster)?.path : undefined) ?? classicBoosterImage;
           return (
             <button
               key={booster}
-              className={selected ? "selected" : ""}
+              className={`${selected ? "selected" : ""}${available <= 0 ? " is-empty" : ""}`}
               aria-pressed={selected}
               data-testid={`booster-${booster}`}
-              disabled={status !== "running" || available <= 0}
+              disabled={status !== "running"}
               onClick={() => handleBoosterClick(booster)}
               onPointerDown={(event) => handleBoosterPointerDown(event, booster)}
               onPointerMove={handleBoosterPointerMove}
               onPointerUp={handleBoosterPointerUp}
               onPointerCancel={handleBoosterPointerCancel}
             >
-              <img src={assetUrl(boosterImage)} alt="" />
+              <img src={assetUrl(boosterImageFor(booster))} alt="" />
               <span className="booster-label">{boosterLabel(booster)}</span>
-              <strong aria-label={`${available} available`}>{available}</strong>
+              <strong aria-label={`${available} available`}>{available > 0 ? available : "+"}</strong>
             </button>
           );
         })}
         <div className="queue-meter">Queue {queueDepth}/3</div>
-        {isTestMode && <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>}
-        {isTestMode && <button data-testid="qa-win" onClick={qaWin}>QA Win</button>}
-        {isTestMode && <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>}
-        {isTestMode && <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>}
-        {isTestMode && <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>}
-        {isTestMode && <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>}
-        {isTestMode && <button data-testid="qa-boss-timeout" onClick={requestBossExpiry}>QA Boss Timeout</button>}
+        {isTestMode && (
+          <div className="qa-tools">
+            <button data-testid="qa-swap" onClick={qaSwap}>QA Swap</button>
+            <button data-testid="qa-win" onClick={qaWin}>QA Win</button>
+            <button data-testid="qa-win-animated" onClick={qaWinAnimated}>QA Win Animated</button>
+            <button data-testid="qa-setup-winning-rocket-combo" onClick={qaSetupWinningRocketCombo}>QA Setup Rocket Win</button>
+            <button data-testid="qa-trigger-winning-rocket-combo" onClick={qaTriggerWinningRocketCombo}>QA Trigger Rocket Win</button>
+            <button data-testid="qa-fail" onClick={() => setStatus("playOn")}>QA Fail</button>
+            <button data-testid="qa-boss-timeout" onClick={requestBossExpiry}>QA Boss Timeout</button>
+          </div>
+        )}
       </div>
 
       {boosterDrag && (
@@ -1304,11 +1392,43 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
         </div>
       )}
 
+      {powerUpOffer && status === "running" && (
+        <ResultModal
+          title={`Buy ${boosterLabel(powerUpOffer)}`}
+          coins={<img className="power-up-offer" src={assetUrl(boosterImageFor(powerUpOffer))} alt="" />}
+          message={`Spend ${powerUpPrices[powerUpOffer]} coins for one. You have ${save.coins.toLocaleString()}.`}
+          primary="Buy"
+          primaryDisabled={save.coins < powerUpPrices[powerUpOffer]}
+          secondary="Not now"
+          onPrimary={acceptPowerUpOffer}
+          onSecondary={() => setPowerUpOffer(null)}
+        />
+      )}
+      {introKind && status === "running" && (
+        <div className="overlay">
+          <div className="modal blocker-intro" role="dialog" aria-labelledby="blocker-intro-title" data-testid="blocker-intro">
+            {matchV2BlockerAsset(introKind) && <img className="blocker-intro-picture" src={assetUrl(matchV2BlockerAsset(introKind)!.path)} alt="" />}
+            <h2 id="blocker-intro-title">{blockerIntros[introKind].title}</h2>
+            <p>{blockerIntros[introKind].body}</p>
+            <div className="modal-actions">
+              <button className="primary-action" onClick={() => {
+                const next = cloneSave(saveRef.current);
+                next.blockerIntrosSeen[introKind] = true;
+                commitSave(next);
+                saveRef.current = next;
+              }}>Got it</button>
+            </div>
+          </div>
+        </div>
+      )}
       {status === "playOn" && (
         <ResultModal
           title="Mission at risk"
-          message={`Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves.`}
+          message={save.coins < playOnCost
+            ? `Play On costs ${playOnCost} coins. You have ${save.coins.toLocaleString()}.`
+            : `Spend ${playOnCost} coins for ${playOnExtraMoves} extra moves. You have ${save.coins.toLocaleString()}.`}
           primary="Play On"
+          primaryDisabled={save.coins < playOnCost}
           secondary="End Mission"
           onPrimary={acceptPlayOn}
           onSecondary={() => {
@@ -1317,14 +1437,20 @@ function GameScreen({ levelId, save, commitSave, navigate, auth }: {
           }}
         />
       )}
+      {winBanner && <WinBanner levelId={levelId} rows={snapshot?.grid.rows ?? 0} reward={winReward} />}
       {status === "won" && snapshot && (
         <ResultModal
           title="Grid secured"
-          message={`${starsEarned(snapshot)} star(s). Score ${score.toLocaleString()}.`}
+          stars={activeBoardTheme() === "darkRealism" ? starsEarned(snapshot, level) : undefined}
+          still={save.settings.reducedMotion}
+          message={activeBoardTheme() === "darkRealism"
+            ? `Score ${score.toLocaleString()}.`
+            : `${starsEarned(snapshot, level)} star(s). Score ${score.toLocaleString()}.`}
+          coins={winReward && winReward.total > 0 ? <ResultCoins reward={winReward} balance={save.coins} /> : undefined}
           note={submitStatusLine(submitState)}
-          primary={levelId < 100 ? "Next Level" : "Operations"}
+          primary={levelId < campaignLevelCount ? "Next Level" : "Operations"}
           secondary="Level Select"
-          onPrimary={() => navigate(levelId < 100 ? { name: "game", levelId: levelId + 1 } : { name: "areas" })}
+          onPrimary={() => navigate(levelId < campaignLevelCount ? { name: "game", levelId: levelId + 1 } : { name: "areas" })}
           onSecondary={() => navigate({ name: "levels", areaId: area.id })}
         />
       )}
@@ -1361,17 +1487,17 @@ function AccountScreen({ save, commitSave, auth }: { save: SaveState; commitSave
       <OperatorIdentityPanel auth={auth} />
       <div className="hero-grid">
         {heroes.map((hero) => {
-          const unlocked = isHeroUnlocked(save, hero.unlockAreaId);
+          const selected = save.selectedHeroId === hero.id;
           return (
-            <article className={`hero-card ${save.selectedHeroId === hero.id ? "selected" : ""}`} key={hero.id}>
-              <img src={assetUrl(assetManifest.images.heroes[hero.id])} alt="" />
+            <article className={`hero-card ${selected ? "selected" : ""}`} key={hero.id}>
+              <img src={assetUrl(allyPortraits[hero.id])} alt="" />
               <h2>{hero.displayName}</h2>
               <p>{hero.description}</p>
-              <button disabled={!unlocked} onClick={() => {
+              <button disabled={selected} onClick={() => {
                 const next = cloneSave(save);
                 next.selectedHeroId = hero.id;
                 commitSave(next);
-              }}>{unlocked ? "Select" : `Complete Area ${hero.unlockAreaId}`}</button>
+              }}>{selected ? "Selected" : "Select"}</button>
             </article>
           );
         })}
@@ -1472,7 +1598,7 @@ function SettingsScreen({ save, commitSave }: { save: SaveState; commitSave: (sa
   return (
     <section className="content-column narrow">
       <PageHeader title="Settings" subtitle="Local browser settings and progress controls." />
-      {Object.entries(save.settings).map(([key, value]) => (
+      {Object.entries(save.settings).filter(([key]) => key !== "hapticsEnabled" || haptics.supported).map(([key, value]) => (
         <label className="setting-row" key={key}>
           <span>{settingLabel(key as keyof SaveState["settings"])}</span>
           <input type="checkbox" checked={value} onChange={(event) => updateSetting(key as keyof SaveState["settings"], event.currentTarget.checked)} />
@@ -1543,11 +1669,27 @@ function IntelScreen({ save, commitSave }: { save: SaveState; commitSave: (save:
   );
 }
 
-function StoreScreen() {
-  const [message, setMessage] = useState("Purchases are disabled in the public web beta.");
+function StoreScreen({ save, commitSave }: { save: SaveState; commitSave: (next: SaveState) => void }) {
+  const [message, setMessage] = useState("Coin packs are disabled in the public web beta.");
+  const buy = (booster: BoosterType) => {
+    const next = buyPowerUp(save, booster);
+    if (!next) return;
+    commitSave(next);
+    setMessage(`Bought ${boosterLabel(booster)}.`);
+  };
   return (
     <section className="content-column">
-      <PageHeader title="Store" subtitle="Playable storefront stub. No real purchase fulfillment runs on web." />
+      <PageHeader title="Store" subtitle="Spend coins on power-ups. Real-money purchases do not run on web." />
+      <div className="store-grid power-up-shop">
+        {boosterTypes.map((booster) => (
+          <article className="store-card" key={booster} data-testid={`buy-${booster}`}>
+            <img src={assetUrl(boosterImageFor(booster))} alt="" />
+            <h2>{boosterLabel(booster)}</h2>
+            <p>You have {save.boosters[booster] ?? 0}</p>
+            <button disabled={save.coins < powerUpPrices[booster]} onClick={() => buy(booster)}>{powerUpPrices[booster]} coins</button>
+          </article>
+        ))}
+      </div>
       <div className="store-grid">
         {[...coinPacks, clearancePass].map((item) => (
           <article className="store-card" key={item.id}>
@@ -1564,11 +1706,87 @@ function StoreScreen() {
   );
 }
 
-function ResultModal({ title, message, note, primary, secondary, onPrimary, onSecondary }: {
+// Plays over the board while its rows blow away. The two words are separate elements so that only
+// the result panel reads as the text "Grid secured".
+const WIN_BANNER_SPARKS = Array.from({ length: 18 }, (_, index) => ({
+  angle: index * 20 + (index % 3) * 7,
+  reach: 150 + ((index * 67) % 110),
+  delay: 120 + ((index * 53) % 240)
+}));
+
+// Leftover moves turn into coins while the board's rows blow away.
+function WinPayout({ moves, rows }: { moves: number; rows: number }) {
+  const [turned, setTurned] = useState(0);
+  useEffect(() => {
+    const spanMs = winSequenceDurationMs(rows, WIN_ROW_DESTRUCTION_STAGGER_MS, WIN_ROW_DESTRUCTION_POP_MS);
+    const startedAt = performance.now() + WIN_SEQUENCE_LEAD_IN_MS;
+    let frame = 0;
+    const tick = (now: number) => {
+      const next = Math.max(0, Math.min(moves, Math.ceil(moves * (now - startedAt) / spanMs)));
+      setTurned(next);
+      if (next < moves) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [moves, rows]);
+  return (
+    <div className="dr-win-payout" data-testid="win-payout">
+      <span>{moves - turned} moves left</span>
+      <strong><i className="coin-mark" />+{(turned * coinsPerLeftoverMove).toLocaleString()}</strong>
+    </div>
+  );
+}
+
+function WinBanner({ levelId, rows, reward }: { levelId: number; rows: number; reward: LevelCoinReward | null }) {
+  return (
+    <div className="dr-win-banner" data-testid="win-banner" aria-hidden="true">
+      <div className="dr-win-sparks">
+        {WIN_BANNER_SPARKS.map(({ angle, reach, delay }) => (
+          <i key={angle} style={{ "--spark-angle": `${angle}deg`, "--spark-reach": `${reach}px`, "--spark-delay": `${delay}ms` } as React.CSSProperties} />
+        ))}
+      </div>
+      <div className="dr-win-plate">
+        <span className="dr-win-kicker">Level {levelId}</span>
+        <span className="dr-win-word">Grid</span>
+        <span className="dr-win-word">Secured</span>
+        {reward && reward.moveCoins > 0 && <WinPayout moves={reward.leftoverMoves} rows={rows} />}
+      </div>
+    </div>
+  );
+}
+
+function ResultStars({ earned, still }: { earned: number; still: boolean }) {
+  return (
+    <div className={`dr-result-stars${still ? " is-still" : ""}`} role="img" aria-label={`${earned} of 3 stars`} data-testid="result-stars">
+      {[0, 1, 2].map((index) => (
+        <svg key={index} viewBox="0 0 48 48" className={index < earned ? "is-earned" : ""} aria-hidden="true">
+          <path d="M24 3l6.5 13.6 15 2-11 10.4 2.8 14.8L24 35.6l-13.3 7.2 2.8-14.8-11-10.4 15-2z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
+function ResultCoins({ reward, balance }: { reward: LevelCoinReward; balance: number }) {
+  return (
+    <div className="result-coins" data-testid="result-coins">
+      <strong><i className="coin-mark" />+{reward.total.toLocaleString()} coins</strong>
+      <span>Stars +{reward.starCoins}</span>
+      {reward.moveCoins > 0 && <span>{reward.leftoverMoves} moves left +{reward.moveCoins.toLocaleString()}</span>}
+      <small>You now have {balance.toLocaleString()}</small>
+    </div>
+  );
+}
+
+function ResultModal({ title, stars, still = false, message, coins, note, primary, primaryDisabled = false, secondary, onPrimary, onSecondary }: {
   title: string;
+  stars?: number;
+  still?: boolean;
   message: string;
+  coins?: React.ReactNode;
   note?: React.ReactNode;
   primary: string;
+  primaryDisabled?: boolean;
   secondary: string;
   onPrimary: () => void;
   onSecondary: () => void;
@@ -1577,11 +1795,13 @@ function ResultModal({ title, message, note, primary, secondary, onPrimary, onSe
     <div className="overlay">
       <div className="modal">
         <h2>{title}</h2>
+        {stars !== undefined && <ResultStars earned={stars} still={still} />}
         <p>{message}</p>
+        {coins}
         {note}
         <div className="modal-actions">
           <button onClick={onSecondary}>{secondary}</button>
-          <button className="primary-action" onClick={onPrimary}>{primary}</button>
+          <button className="primary-action" disabled={primaryDisabled} onClick={onPrimary}>{primary}</button>
         </div>
       </div>
     </div>
@@ -1623,12 +1843,8 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function starsEarned(snapshot: BoardSnapshot): number {
-  const remaining = snapshot.moveLimit - snapshot.moveCount;
-  const ratio = remaining / Math.max(1, snapshot.moveLimit);
-  if (ratio >= 0.5) return 3;
-  if (ratio >= 0.2) return 2;
-  return 1;
+function starsEarned(snapshot: BoardSnapshot, level: LevelDefinition | null): number {
+  return starsForMovesLeft(snapshot.moveLimit - snapshot.moveCount, snapshot.moveLimit, level?.starMoves);
 }
 
 function boosterLabel(booster: BoosterType): string {
@@ -1646,6 +1862,7 @@ function settingLabel(key: keyof SaveState["settings"]): string {
     musicEnabled: "Music",
     sfxEnabled: "Sound Effects",
     voiceEnabled: "Voice Lines",
+    hapticsEnabled: "Haptics",
     reducedMotion: "Reduced Motion"
   }[key];
 }

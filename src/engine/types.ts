@@ -56,6 +56,10 @@ export interface LevelDefinition {
   bossLevel: boolean;
   bonusLevel: boolean;
   bossTimerSeconds?: number | null;
+  /** Moves left needed for two and three stars. Absent: the 20% / 50% rule. */
+  starMoves?: { two: number; three: number };
+  /** Edited by hand: the level tool leaves this file alone. */
+  handTuned?: boolean;
 }
 
 export type BoardAction =
@@ -100,8 +104,18 @@ export interface ObjectiveEvent {
   progressDelta: number;
 }
 
+export type BlockerKind = "pane" | "lock" | "malware";
+
+/** A blocker removed by the move: a pane's last layer, a lock's piece clearing, or a malware cell's last layer. */
+export interface BlockerClear {
+  position: GridPosition;
+  kind: BlockerKind;
+  objectiveId: string | null;
+}
+
 export interface BoardDelta {
   clears: ClearEvent[];
+  blockerClears: BlockerClear[];
   moves: MoveEvent[];
   spawns: SpawnEvent[];
   powerUpEvents: PowerUpEvent[];
@@ -119,6 +133,8 @@ export interface BoardSnapshot {
   moveLimit: number;
   objectiveProgress: Record<string, number>;
   objectiveTargets: Record<string, number>;
+  /** Malware cells still on the board. */
+  malwareLeft: number;
   spawnWeights: Record<TileType, number>;
   rngSeed: string;
   chainDepth: number;
@@ -165,6 +181,7 @@ export interface BoardResolutionStep {
   before: BoardSnapshot;
   after: BoardSnapshot;
   clears: (ClearEvent & { occupantId: number | null })[];
+  blockerClears: BlockerClear[];
   moves: BoardResolutionMove[];
   spawns: (SpawnEvent & { occupantId: number | null })[];
   objectiveEvents: ObjectiveEvent[];

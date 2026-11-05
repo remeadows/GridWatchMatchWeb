@@ -9,15 +9,21 @@ vi.mock("phaser", () => ({
 }));
 
 import {
+  blastCore,
   burst,
+  heavyDebris,
+  impactBurst,
+  laneBeam,
   PresentationVfxBudget,
   reducedMotionVfxPlan,
   screenFlash,
+  setVfxTileSize,
   shockwave,
   vfxCleanupDelayMs,
   vfxIntensity,
   VfxCleanupRegistry,
-  vfxTextureKeys
+  vfxTextureKeys,
+  vfxUnit
 } from "../game/vfx";
 import { PRESENTATION_RESOURCE_LIMITS } from "../game/presentation";
 import { VFX_BUDGETS, VFX_SCREEN_FLASH, VFX_TEXTURE_CONFIG } from "../game/vfxTiming";
@@ -109,6 +115,7 @@ describe("vfx guards", () => {
 describe("VFX presentation contract", () => {
   it("defines the complete generated texture vocabulary", () => {
     expect(Object.keys(VFX_TEXTURE_CONFIG).sort()).toEqual([
+      "bloom",
       "glow",
       "hotCore",
       "ring",
@@ -201,5 +208,106 @@ describe("VFX presentation contract", () => {
   it("cleans effect resources no later than the longest tail plus 250 ms", () => {
     expect(vfxCleanupDelayMs(VFX_BUDGETS.longestParticleLifetimeMs))
       .toBeLessThanOrEqual(VFX_BUDGETS.longestParticleLifetimeMs + PRESENTATION_RESOURCE_LIMITS.cleanupTailBufferMs);
+  });
+});
+
+describe("effects sized by the tile", () => {
+  function recordingScene() {
+    const images: Array<{ scale: number; destroy: ReturnType<typeof vi.fn> }> = [];
+    const emitters: Array<Record<string, unknown>> = [];
+    const object = () => {
+      const image = {
+        scale: 1,
+        angle: 0,
+        scaleX: 1,
+        scaleY: 1,
+        setTint: vi.fn(),
+        setBlendMode: vi.fn(),
+        setAlpha: vi.fn(),
+        setRotation: vi.fn(),
+        setScale(value: number) { image.scale = value; image.scaleX = value; image.scaleY = value; return image; },
+        fillStyle: vi.fn(),
+        fillRect: vi.fn(),
+        destroy: vi.fn(),
+        once: vi.fn()
+      };
+      images.push(image);
+      return image;
+    };
+    const tweens: Array<Record<string, unknown> & { onComplete: () => void }> = [];
+    const scene = {
+      add: {
+        image: object,
+        graphics: object,
+        particles: (_x: number, _y: number, _texture: string, config: Record<string, unknown>) => {
+          emitters.push(config);
+          return { explode: vi.fn(), destroy: vi.fn(), once: vi.fn() };
+        }
+      },
+      textures: { exists: () => true },
+      time: { delayedCall: vi.fn() },
+      tweens: { add: vi.fn((tween) => { tweens.push(tween); return { remove: vi.fn(), once: vi.fn() }; }) }
+    };
+    return { scene: scene as unknown as Parameters<typeof burst>[0], images, emitters, tweens };
+  }
+
+  it("stays at its designed size until a scene states a larger tile", () => {
+    const { scene } = recordingScene();
+    expect(vfxUnit(scene)).toBe(1);
+    setVfxTileSize(scene, 216);
+    expect(vfxUnit(scene)).toBe(3);
+    setVfxTileSize(scene, 36);
+    expect(vfxUnit(scene)).toBe(1);
+  });
+
+  it("draws an impact three times the size on a tile three times as large", () => {
+    const small = recordingScene();
+    const large = recordingScene();
+    setVfxTileSize(large.scene, 216);
+    for (const { scene } of [small, large]) impactBurst(scene, fakeLayer(), 0, 0, { intensity: 0.5, tint: 0xffffff });
+    expect(large.images[0].scale).toBeCloseTo(small.images[0].scale * 3, 5);
+    expect((large.emitters[0].speed as { max: number }).max).toBeCloseTo((small.emitters[0].speed as { max: number }).max * 3, 5);
+    expect((large.emitters[0].scale as { start: number }).start).toBeCloseTo((small.emitters[0].scale as { start: number }).start * 3, 5);
+  });
+
+  it("blooms from small to its full radius and cleans up after itself", () => {
+    const { scene, images, tweens } = recordingScene();
+    blastCore(scene, fakeLayer(), 0, 0, { radiusPx: 300, durationMs: 200, tint: 0xff9a43 });
+    expect(images).toHaveLength(2);
+    const full = (tweens[0].scaleX as { value: number }).value;
+    expect(full * VFX_TEXTURE_CONFIG.bloom.radius).toBeCloseTo(300, 5);
+    expect(images[0].scale).toBeLessThan(full);
+    tweens.forEach((tween) => tween.onComplete());
+    images.forEach((image) => expect(image.destroy).toHaveBeenCalled());
+  });
+
+  it("throws the same debris from the same seed, each chunk landing away from the blast", () => {
+    const first = recordingScene();
+    const second = recordingScene();
+    for (const { scene } of [first, second]) {
+      heavyDebris(scene, fakeLayer(), 100, 100, { count: 6, reachPx: 200, sizePx: 40, durationMs: 400, seed: "tnt:3,3", tint: 0x8f98a1 });
+    }
+    expect(first.images).toHaveLength(6);
+    const ends = (run: typeof first) => run.tweens.map((tween) => [(tween.x as { value: number }).value, (tween.y as { value: number }).value]);
+    expect(ends(first)).toEqual(ends(second));
+    for (const [x] of ends(first)) expect(Math.abs(x - 90)).toBeLessThanOrEqual(200);
+  });
+
+  it("runs a beam out with the rocket, then narrows it away", () => {
+    const { scene, images, tweens } = recordingScene();
+    laneBeam(scene, fakeLayer(), { x: 0, y: 50 }, { x: 400, y: 50 }, { widthPx: 60, travelMs: 300, fadeMs: 120, tint: 0x58e6ff });
+    expect(tweens[0]).toMatchObject({ scaleX: 1, duration: 300, ease: "Quad.easeIn" });
+    tweens[0].onComplete();
+    expect(tweens[1]).toMatchObject({ alpha: 0, duration: 120 });
+    tweens[1].onComplete();
+    expect(images[0].destroy).toHaveBeenCalled();
+  });
+
+  it("draws none of the new effects under reduced motion", () => {
+    const { scene, images } = recordingScene();
+    blastCore(scene, fakeLayer(), 0, 0, { radiusPx: 300, durationMs: 200, tint: 1, reducedMotion: true });
+    heavyDebris(scene, fakeLayer(), 0, 0, { count: 6, reachPx: 200, sizePx: 40, durationMs: 400, seed: "s", tint: 1, reducedMotion: true });
+    laneBeam(scene, fakeLayer(), { x: 0, y: 0 }, { x: 1, y: 0 }, { widthPx: 6, travelMs: 3, fadeMs: 1, tint: 1, reducedMotion: true });
+    expect(images).toHaveLength(0);
   });
 });

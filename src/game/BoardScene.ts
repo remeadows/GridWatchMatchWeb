@@ -24,6 +24,9 @@ import {
 } from "../data/gameplayTiming";
 import {
   CASCADE_FALL_MAX_MS,
+  CASCADE_FALL_STAGGER_MAX_RANK,
+  CASCADE_FALL_STAGGER_MS,
+  CASCADE_REBOUND_MS,
   CASCADE_JOLT_DOWN_MS,
   CASCADE_JOLT_MIN_CELLS,
   CASCADE_JOLT_RECOVER_MS,
@@ -62,9 +65,13 @@ import {
   PROPELLER_LIFT_MS,
   PROPELLER_RETICLE_DELAY_MS,
   PROPELLER_SECONDARY_STAGGER_MS,
-  SWAP_LIFT_SCALE,
-  SWAP_SET_DOWN_SQUASH,
+  SHUFFLE_TRAVEL_MS,
   SWAP_SETTLE_MS,
+  BOARD_HINT_FADE_IN_MS,
+  BOARD_HINT_IDLE_MS,
+  BOARD_HINT_NUDGE_MS,
+  BOARD_HINT_NUDGE_REST_MS,
+  BOARD_HINT_PULSE_MS,
   SWAP_TRAVEL_MS,
   TNT_CASCADE_AFTER_DETONATION_MS,
   TNT_SHOVE_BACK_MS,
@@ -75,28 +82,48 @@ import {
 import {
   cloneCell,
   detectMatches,
+  findHint,
   powerUpKey,
   serializePowerUp,
+  type BlockerClear,
+  type BlockerKind,
   type BoardAction,
+  type BoardHint,
   type BoardDelta,
   type BoardResolutionStep,
   type BoardSnapshot,
   type BoosterType,
   type CellState,
+  type ClearEvent,
   type GridPosition,
   type PowerUpEvent,
   type PowerUpType,
   type TileType
 } from "../engine";
-import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, orderCascadeMoves, quadraticFlightPath, radialStagger, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
-import { blastCuePlayback, cascadeFallDurationMs, cascadeJoltPx, cascadeLandingPlan, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
+import { BlastSpill } from "./blastSpill";
+import { buildPostClearSnapshot, cascadeHiddenDestinations, cascadePresentationPlan, fallOrderInColumn, orderCascadeMoves, quadraticFlightPath, radialStagger, refillStartRows, rowDestructionOrder, seededAngleJitter, sweepStagger, type CascadePresentationPlan } from "./motion";
+import { blastCuePlayback, cascadeFallDurationMs, cascadeFallEase, cascadeJoltPx, cascadeLandingPlan, cascadeReboundPx, clearCuePlayback, landingCuePlayback, mergeSources, type CascadeLandingPlan, comboChoreographyPlan, comboOverlayPositions, comboPowerUpImpacts, createdPowerUpSpawns, groupPowerUpEvents, lightBallWavePlan, matchPacingPlan, pieceDisplayProfile, propellerFlightPlan, rocketLanePlan, singlePowerUpImpacts, tilePopVariation, tntDetonationPlan, type MatchPacingPlan, type PowerUpCellImpact, type CanonicalComboKey, type ComboChoreographyPlan, type ComboVisualBatch, type CreatedPowerUpSpawn, type PowerUpPresentationGroup, type PresentationEffectKey, type PresentationTraceEntry } from "./presentation";
 import { audioService, type BoardAudioPlayback } from "../services/audio";
-import { boardDimmer, burst, ensureVfxTextures, impactBurst, laneBlast, screenFlash, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
+import { haptics, type HapticKind } from "../services/haptics";
+import { blastCore, boardDimmer, burst, ensureVfxTextures, heavyDebris, impactBurst, laneBeam, laneBlast, screenFlash, setVfxTileSize, shake, shockwave, VfxCleanupRegistry, vfxTextureKeys, type PresentationResourceSnapshot } from "./vfx";
 import { VFX_TIMING } from "./vfxTiming";
 import { groupResolutionPowerUps, playEffectsTogether, ResolutionPlayback, type CascadeFrameAudit, type ResolutionFrameAudit, type ResolutionPowerUpGroup } from "./resolutionPlayback";
 import { playbackRecoveryBudgetMs, TerminalPlayback } from "./playbackLifecycle";
 
+/** A piece that counts for an objective has just broken: where it is on the page, for its flight. */
+export interface CollectedPiece {
+  objectiveId: string;
+  /** The piece's kind, or null when a blocker (see `blocker`) is what broke. */
+  tileType: TileType | null;
+  /** Set when a pane, lock or malware cell broke rather than a piece. */
+  blocker: BlockerKind | null;
+  x: number;
+  y: number;
+  size: number;
+}
+
 export interface BoardSceneData {
+  onPieceCollected?: (piece: CollectedPiece) => void;
   onAction: (action: BoardAction) => void;
   onAnimationComplete: (animationId: number) => void;
   onStepComplete: (animationId: number, ordinal: number) => void;
@@ -212,12 +239,9 @@ const powerUpImageKeys = {
 // sprite loaded (resolvePowerUpTextures), so every effect that draws a power-up follows the theme.
 const powerUpTextures: Record<keyof typeof powerUpImageKeys, string> = { ...powerUpImageKeys };
 
-// Web-only by Russ's direction (see the note at the top of data/presentationTiming.ts): this
-// stretch, the POWERUP_CREATION_DROP_* and POWERUP_MERGE_MS values, the stronger TNT_SHAKE_*
-// and the Quad.easeIn on falls, rocket heads and propeller flights have no iOS counterpart.
-// A falling piece is drawn very slightly long and narrow; it is the landing that squashes it.
-const CASCADE_FALL_STRETCH_X = 0.97;
-const CASCADE_FALL_STRETCH_Y = 1.04;
+// Web-only by Russ's direction (see the note at the top of data/presentationTiming.ts): the
+// POWERUP_CREATION_DROP_* and POWERUP_MERGE_MS values, the stronger TNT_SHAKE_*, the fall curve
+// and the Quad.easeIn on rocket heads and propeller flights have no iOS counterpart.
 const POWERUP_CREATION_CHARGE_MS = 70;
 const POWERUP_CREATION_OVERSHOOT_MS = 130;
 const POWERUP_CREATION_SETTLE_MS = 110;
@@ -273,6 +297,32 @@ const TNT_FX_BUDGET_MS = TNT_FUSE_MS + Math.max(
   TNT_SHARD_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
 );
 // Web-only tuning: Phaser camera shake intensity.
+// Web-only tuning (Russ, 2026-11-01, of the Royal Match recordings: "bigger effects"): the light
+// and metal of a blast, in tiles. None of it holds the board up: it plays out over what comes next.
+const BLAST_BLOOM_MS = 300;
+const BLAST_DEBRIS_MS = 520;
+const BLAST_DEBRIS_TINT = 0x8f98a1;
+const SPILL_COMBO_RADIUS_CELLS = 5;
+const SPILL_COMBO_SHARDS = 20;
+const SPILL_LIGHTBALL_RADIUS_CELLS = 4.5;
+const SPILL_LIGHTBALL_SHARDS = 14;
+const SPILL_TNT_RADIUS_CELLS = 3.5;
+const SPILL_TNT_SHARDS = 14;
+const SPILL_ROCKET_RADIUS_CELLS = 2.2;
+const SPILL_ROCKET_SHARDS = 8;
+const SPILL_ROCKET_SPREAD_DEG = 80;
+const SPILL_PROPELLER_RADIUS_CELLS = 2;
+const SPILL_PROPELLER_SHARDS = 5;
+const TNT_BLOOM_CELLS = 5.2;
+const TNT_DEBRIS_COUNT = 9;
+const TNT_DEBRIS_REACH_CELLS = 3;
+const TNT_DEBRIS_SIZE_CELLS = 0.42;
+const ROCKET_BEAM_WIDTH_CELLS = 0.62;
+const ROCKET_BEAM_FADE_MS = 150;
+const ROCKET_EDGE_BLOOM_CELLS = 2.4;
+const PROPELLER_BLOOM_CELLS = 3;
+const LIGHTBALL_BLOOM_BOARD_SHARE = 0.65;
+const COMBO_BLOOM_BOARD_SHARE = 0.8;
 const TNT_SHAKE_INTENSITY = 0.012;
 // Web-only tuning: Phaser camera shake duration.
 const TNT_SHAKE_DURATION_MS = 260;
@@ -296,6 +346,7 @@ const PROPELLER_IMPACT_SHOCKWAVE_MS = 220;
 // Web-only tuning: Phaser impact spark burst lifespan.
 const PROPELLER_IMPACT_BURST_LIFESPAN_MS = 260;
 // Web-only tuning: Phaser propeller choreography budget, including impact particle cleanup tail.
+const LOCK_GLOW_PULSE_MS = 900;
 const PROPELLER_FX_BUDGET_MS = PROPELLER_LIFT_MS + PROPELLER_FLIGHT_MS + Math.max(
   PROPELLER_IMPACT_SHOCKWAVE_MS,
   PROPELLER_IMPACT_BURST_LIFESPAN_MS + VFX_TIMING.EMITTER_CLEANUP_BUFFER_MS
@@ -334,8 +385,7 @@ const motionTiming = {
   invalidSettle: 60,
   invalidSwap: 170,
   powerUpEffect: POWERUP_EFFECT_MS,
-  snapBack: 150,
-  spawnFlash: 110
+  snapBack: 150
 } as const;
 
 // Mirrors the iOS BoardNode.swift animatePowerUpEvents/animateSinglePowerUpEvent
@@ -392,8 +442,12 @@ export class BoardScene extends Phaser.Scene {
   private onAction: ((action: BoardAction) => void) | null = null;
   private onAnimationComplete: ((animationId: number) => void) | null = null;
   private onStepComplete: BoardSceneData["onStepComplete"] | null = null;
+  private onPieceCollected: BoardSceneData["onPieceCollected"] | null = null;
+  /** This step's clears that count for an objective, by cell, until each one breaks. */
+  private objectiveClears = new Map<string, ClearEvent>();
   private onAnimationError: BoardSceneData["onAnimationError"] | null = null;
   private playbackWatchdog: Phaser.Time.TimerEvent | null = null;
+  private readonly blastSpill = new BlastSpill();
   private layer: Phaser.GameObjects.Container | null = null;
   private fxUnderlay: Phaser.GameObjects.Container | null = null;
   private fxLayer: Phaser.GameObjects.Container | null = null;
@@ -421,6 +475,18 @@ export class BoardScene extends Phaser.Scene {
   private lastScaleHeight = 0;
   private lastAnimationId = 0;
   private reducedMotion = false;
+  // Russ, 2026-11-03, on locked cells: "I can hardly see it. Maybe something that glows". Every lock
+  // glow on the board breathes together from one pulse, so a redraw never strands a tween.
+  private lockGlows: Phaser.GameObjects.Graphics[] = [];
+  private lockGlowPulse: Phaser.Tweens.Tween | null = null;
+  // The idle hint: armed whenever the board waits on the player, shown after BOARD_HINT_IDLE_MS.
+  private hintsAllowed = false;
+  private hintTimer: Phaser.Time.TimerEvent | null = null;
+  private hint: BoardHint | null = null;
+  private hintNodes: Phaser.GameObjects.GameObject[] = [];
+  private hintTweens: Phaser.Tweens.Tween[] = [];
+  /** Where and how big each piece the hint moves was before it moved, to put it back exactly. */
+  private hintRestores: Array<{ node: Phaser.GameObjects.Container; x: number; y: number; scaleX: number; scaleY: number }> = [];
   private boardJolt: { startMs: number; x: number; y: number } | null = null;
   private pendingBooster: BoosterType | null = null;
   private presentationSequenceId = 0;
@@ -449,6 +515,7 @@ export class BoardScene extends Phaser.Scene {
     this.onAction = data.onAction;
     this.onAnimationComplete = data.onAnimationComplete;
     this.onStepComplete = data.onStepComplete;
+    this.onPieceCollected = data.onPieceCollected ?? null;
     this.onAnimationError = data.onAnimationError;
   }
 
@@ -733,6 +800,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private disposeVfx(): void {
+    this.blastSpill.dispose();
     this.winTimeline?.cancel();
     this.winTimeline = null;
     this.winTick = null;
@@ -777,7 +845,7 @@ export class BoardScene extends Phaser.Scene {
       clear: RESOLVE_ANIMATION_BUDGET_MS,
       gravity: CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS,
       refill: CASCADE_FALL_MAX_MS + CASCADE_LANDING_TOTAL_MS,
-      malware: 0, shuffle: SWAP_TRAVEL_MS + SWAP_SETTLE_MS, settled: 0
+      malware: 0, shuffle: SHUFFLE_TRAVEL_MS, settled: 0
     });
     this.playbackWatchdog = this.time.delayedCall(budget, () => {
       if (this.activeAnimationId !== animation.id) return;
@@ -822,6 +890,7 @@ export class BoardScene extends Phaser.Scene {
     this.snapshot = snapshot;
     this.renderSnapshot();
     this.signalBoardReady();
+    this.restartHintTimer();
   }
 
   private finishAnimation(): void {
@@ -832,6 +901,8 @@ export class BoardScene extends Phaser.Scene {
     this.activeAnimationId = null;
     this.activeResolvedSnapshot = null;
     if (completedAnimationId !== null) this.onAnimationComplete?.(completedAnimationId);
+    // A move that bounced back brings no new snapshot, so the idle count restarts here too.
+    this.restartHintTimer();
   }
 
   private isPresentationTestMode(): boolean {
@@ -861,6 +932,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private beginPresentationSequence(action: BoardAction): void {
+    this.clearHint();
     this.playback?.cancel();
     this.playback = null;
     if (this.isPresentationTestMode()) {
@@ -938,6 +1010,7 @@ export class BoardScene extends Phaser.Scene {
 
   private renderSnapshot(hiddenPositions = new Set<string>(), clearFx = true): void {
     if (!this.layer || !this.snapshot) return;
+    this.stopHintVisuals();
     const reusable = new Map<number, Phaser.GameObjects.Container>();
     if (this.playback) for (const node of this.occupantNodes.values()) {
       const id = node.getData("tileId") as number | null;
@@ -947,6 +1020,7 @@ export class BoardScene extends Phaser.Scene {
       }
     }
     this.layer.removeAll(true);
+    this.lockGlows = [];
     this.occupantNodes.clear();
     this.cellSocketNodes.clear();
     this.heldCellKey = null;
@@ -974,6 +1048,164 @@ export class BoardScene extends Phaser.Scene {
       this.renderCell(position, hiddenPositions, reusable);
     }
     for (const node of reusable.values()) node.destroy();
+    if (this.hint && !this.playback) this.drawHint(this.hint);
+  }
+
+  /** The app says whether the level is in play with nothing over the board. */
+  setHintsAllowed(allowed: boolean): void {
+    if (allowed === this.hintsAllowed) return;
+    this.hintsAllowed = allowed;
+    if (this.layer) this.restartHintTimer();
+  }
+
+  /** Takes down any hint and, if the board is waiting on the player, starts the idle count again. */
+  private restartHintTimer(): void {
+    this.clearHint();
+    const snapshot = this.snapshot;
+    if (!this.hintsAllowed || !snapshot || !this.layer) return;
+    if (this.activeAnimationId !== null || this.playback || this.pendingBooster || this.winPresentationActive || this.activePointerId !== null) return;
+    if (snapshot.moveCount >= snapshot.moveLimit) return;
+    this.hintTimer = this.time.delayedCall(BOARD_HINT_IDLE_MS, () => {
+      this.hintTimer = null;
+      if (this.snapshot !== snapshot) return;
+      const hint = findHint(snapshot.grid);
+      if (!hint) return;
+      this.hint = hint;
+      this.drawHint(hint);
+      this.recordHint(hint);
+    });
+  }
+
+  private clearHint(): void {
+    this.hintTimer?.remove();
+    this.hintTimer = null;
+    if (!this.hint) return;
+    this.hint = null;
+    this.stopHintVisuals();
+    this.recordHint(null);
+  }
+
+  private stopHintVisuals(): void {
+    for (const tween of this.hintTweens) tween.remove();
+    this.hintTweens = [];
+    for (const node of this.hintNodes) node.destroy();
+    this.hintNodes = [];
+    // Nudged and swollen pieces go back exactly as they were, whether or not the hint is still set.
+    for (const { node, x, y, scaleX, scaleY } of this.hintRestores) {
+      if (node.active) node.setPosition(x, y).setScale(scaleX, scaleY);
+    }
+    this.hintRestores = [];
+  }
+
+  private noteHintRestore(node: Phaser.GameObjects.Container): void {
+    this.hintRestores.push({ node, x: node.x, y: node.y, scaleX: node.scaleX, scaleY: node.scaleY });
+  }
+
+  /**
+   * One warm outline round the hinted pieces, as in Royal Match: it fades in, then breathes, with
+   * sparks twinkling on it. The swapped pair nudge toward each other, so the move reads at a glance.
+   */
+  private drawHint(hint: BoardHint): void {
+    if (!this.layer) return;
+    const color = 0xfff1c2;
+    const inside = new Set(hint.cells.map(positionKey));
+    const inset = Math.max(1, this.tileSize * 0.03);
+    const edges: Array<[number, number, number, number]> = [];
+    for (const position of hint.cells) {
+      const { x, y } = this.cellTopLeft(position);
+      const left = x + inset;
+      const top = y + inset;
+      const right = x + this.tileSize - inset;
+      const bottom = y + this.tileSize - inset;
+      const open = (row: number, col: number) => !inside.has(positionKey({ row: position.row + row, col: position.col + col }));
+      if (open(-1, 0)) edges.push([left, top, right, top]);
+      if (open(1, 0)) edges.push([left, bottom, right, bottom]);
+      if (open(0, -1)) edges.push([left, top, left, bottom]);
+      if (open(0, 1)) edges.push([right, top, right, bottom]);
+    }
+    const outline = this.add.graphics();
+    outline.setBlendMode(Phaser.BlendModes.ADD);
+    for (const [width, alpha] of [[0.12, 0.14], [0.06, 0.3], [0.025, 1]] as const) {
+      outline.lineStyle(Math.max(1.5, this.tileSize * width), color, alpha);
+      for (const [x1, y1, x2, y2] of edges) outline.lineBetween(x1, y1, x2, y2);
+    }
+    this.layer.add(outline);
+    this.hintNodes.push(outline);
+
+    if (this.reducedMotion) return;
+    outline.setAlpha(0);
+    this.hintTweens.push(this.tweens.add({
+      targets: outline,
+      alpha: 1,
+      duration: BOARD_HINT_FADE_IN_MS,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        if (!outline.active) return;
+        this.hintTweens.push(this.tweens.add({ targets: outline, alpha: 0.6, duration: BOARD_HINT_PULSE_MS, ease: "Sine.easeInOut", yoyo: true, repeat: -1 }));
+      }
+    }));
+
+    // Sparks sit on the outline's corners and twinkle in turn.
+    const corners = edges.flatMap(([x1, y1, x2, y2]) => [[x1, y1], [x2, y2]] as const);
+    const seen = new Set<string>();
+    const sparkPoints = corners.filter(([x, y]) => {
+      const key = `${Math.round(x)}:${Math.round(y)}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 8);
+    sparkPoints.forEach(([x, y], index) => {
+      const spark = this.add.image(x, y, vfxTextureKeys.spark);
+      spark.setBlendMode(Phaser.BlendModes.ADD);
+      spark.setTint(color);
+      spark.setDisplaySize(this.tileSize * 0.22, this.tileSize * 0.22);
+      spark.setAlpha(0);
+      this.layer!.add(spark);
+      this.hintNodes.push(spark);
+      this.hintTweens.push(this.tweens.add({
+        targets: spark,
+        alpha: 1,
+        angle: 90,
+        duration: 420,
+        delay: BOARD_HINT_FADE_IN_MS + index * 260,
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: 900,
+        ease: "Sine.easeInOut"
+      }));
+    });
+
+    if (hint.action.kind !== "swap") {
+      const node = this.occupantNodes.get(positionKey(hint.action.at));
+      if (node) this.noteHintRestore(node);
+      if (node) this.hintTweens.push(this.tweens.add({ targets: node, scale: 1.1, duration: BOARD_HINT_NUDGE_MS, ease: "Sine.easeInOut", yoyo: true, repeat: -1, repeatDelay: BOARD_HINT_NUDGE_REST_MS, delay: BOARD_HINT_FADE_IN_MS }));
+      return;
+    }
+    const { from, to } = hint.action;
+    const reach = this.tileSize * 0.14;
+    for (const [mover, toward] of [[from, to], [to, from]] as const) {
+      const node = this.occupantNodes.get(positionKey(mover));
+      if (!node) continue;
+      this.noteHintRestore(node);
+      const home = this.cellCenter(mover);
+      this.hintTweens.push(this.tweens.add({
+        targets: node,
+        x: home.x + (toward.col - mover.col) * reach,
+        y: home.y + (toward.row - mover.row) * reach,
+        duration: BOARD_HINT_NUDGE_MS,
+        ease: "Sine.easeInOut",
+        yoyo: true,
+        repeat: -1,
+        repeatDelay: BOARD_HINT_NUDGE_REST_MS,
+        delay: BOARD_HINT_FADE_IN_MS
+      }));
+    }
+  }
+
+  /** Test mode only: the hint on show, or null. */
+  private recordHint(hint: BoardHint | null): void {
+    if (!this.isPresentationTestMode()) return;
+    (window as Window & { __gwHint?: BoardHint | null }).__gwHint = hint ? { action: hint.action, cells: hint.cells.map((cell) => ({ ...cell })) } : null;
   }
 
   /**
@@ -1042,6 +1274,8 @@ export class BoardScene extends Phaser.Scene {
     const topLeft = this.cellTopLeft(position);
     const radius = Math.max(6, this.tileSize * 0.1);
     const isDesignLocked = cell.debugDesignLocked && !cell.generator;
+    // A pane freezes a piece that is still playable: its cell is an ordinary one under glass, not a hole.
+    const isPane = cell.overlay !== null && !cell.generator;
     const cellFill = cell.generator
       ? boardChrome.generatorCell
       : cell.isMovable || isDesignLocked
@@ -1066,7 +1300,7 @@ export class BoardScene extends Phaser.Scene {
       ? this.v2Texture(matchV2BoardPartAsset("generator:honeypot"))
       : cell.underlay
         ? this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation")) ?? this.v2Texture(matchV2CellAsset("movable"))
-        : this.v2Texture(matchV2CellAsset(cell.isMovable || isDesignLocked ? "movable" : "blocked"));
+        : this.v2Texture(matchV2CellAsset(cell.isMovable || isDesignLocked || isPane ? "movable" : "blocked"));
     const underlayInSocket = Boolean(cell.underlay) && socketKey === this.v2Texture(matchV2BoardPartAsset("underlay:malwarePropagation"));
     if (socketKey) {
       const socket = this.add.image(topLeft.x + this.tileSize / 2, topLeft.y + this.tileSize / 2, socketKey);
@@ -1075,7 +1309,7 @@ export class BoardScene extends Phaser.Scene {
       this.layer.add(socket);
       if (!cell.generator) this.cellSocketNodes.set(positionId, socket);
     } else {
-      const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked;
+      const blocked = dark && !cell.generator && !cell.isMovable && !isDesignLocked && !isPane;
       graphics.fillStyle(blocked ? darkRealismChrome.blockedCell : cellFill, blocked ? darkRealismChrome.blockedCellAlpha : cellAlpha);
       graphics.fillRoundedRect(topLeft.x + 2, topLeft.y + 2, this.tileSize - 4, this.tileSize - 4, radius);
       graphics.lineStyle(1, blocked ? darkRealismChrome.blockedStroke : cellStroke, blocked ? darkRealismChrome.blockedStrokeAlpha : cellStrokeAlpha);
@@ -1107,6 +1341,7 @@ export class BoardScene extends Phaser.Scene {
     }
 
     const center = this.cellCenter(position);
+    this.recordStrengthPlate(positionId, cell.overlay?.hp ?? null);
     if (cell.overlay) {
       const overlayKey = this.v2Texture(matchV2BoardPartAsset("overlay:encryptedVolume"));
       if (overlayKey) {
@@ -1132,6 +1367,7 @@ export class BoardScene extends Phaser.Scene {
       const lockKey = this.v2Texture(matchV2BoardPartAsset("cell:locked"));
       if (lockKey) {
         this.layer.add(this.add.image(center.x, center.y, lockKey).setDisplaySize(this.tileSize, this.tileSize));
+        this.addLockGlow(position, topLeft, radius);
         this.recordLockedCellVisual(position);
       } else this.renderLockedCellHardware(position, topLeft, radius);
     }
@@ -1151,6 +1387,67 @@ export class BoardScene extends Phaser.Scene {
     plate.strokeRoundedRect(x - size / 2, y - size / 2, size, size, size * 0.18);
     this.layer.add(plate);
     this.addLabel(String(strength), x, y, textColor, Math.floor(size * 0.74), this.layer);
+  }
+
+  /** Dark realism: an amber frame that glows over the locked cell's art, and a lit padlock badge. */
+  private addLockGlow(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
+    if (!this.layer) return;
+    if (this.isPresentationTestMode()) {
+      const target = window as Window & { __gwLockGlows?: Array<{ row: number; col: number }> };
+      (target.__gwLockGlows ??= []).push({ row: position.row, col: position.col });
+    }
+    const glow = this.add.graphics();
+    glow.setBlendMode(Phaser.BlendModes.ADD);
+    const inset = this.tileSize * 0.07;
+    const size = this.tileSize - inset * 2;
+    const corner = Math.max(5, radius * 0.8);
+    // A soft halo: wide faint strokes under a bright thin one.
+    for (const [width, alpha] of [[0.14, 0.12], [0.08, 0.22], [0.035, 0.95]] as const) {
+      glow.lineStyle(Math.max(1.5, this.tileSize * width), boardChrome.lockedFrame, alpha);
+      glow.strokeRoundedRect(topLeft.x + inset, topLeft.y + inset, size, size, corner);
+    }
+    const badgeRadius = Math.max(7, this.tileSize * 0.15);
+    const badgeX = topLeft.x + inset + badgeRadius * 0.55;
+    const badgeY = topLeft.y + inset + badgeRadius * 0.55;
+    glow.fillStyle(boardChrome.lockedFrame, 0.3);
+    glow.fillCircle(badgeX, badgeY, badgeRadius * 1.25);
+    this.layer.add(glow);
+    this.lockGlows.push(glow);
+
+    // The padlock itself is drawn normally, so it reads as a solid shape inside the glow.
+    const badge = this.add.graphics();
+    badge.fillStyle(boardChrome.lockedBadgeFill, 0.96);
+    badge.fillCircle(badgeX, badgeY, badgeRadius);
+    badge.lineStyle(Math.max(1.5, this.tileSize * 0.03), boardChrome.lockedFrameHighlight, 1);
+    badge.strokeCircle(badgeX, badgeY, badgeRadius);
+    const bodyWidth = badgeRadius * 1.0;
+    const bodyHeight = badgeRadius * 0.74;
+    const bodyTop = badgeY - badgeRadius * 0.05;
+    badge.beginPath();
+    badge.arc(badgeX, bodyTop, badgeRadius * 0.34, Math.PI, Math.PI * 2, false);
+    badge.strokePath();
+    badge.fillStyle(boardChrome.lockedFrameHighlight, 1);
+    badge.fillRoundedRect(badgeX - bodyWidth / 2, bodyTop, bodyWidth, bodyHeight, Math.max(1.5, bodyHeight * 0.18));
+    this.layer.add(badge);
+
+    if (this.reducedMotion) {
+      glow.setAlpha(0.9);
+      return;
+    }
+    this.lockGlowPulse ??= this.tweens.addCounter({
+      from: 0.55,
+      to: 1,
+      duration: LOCK_GLOW_PULSE_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+      onUpdate: (tween) => {
+        const alpha = tween.getValue() ?? 1;
+        for (const node of this.lockGlows) if (node.active) node.setAlpha(alpha);
+        if (this.isPresentationTestMode()) (window as Window & { __gwLockGlowAlpha?: number }).__gwLockGlowAlpha = alpha;
+      }
+    });
+    glow.setAlpha((this.lockGlowPulse.getValue() as number | null) ?? 1);
   }
 
   private renderLockedCellHardware(position: GridPosition, topLeft: { x: number; y: number }, radius: number): void {
@@ -1215,8 +1512,18 @@ export class BoardScene extends Phaser.Scene {
   private clearLockedCellVisuals(): void {
     if (typeof window === "undefined") return;
     if (new URLSearchParams(window.location.search).get("gwTestMode") !== "1") return;
-    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }> };
+    const target = window as Window & { __gwLockedCellVisuals?: Array<{ row: number; col: number; kind: string }>; __gwLockGlows?: unknown[] };
     target.__gwLockedCellVisuals = [];
+    target.__gwLockGlows = [];
+  }
+
+  /** Test mode only: the pane strength number each cell is showing, for tests of the display. */
+  private recordStrengthPlate(positionId: string, hp: number | null): void {
+    if (!this.isPresentationTestMode()) return;
+    const target = window as Window & { __gwPaneStrengths?: Record<string, number> };
+    target.__gwPaneStrengths ??= {};
+    if (hp === null) delete target.__gwPaneStrengths[positionId];
+    else target.__gwPaneStrengths[positionId] = hp;
   }
 
   private recordLockedCellVisual(position: GridPosition): void {
@@ -1236,6 +1543,7 @@ export class BoardScene extends Phaser.Scene {
   playWinSequence(onComplete: () => void): boolean {
     if (!this.snapshot || !this.layer || !this.fxLayer || this.winPresentationActive) return false;
     this.winPresentationActive = true;
+    this.clearHint();
     this.vfxCleanup.reset(this.presentationViewportProfile());
     this.beginWinPresentationTrace();
     const sequenceId = this.activePresentationSequenceId;
@@ -1290,6 +1598,7 @@ export class BoardScene extends Phaser.Scene {
           gain: 0.3 + index * 0.035,
           playbackRate: 0.92 + index * 0.02
         });
+        if (rowPositions.length > 0) haptics.pulse(row === 0 ? "bigCombo" : "match");
         for (const position of rowPositions) {
           this.playWinTilePop(sourceSnapshot, position, seed);
         }
@@ -1385,7 +1694,9 @@ export class BoardScene extends Phaser.Scene {
       const complete = () => {
         if (this.activeAnimationId !== animationId || !this.sys.isActive()) return;
         this.snapshot = step.after;
-        if (step.kind === "action") this.renderSnapshot(new Set(), false);
+        // A gravity step that played its refill too has pieces on the board its snapshot does not
+        // hold yet; the refill step puts them back in the same tick.
+        if (step.kind === "action" || step.kind === "gravity" || step.kind === "refill") this.renderSnapshot(new Set(), false);
         this.recordResolutionFrame(step);
         this.renderSnapshot(new Set(), false);
         if (animationId !== null) this.onStepComplete?.(animationId, step.ordinal);
@@ -1399,12 +1710,21 @@ export class BoardScene extends Phaser.Scene {
         groups = [];
         this.playResolutionClear(step, activeGroups, complete);
       } else if (step.kind === "gravity" || step.kind === "refill") {
-        const plan = cascadePresentationPlan(step.before, step.after);
+        // A column's drop and its refill are one movement: the pieces that arrive are the tail of
+        // the train, so the gravity step plays both and the refill step only closes the books.
+        const index = steps.indexOf(step);
+        const refill = step.kind === "gravity" && steps[index + 1]?.kind === "refill" ? steps[index + 1] : null;
+        if (step.kind === "refill" && steps[index - 1]?.kind === "gravity") {
+          complete();
+          return;
+        }
+        const after = refill?.after ?? step.after;
+        const plan = cascadePresentationPlan(step.before, after);
         if (plan.moves.length === 0 && plan.spawns.length === 0) {
           this.publishCascadeAudit(step.before, plan, []);
           complete();
         } else {
-          this.playCascadeAndSpawn(step.before, step.after, this.resolutionStepDelta(step), plan, [], complete);
+          this.playCascadeAndSpawn(step.before, after, this.resolutionStepDelta(step), plan, [], complete);
         }
       } else if (step.kind === "creation") {
         this.snapshot = step.after;
@@ -1426,7 +1746,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private resolutionStepDelta(step: BoardResolutionStep, powerUpEvents: PowerUpEvent[] = []): BoardDelta {
-    return { clears: step.clears, moves: [], spawns: step.spawns, powerUpEvents,
+    return { clears: step.clears, blockerClears: step.blockerClears, moves: [], spawns: step.spawns, powerUpEvents,
       objectiveEvents: step.objectiveEvents, chainDepth: step.cascadeDepth,
       scoreGained: 0, isWin: false, isFail: false, shuffleAttempts: 0 };
   }
@@ -1435,17 +1755,45 @@ export class BoardScene extends Phaser.Scene {
     const events = groups.flatMap(group => group.events);
     const delta = this.resolutionStepDelta(step, events);
     const keys = new Set(step.clears.map(clear => positionKey(clear.position)));
+    this.objectiveClears = new Map(step.clears
+      .filter(clear => clear.contributedToObjective && clear.objectiveId !== null)
+      .map(clear => [positionKey(clear.position), clear]));
+    // A broken blocker flies to its goal when it is struck (PR #92 review): one a power-up reaches
+    // goes when that power-up's contact lands on its cell, one broken beside a match goes when the
+    // match pops, and any still waiting goes before the step ends, so no goal count misses one.
+    const struckByPowerUp = new Set(events.flatMap(event => [event.origin, ...event.affectedPositions].map(positionKey)));
+    const waitingBlockers = new Map<string, BlockerClear[]>();
+    const besideMatch: BlockerClear[] = [];
+    for (const blocker of step.blockerClears) {
+      const key = positionKey(blocker.position);
+      if (!struckByPowerUp.has(key)) besideMatch.push(blocker);
+      else waitingBlockers.set(key, [...(waitingBlockers.get(key) ?? []), blocker]);
+    }
+    const releaseAt = (key: string) => {
+      for (const blocker of waitingBlockers.get(key) ?? []) this.collectBlocker(blocker);
+      waitingBlockers.delete(key);
+    };
+    const releaseBesideMatch = () => {
+      for (const blocker of besideMatch.splice(0)) this.collectBlocker(blocker);
+    };
+    if (keys.size === 0) releaseBesideMatch();
     let popsDone = keys.size === 0;
     let effectsDone = events.length === 0;
     let finished = false;
     const finish = () => {
       if (finished || !popsDone || !effectsDone) return;
       finished = true;
+      releaseBesideMatch();
+      for (const key of [...waitingBlockers.keys()]) releaseAt(key);
       complete();
     };
     const effects = (contact: PowerUpContact) => {
       if (events.length === 0) return;
-      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, contact, groups);
+      const struck: PowerUpContact = (event, position) => {
+        releaseAt(positionKey(position));
+        contact(event, position);
+      };
+      this.playPowerUpEffects(delta, () => { effectsDone = true; finish(); }, struck, groups);
       this.recordPowerUpFxAfterPopRender();
     };
     if (keys.size === 0) {
@@ -1467,7 +1815,7 @@ export class BoardScene extends Phaser.Scene {
       if (events.length === 0) this.recordPresentation("match-recognition-complete", String(step.ordinal));
       this.playTilePops(step.before, keys, pacing, () => { popsDone = true; finish(); },
         clearFlashColors(delta), powerUpPopStagger(groups, step.before, keys), effects,
-        undefined, events.length === 0, groups);
+        undefined, events.length === 0, groups, releaseBesideMatch);
     };
     if (events.length === 0) {
       this.recordPresentation("match-recognition-start", String(step.ordinal));
@@ -1486,7 +1834,7 @@ export class BoardScene extends Phaser.Scene {
       if (!node) { if (--remaining === 0) complete(); continue; }
       this.occupantNodes.set(positionKey(move.to), node);
       const destination = this.cellCenter(move.to);
-      this.tweens.add({ targets: node, x: destination.x, y: destination.y, duration: SWAP_TRAVEL_MS + SWAP_SETTLE_MS,
+      this.tweens.add({ targets: node, x: destination.x, y: destination.y, duration: SHUFFLE_TRAVEL_MS,
         ease: "Sine.easeInOut", onComplete: () => { if (--remaining === 0) complete(); } });
     }
   }
@@ -1530,6 +1878,7 @@ export class BoardScene extends Phaser.Scene {
       return;
     }
     this.recordPresentation("invalid-swap-attempt");
+    haptics.pulse("invalid");
 
     const drag = this.drag;
     // Primary: snap the committed live sprites back to their homes -- the tile
@@ -1687,21 +2036,10 @@ export class BoardScene extends Phaser.Scene {
     destination: { x: number; y: number },
     onComplete: () => void
   ): void {
-    // The piece is picked up off the board, carried across, and set down: it grows as it lifts,
-    // and gives slightly as it meets the floor of its new cell.
-    this.tweens.add({ targets: sprite, x: destination.x, y: destination.y, duration: SWAP_TRAVEL_MS, ease: "Cubic.easeInOut" });
-    // Every stage names the scale it ends on. A dragged piece arrives here already lifted to
-    // 1.06, and a tween that returned to its starting value would leave it there to snap down.
-    const stage = (scaleX: number, scaleY: number, duration: number, ease: string, then: () => void) => {
-      this.tweens.add({ targets: sprite, scaleX, scaleY, duration, ease, onComplete: then });
-    };
-    stage(SWAP_LIFT_SCALE, SWAP_LIFT_SCALE, SWAP_TRAVEL_MS / 2, "Sine.easeOut", () => {
-      stage(1, 1, SWAP_TRAVEL_MS / 2, "Sine.easeIn", () => {
-        stage(1 + SWAP_SET_DOWN_SQUASH, 1 - SWAP_SET_DOWN_SQUASH, SWAP_SETTLE_MS / 2, "Quad.easeOut", () => {
-          stage(1, 1, SWAP_SETTLE_MS / 2, "Sine.easeOut", onComplete);
-        });
-      });
-    });
+    // The piece leaves at full speed and slows into its cell. A dragged piece arrives here still
+    // lifted to 1.06, and comes down over the same journey.
+    this.tweens.add({ targets: sprite, x: destination.x, y: destination.y, scaleX: 1, scaleY: 1,
+      duration: SWAP_TRAVEL_MS, ease: "Cubic.easeOut", onComplete });
   }
 
   private playPowerUpEffects(delta: BoardDelta, onComplete?: () => void, onContact?: PowerUpContact,
@@ -1711,6 +2049,7 @@ export class BoardScene extends Phaser.Scene {
       const event = delta.powerUpEvents[0];
       if (combo) this.cueReducedMotionAudio("comboImpact");
       else if (event) this.cueReducedMotionAudio(reducedMotionPowerUpCue(event));
+      onComplete?.();
       return;
     }
 
@@ -1751,6 +2090,7 @@ export class BoardScene extends Phaser.Scene {
     const dimmer = this.createComboDimmer(plan.key);
     this.recordPresentation("combo-charge", plan.key);
     this.cueBoardAudio("comboCharge");
+    haptics.pulse("launch");
     this.playComboChargeVisual(plan, group, center);
 
     this.vfxCleanup.schedule(this, plan.chargeAtMs, () => {
@@ -1764,7 +2104,7 @@ export class BoardScene extends Phaser.Scene {
       if (!this.sys.isActive() || !this.fxLayer?.active) return;
       this.recordPresentation("combo-impact", plan.key);
       this.cueBoardAudio("comboImpact");
-      audioService.vibrate(comboVibration(plan.key));
+      haptics.pulse(comboHaptic(plan.key));
       this.playComboPrimaryImpact(plan, center);
       for (const event of group.events) {
         if (!plan.finalStatePositions.some(position => positionKey(position) === positionKey(event.origin))) {
@@ -1981,6 +2321,21 @@ export class BoardScene extends Phaser.Scene {
       durationMs: 80,
       tint: comboTint(plan.key)
     }, this.vfxCleanup);
+    this.recordPresentation("blast-bloom", `combo:${plan.key}`);
+    blastCore(this, this.fxLayer, center.x, center.y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * COMBO_BLOOM_BOARD_SHARE,
+      durationMs: BLAST_BLOOM_MS,
+      tint: comboTint(plan.key)
+    }, this.vfxCleanup);
+    this.spillBlast(center, SPILL_COMBO_RADIUS_CELLS, SPILL_COMBO_SHARDS, comboTint(plan.key), `combo:${plan.key}`);
+    heavyDebris(this, this.fxLayer, center.x, center.y, {
+      count: plan.key === "tnt+tnt" ? 14 : TNT_DEBRIS_COUNT,
+      reachPx: this.tileSize * (TNT_DEBRIS_REACH_CELLS + 1),
+      sizePx: this.tileSize * TNT_DEBRIS_SIZE_CELLS,
+      durationMs: BLAST_DEBRIS_MS,
+      seed: `combo:${plan.key}`,
+      tint: BLAST_DEBRIS_TINT
+    }, this.vfxCleanup);
     shockwave(this, this.fxLayer, center.x, center.y, {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * (plan.key === "lightBall+lightBall" ? 0.78 : 0.58),
       durationMs: 320,
@@ -2121,7 +2476,8 @@ export class BoardScene extends Phaser.Scene {
     afterRender?: (onContact: PowerUpContact) => void,
     onCascadeStart?: () => void,
     allowMatchShake = true,
-    powerUpGroups: readonly PowerUpPresentationGroup[] = []
+    powerUpGroups: readonly PowerUpPresentationGroup[] = [],
+    onImpact?: () => void
   ): void {
     if (!this.fxLayer || popKeys.size === 0) {
       onCascadeStart?.();
@@ -2216,6 +2572,7 @@ export class BoardScene extends Phaser.Scene {
       const impact = () => {
         if (opened || !entry.object.active) return;
         opened = true;
+        onImpact?.();
         this.tweens.killTweensOf(popTarget);
         const visibleBefore = popTarget.visible;
         popTarget.setVisible(false);
@@ -2229,6 +2586,7 @@ export class BoardScene extends Phaser.Scene {
         if (!playedClusterBody) {
           playedClusterBody = true;
           this.cueBoardAudio("tileClusterBody", clearCuePlayback(popObjects.length));
+          haptics.pulse(popObjects.length >= 5 ? "bigMatch" : "match");
         }
         const variation = tilePopVariation(entry.position, seed);
         this.cueBoardAudio(variation.sample === "tile_pop_a" ? "tilePopA" : "tilePopB", {
@@ -2236,6 +2594,7 @@ export class BoardScene extends Phaser.Scene {
           playbackRate: variation.playbackRate
         });
         this.playMatchBurst(entry.object, entry.tint);
+        this.collectPiece(key);
         if (!cleanupScheduled) {
           cleanupScheduled = true;
           this.recordPresentation("debris-cleanup-pending");
@@ -2285,6 +2644,29 @@ export class BoardScene extends Phaser.Scene {
     afterRender?.(dispatchContact);
   }
 
+  // A piece that counts for an objective leaves the board for it. The flight itself is drawn over
+  // the page (src/game/pieceFlights.ts): the objective is outside this canvas.
+  private collectPiece(key: string): void {
+    const clear = this.objectiveClears.get(key);
+    if (!clear?.objectiveId || this.reducedMotion || this.boardTheme !== "darkRealism") return;
+    this.objectiveClears.delete(key);
+    const point = this.cellClientPoint(clear.position.row, clear.position.col);
+    if (!point) return;
+    this.recordPresentation("objective-fly", `${clear.objectiveId}:${key}`);
+    const size = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: clear.tileType, blocker: null, x: point.x, y: point.y, size });
+  }
+
+  // A pane, lock or malware cell that counts for a goal leaves the board for it, like a piece.
+  private collectBlocker(clear: BlockerClear): void {
+    if (!clear.objectiveId || this.reducedMotion || this.boardTheme !== "darkRealism") return;
+    const point = this.cellClientPoint(clear.position.row, clear.position.col);
+    if (!point) return;
+    this.recordPresentation("objective-fly", `${clear.objectiveId}:${positionKey(clear.position)}`);
+    const size = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    this.onPieceCollected?.({ objectiveId: clear.objectiveId, tileType: null, blocker: clear.kind, x: point.x, y: point.y, size });
+  }
+
   // A piece of the match that makes a power-up does not just break: what is left of it is pulled
   // into the cell where the power-up is about to land.
   private playMergeFlight(
@@ -2332,6 +2714,8 @@ export class BoardScene extends Phaser.Scene {
     const core = this.add.image(object.x, object.y, vfxTextureKeys.hotCore);
     core.setTint(tint);
     core.setBlendMode(Phaser.BlendModes.ADD);
+    // Dim enough that the piece breaks into light, not into a coloured ball.
+    core.setAlpha(0.55);
     core.setScale(Math.max(0.7, this.tileSize / 34));
     this.fxLayer.add(core);
     this.vfxCleanup.trackObject(core);
@@ -2355,7 +2739,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.9,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.22, this.tileSize / 190)
+      scale: Math.max(0.22, this.tileSize / 130)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.shard,
@@ -2363,7 +2747,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.45,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.22, this.tileSize / 220)
+      scale: Math.max(0.22, this.tileSize / 130)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.shardWide,
@@ -2371,7 +2755,7 @@ export class BoardScene extends Phaser.Scene {
       speed: this.tileSize * 1.3,
       lifespanMs: MATCH_DEBRIS_LIFESPAN_MS,
       tint,
-      scale: Math.max(0.2, this.tileSize / 235)
+      scale: Math.max(0.2, this.tileSize / 140)
     }, this.vfxCleanup);
     burst(this, this.fxLayer, object.x, object.y, {
       texture: vfxTextureKeys.smoke,
@@ -2433,6 +2817,12 @@ export class BoardScene extends Phaser.Scene {
     if (!this.fxLayer) return;
     const x = this.boardBounds.centerX;
     const y = this.boardBounds.centerY;
+    blastCore(this, this.fxLayer, x, y, {
+      radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * COMBO_BLOOM_BOARD_SHARE,
+      durationMs: BLAST_BLOOM_MS,
+      tint: 0x9bfff2
+    }, this.vfxCleanup);
+    this.spillBlast({ x, y }, SPILL_COMBO_RADIUS_CELLS, SPILL_COMBO_SHARDS, 0x9bfff2, "win");
     shockwave(this, this.fxLayer, x, y, {
       radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
       durationMs: WIN_ROW_DESTRUCTION_POP_MS,
@@ -2483,7 +2873,7 @@ export class BoardScene extends Phaser.Scene {
     const destinationKeys = cascadeHiddenDestinations(cascadePlan.moves, cascadePlan.spawns);
     this.renderSnapshot(destinationKeys, false);
 
-    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
+    const moveTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; destination: GridPosition; distanceCells: number; entering: boolean; clipEdge: number }[] = [];
     const missingMoveIds: number[] = [];
     // Remap occupant sprites in place: read the source key, then reattach under
     // the destination key. In a collapsing column one move's source cell is
@@ -2500,29 +2890,46 @@ export class BoardScene extends Phaser.Scene {
       moveTweens.push({
         sprite,
         to: this.cellCenter(move.to),
+        destination: move.to,
         distanceCells: Math.abs(move.to.row - move.from.row),
-        spawnPremiumMs: 0
+        entering: false,
+        clipEdge: this.boardBounds.y
       });
       // Reattach under the destination key so subsequent renders find it.
       this.occupantNodes.delete(positionKey(move.from));
       this.occupantNodes.set(positionKey(move.to), sprite);
     }
 
-    const spawnTweens: { sprite: Phaser.GameObjects.Container; to: { x: number; y: number }; distanceCells: number; spawnPremiumMs: number }[] = [];
+    const spawnTweens: typeof moveTweens = [];
+    // The top of the open run a refill falls through: it stops at a pane, a lock or a honeypot above.
+    const runTop = (position: GridPosition): number => {
+      let row = position.row;
+      while (row > 0) {
+        const above = nextSnapshot.grid.get({ row: row - 1, col: position.col });
+        if (!above.isMovable || above.generator) break;
+        row -= 1;
+      }
+      return row;
+    };
+    const startRows = refillStartRows(cascadePlan.spawns, runTop);
     for (const spawn of cascadePlan.spawns) {
       if (!this.layer) continue;
       const targetCell = nextSnapshot.grid.get(spawn.position);
-      const startX = this.cellCenter(spawn.position).x;
-      const startY = this.boardBounds.y - this.tileSize * 0.5;
-      const sprite = this.addOccupantAt(startX, startY, targetCell, this.layer, 0);
-      if (!sprite) continue;
-      this.tweens.add({ targets: sprite, alpha: 1, duration: motionTiming.spawnFlash });
       const destination = this.cellCenter(spawn.position);
+      const startRow = startRows.get(positionKey(spawn.position)) ?? -1;
+      const startY = this.cellCenter({ row: startRow, col: spawn.position.col }).y;
+      const sprite = this.addOccupantAt(destination.x, startY, targetCell, this.layer, 1);
+      if (!sprite) continue;
+      const top = runTop(spawn.position);
+      const clipEdge = top === 0 ? this.boardBounds.y : this.cellTopLeft({ row: top, col: spawn.position.col }).y;
+      this.clipToBoardTop(sprite, clipEdge);
       spawnTweens.push({
         sprite,
         to: destination,
-        distanceCells: Math.abs(destination.y - startY) / Math.max(1, this.tileSize),
-        spawnPremiumMs: 40
+        destination: spawn.position,
+        distanceCells: spawn.position.row - startRow,
+        entering: true,
+        clipEdge
       });
       this.occupantNodes.set(positionKey(spawn.position), sprite);
     }
@@ -2555,9 +2962,10 @@ export class BoardScene extends Phaser.Scene {
 
     let remaining = allTweens.length;
     let firstLandingRecorded = false;
-    const firstLandingPlanMs = Math.min(...allTweens.map((entry) => (
-      Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs)
-    )));
+    const fallOrder = fallOrderInColumn(allTweens.map((entry) => entry.destination));
+    const fallDelayMs = (entry: (typeof allTweens)[number]) => CASCADE_FALL_STAGGER_MS
+      * Math.min(CASCADE_FALL_STAGGER_MAX_RANK, fallOrder.get(positionKey(entry.destination)) ?? 0);
+    const firstLandingPlanMs = Math.min(...allTweens.map((entry) => fallDelayMs(entry) + cascadeFallDurationMs(entry.distanceCells)));
     const done = () => {
       remaining -= 1;
       if (remaining === 0) {
@@ -2575,8 +2983,7 @@ export class BoardScene extends Phaser.Scene {
     let jolted = false;
     // Pieces that fall for the same time land together and make one sound between them; at most
     // three such sounds a cascade, the heaviest groups last.
-    const fallMs = (entry: (typeof allTweens)[number]) =>
-      Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
+    const fallMs = (entry: (typeof allTweens)[number]) => cascadeFallDurationMs(entry.distanceCells);
     const landingGroups = new Map<number, { count: number; cells: number; cued: boolean }>();
     for (const entry of allTweens) {
       const group = landingGroups.get(fallMs(entry)) ?? { count: 0, cells: 0, cued: false };
@@ -2587,22 +2994,23 @@ export class BoardScene extends Phaser.Scene {
     const voicedLandings = new Set([...landingGroups.keys()].sort((a, b) => a - b).filter((_, index, all) => index === 0 || index >= all.length - 2));
 
     for (const entry of allTweens) {
-      const fallDuration = Math.min(CASCADE_FALL_MAX_MS + entry.spawnPremiumMs, cascadeFallDurationMs(entry.distanceCells) + entry.spawnPremiumMs);
+      const fallDuration = fallMs(entry);
+      const delayMs = fallDelayMs(entry);
       this.recordPresentation(
         "cascade-fall-plan",
-        `distanceCells=${entry.distanceCells.toFixed(3)};durationMs=${fallDuration}`
+        `distanceCells=${entry.distanceCells.toFixed(3)};durationMs=${fallDuration};delayMs=${delayMs};entering=${entry.entering}`
       );
       const landing = cascadeLandingPlan(entry.distanceCells, pieceSizePx, this.tileSize);
       this.tweens.add({
         targets: entry.sprite,
         x: entry.to.x,
         y: entry.to.y,
-        scaleX: CASCADE_FALL_STRETCH_X,
-        scaleY: CASCADE_FALL_STRETCH_Y,
+        delay: delayMs,
         duration: fallDuration,
-        // Constant acceleration from rest: the piece is moving fastest when it lands.
-        ease: "Quad.easeIn",
+        ease: cascadeFallEase(entry.distanceCells),
+        onUpdate: entry.entering ? () => this.clipToBoardTop(entry.sprite, entry.clipEdge) : undefined,
         onComplete: () => {
+          if (entry.entering) this.clipToBoardTop(entry.sprite, entry.clipEdge);
           if (!firstLandingRecorded) {
             firstLandingRecorded = true;
             this.recordPresentation("cascade-land", undefined, firstLandingPlanMs);
@@ -2611,45 +3019,40 @@ export class BoardScene extends Phaser.Scene {
           if (landed && !landed.cued && voicedLandings.has(fallDuration)) {
             landed.cued = true;
             this.cueBoardAudio("cascadeLand", landingCuePlayback(landing.strength, landed.count));
+            haptics.pulse("land");
           }
           if (joltPx > 0 && !jolted && entry.distanceCells >= joltFromCells) {
             jolted = true;
             this.joltBoard(joltPx);
           }
-          this.pressShadow(entry.sprite, landing);
-          // Squash against the floor of the cell (the foot stays put), one small hop, settle.
+          // Stopped dead; a touch of bob is all the landing shows.
           this.tweens.add({
             targets: entry.sprite,
-            y: entry.to.y + landing.sinkPx,
-            scaleX: landing.squashScaleX,
-            scaleY: landing.squashScaleY,
-            duration: landing.squashMs,
-            ease: "Quad.easeOut",
-            onComplete: () => {
-              this.tweens.add({
-                targets: entry.sprite,
-                y: entry.to.y - landing.hopPx,
-                scaleX: 1 - 0.03 * landing.strength,
-                scaleY: 1 + 0.04 * landing.strength,
-                duration: landing.hopMs,
-                ease: "Sine.easeOut",
-                onComplete: () => {
-                  this.tweens.add({
-                    targets: entry.sprite,
-                    x: entry.to.x,
-                    y: entry.to.y,
-                    scaleX: 1,
-                    scaleY: 1,
-                    duration: landing.settleMs,
-                    ease: "Sine.easeIn",
-                    onComplete: done
-                  });
-                }
-              });
-            }
+            y: entry.to.y - cascadeReboundPx(entry.distanceCells, this.tileSize),
+            duration: CASCADE_REBOUND_MS / 2,
+            ease: "Sine.easeInOut",
+            yoyo: true,
+            onComplete: done
           });
         }
       });
+    }
+  }
+
+  // A refilling piece waits above the board and is cut off along the board's top edge until it has
+  // come in. Cutting its images, rather than masking the layer, costs a phone nothing per frame.
+  /** Hides what is above `edge`: the board's top, or the top of an open run below a pane, lock or honeypot. */
+  private clipToBoardTop(sprite: Phaser.GameObjects.Container, edge: number = this.boardBounds.y): void {
+    for (const child of sprite.list as Phaser.GameObjects.GameObject[]) {
+      if (!(child instanceof Phaser.GameObjects.Image)) {
+        (child as unknown as Phaser.GameObjects.Components.Visible).setVisible?.(sprite.y - this.tileSize / 2 >= edge);
+        continue;
+      }
+      const top = sprite.y + child.y - child.displayHeight * child.originY;
+      const hidden = edge - top;
+      child.setVisible(hidden < child.displayHeight);
+      if (hidden <= 0) child.setCrop();
+      else child.setCrop(0, (hidden / child.displayHeight) * child.height, child.width, child.height);
     }
   }
 
@@ -2726,6 +3129,7 @@ export class BoardScene extends Phaser.Scene {
         const impactAtMs = this.time.now;
         this.recordPresentation("powerup-create-impact", creation.powerUp.kind);
         this.cueBoardAudio("powerUpCreate", { gain: 0.58 });
+        haptics.pulse("create");
         const landing = cascadeLandingPlan(CASCADE_LANDING_FULL_STRENGTH_CELLS, pieceDisplayProfile(this.tileSize).pieceSizePx, this.tileSize);
         const stable = () => {
           const markStable = () => {
@@ -2788,7 +3192,8 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPowerUpEffect(event: PowerUpEvent, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer) return;
+    // An effect with nothing to do still reports back: the step after it is waiting on this call.
+    if (!this.fxLayer) { onImpact?.(); return; }
     this.recordPowerUpFxStart();
     const origin = this.cellCenter(event.origin);
     if (event.powerUpType.kind === "tnt") {
@@ -2825,11 +3230,12 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playTntPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer) return;
+    if (!this.fxLayer) { onImpact?.(); return; }
     const plan = tntDetonationPlan(event.origin, event.affectedPositions);
     this.recordPresentation("tnt-arm");
     this.recordPresentation("powerup-charge", "tnt");
     this.cueBoardAudio("tntArm");
+    haptics.pulse("launch");
     if (this.markTargets([event.origin, ...event.affectedPositions], 0xff9a43, plan.detonationAtMs, { asOneArea: true })) {
       this.recordPresentation("target-mark", "tnt");
     }
@@ -2873,7 +3279,7 @@ export class BoardScene extends Phaser.Scene {
       onContact?.(event.origin);
       this.recordPresentation("powerup-impact", "tnt");
       this.cueBoardAudio("tntBlast", blastCuePlayback("tnt", event.affectedPositions.length));
-      audioService.vibrate([18, 35, 28]);
+      haptics.pulse("blast");
       if (onImpact) {
         this.vfxCleanup.schedule(this, TNT_CASCADE_AFTER_DETONATION_MS, () => {
           onImpact();
@@ -2885,11 +3291,32 @@ export class BoardScene extends Phaser.Scene {
         boardDimmer(this, this.fxScreen, { alpha: 0.16, durationMs: 120 }, this.vfxCleanup);
         screenFlash(this, this.fxScreen, { alpha: 0.3, durationMs: 70, tint: 0xffe4c0 }, this.vfxCleanup);
       }
+      this.recordPresentation("blast-bloom", "tnt");
+      blastCore(this, activeFxLayer, origin.x, origin.y, {
+        radiusPx: this.tileSize * TNT_BLOOM_CELLS,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xff9a43
+      }, this.vfxCleanup);
+      this.spillBlast(origin, SPILL_TNT_RADIUS_CELLS, SPILL_TNT_SHARDS, 0xff9a43, `tnt:${positionKey(event.origin)}`);
       this.recordPresentation("shockwave");
       shockwave(this, activeFxLayer, origin.x, origin.y, {
         radiusPx: this.tileSize * (TNT_BLAST_RADIUS_CELLS + 0.45),
         durationMs: TNT_SHOCKWAVE_MS,
         tint: 0xff8a3d
+      }, this.vfxCleanup);
+      shockwave(this, activeFxLayer, origin.x, origin.y, {
+        radiusPx: this.tileSize * TNT_BLAST_RADIUS_CELLS * 0.6,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xfff1b8
+      }, this.vfxCleanup);
+      this.recordPresentation("blast-debris", "tnt");
+      heavyDebris(this, activeFxLayer, origin.x, origin.y, {
+        count: TNT_DEBRIS_COUNT,
+        reachPx: this.tileSize * TNT_DEBRIS_REACH_CELLS,
+        sizePx: this.tileSize * TNT_DEBRIS_SIZE_CELLS,
+        durationMs: BLAST_DEBRIS_MS,
+        seed: `tnt:${positionKey(event.origin)}`,
+        tint: BLAST_DEBRIS_TINT
       }, this.vfxCleanup);
       for (const offset of [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }]) {
         laneBlast(this, activeFxLayer, origin, {
@@ -2900,18 +3327,18 @@ export class BoardScene extends Phaser.Scene {
       burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.spark,
         count: 18,
-        speed: this.tileSize * 3.4,
+        speed: this.tileSize * 4.6,
         lifespanMs: TNT_SPARK_BURST_LIFESPAN_MS,
         tint: 0xfff1b8,
-        scale: Math.max(0.42, this.tileSize / 120)
+        scale: Math.max(0.42, this.tileSize / 70)
       }, this.vfxCleanup);
       burst(this, activeFxLayer, origin.x, origin.y, {
         texture: vfxTextureKeys.shard,
         count: 12,
-        speed: this.tileSize * 2.5,
+        speed: this.tileSize * 3.6,
         lifespanMs: TNT_SHARD_BURST_LIFESPAN_MS,
         tint: 0xff8a3d,
-        scale: Math.max(0.34, this.tileSize / 150)
+        scale: Math.max(0.34, this.tileSize / 80)
       }, this.vfxCleanup);
       this.recordPresentation("shake-request", String(TNT_SHAKE_INTENSITY));
       shake(this, TNT_SHAKE_INTENSITY, TNT_SHAKE_DURATION_MS, this.reducedMotion);
@@ -2940,7 +3367,7 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playRocketPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") return;
+    if (!this.fxLayer || !this.snapshot || event.powerUpType.kind !== "rocket") { onImpact?.(); return; }
     const layer = this.fxLayer;
     const texture = event.powerUpType.orientation === "horizontal"
       ? powerUpTextures.rocket_horizontal
@@ -2954,6 +3381,7 @@ export class BoardScene extends Phaser.Scene {
     );
     this.recordPresentation("powerup-charge", "rocket");
     this.cueBoardAudio("rocketLaunch");
+    haptics.pulse("launch");
     this.recordRocketLaunch(plan.heads.length);
     if (this.reducedMotion) return;
     const laneMs = plan.ignitionMs + Math.max(0, ...plan.heads.map((head) => head.flightMs));
@@ -3000,6 +3428,13 @@ export class BoardScene extends Phaser.Scene {
         this.vfxCleanup.trackObject(sprite);
         this.recordPresentation("rocket-head-launch", String(head.direction));
 
+        this.recordPresentation("rocket-beam", String(head.direction));
+        laneBeam(this, layer, origin, end, {
+          widthPx: this.tileSize * ROCKET_BEAM_WIDTH_CELLS,
+          travelMs: head.flightMs,
+          fadeMs: ROCKET_BEAM_FADE_MS,
+          tint: 0x58e6ff
+        }, this.vfxCleanup);
         laneBlast(this, layer, origin, end, {
           durationMs: head.flightMs,
           scale: Math.max(0.48, this.tileSize / 98),
@@ -3072,7 +3507,16 @@ export class BoardScene extends Phaser.Scene {
             this.recordPresentation("rocket-edge-impact", positionKey(head.destination));
             this.recordPresentation("powerup-impact", "rocket");
             this.cueBoardAudio("rocketImpact", blastCuePlayback("rocket", head.passTimes.length));
+            haptics.pulse("impact");
             if (hasTrailBudget) trail.stop();
+            blastCore(this, layer, end.x, end.y, {
+              radiusPx: this.tileSize * ROCKET_EDGE_BLOOM_CELLS,
+              durationMs: BLAST_BLOOM_MS,
+              tint: 0x8af1ff
+            }, this.vfxCleanup);
+            // The head is leaving the board: what it throws carries on the way it was going.
+            this.spillBlast(end, SPILL_ROCKET_RADIUS_CELLS, SPILL_ROCKET_SHARDS, 0x8af1ff, `rocket:${positionKey(head.destination)}`,
+              orientation === "horizontal" ? (head.direction > 0 ? 0 : 180) : (head.direction > 0 ? 90 : -90));
             impactBurst(this, layer, end.x, end.y, {
               intensity: 0.8,
               lifespanMs: ROCKET_EDGE_BURST_LIFESPAN_MS,
@@ -3101,12 +3545,14 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playPropellerPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot) return;
+    if (!this.fxLayer || !this.snapshot) { onImpact?.(); return; }
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
-    if (targets.length === 0) return;
+    // A blast that emptied the board leaves a chained propeller nothing to fly at.
+    if (targets.length === 0) { onImpact?.(); return; }
     if (this.reducedMotion) {
       this.recordPropellerStrike(targets.length);
+      onImpact?.();
       return;
     }
 
@@ -3115,6 +3561,7 @@ export class BoardScene extends Phaser.Scene {
     this.recordPresentation("powerup-charge", "propeller");
     this.recordPresentation("propeller-lift");
     this.cueBoardAudio("propellerLift");
+    haptics.pulse("launch");
     const drone = this.add.container(origin.x, origin.y);
     const icon = this.add.image(0, 0, powerUpTextures.propeller);
     icon.setDisplaySize(this.tileSize * PROPELLER_DRONE_SCALE, this.tileSize * PROPELLER_DRONE_SCALE);
@@ -3132,10 +3579,11 @@ export class BoardScene extends Phaser.Scene {
 
     this.vfxCleanup.trackTween(this.tweens.add({
       targets: drone,
-      scaleX: 1.16,
-      scaleY: 1.16,
-      y: origin.y - this.tileSize * 0.25,
+      scaleX: 1.22,
+      scaleY: 1.22,
+      y: origin.y - this.tileSize * 0.4,
       duration: PROPELLER_LIFT_MS,
+      // A slow climb that settles into a hover before the strike.
       ease: "Sine.easeOut",
       onComplete: () => {
         this.recordPresentation("propeller-flight");
@@ -3175,11 +3623,21 @@ export class BoardScene extends Phaser.Scene {
             onContact?.(plan.target);
             this.recordPresentation("powerup-impact", "propeller");
             this.cueBoardAudio("propellerImpact");
-            audioService.vibrate(18);
+            haptics.pulse("impact");
             drone.destroy();
             this.recordPropellerStrike(targets.length);
             impactBurst(this, layer, primaryCenter.x, primaryCenter.y, { intensity: 0.9, lifespanMs: PROPELLER_IMPACT_BURST_LIFESPAN_MS, tint: 0x70f2ea }, this.vfxCleanup);
-            shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 0.7, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
+            blastCore(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * PROPELLER_BLOOM_CELLS, durationMs: BLAST_BLOOM_MS, tint: 0x70f2ea }, this.vfxCleanup);
+            this.spillBlast(primaryCenter, SPILL_PROPELLER_RADIUS_CELLS, SPILL_PROPELLER_SHARDS, 0x70f2ea, `propeller:${positionKey(plan.target)}`);
+            shockwave(this, layer, primaryCenter.x, primaryCenter.y, { radiusPx: this.tileSize * 1.25, durationMs: 180, tint: 0x70f2ea }, this.vfxCleanup);
+            heavyDebris(this, layer, primaryCenter.x, primaryCenter.y, {
+              count: 5,
+              reachPx: this.tileSize * 1.6,
+              sizePx: this.tileSize * 0.3,
+              durationMs: BLAST_DEBRIS_MS,
+              seed: `propeller:${positionKey(plan.target)}`,
+              tint: BLAST_DEBRIS_TINT
+            }, this.vfxCleanup);
             this.knockBoard({ x: 0, y: 1 });
             targets.slice(1).forEach((target, index) => {
               this.vfxCleanup.schedule(this, (index + 1) * PROPELLER_SECONDARY_STAGGER_MS, () => {
@@ -3203,12 +3661,13 @@ export class BoardScene extends Phaser.Scene {
   }
 
   private playLightBallPowerUpEffect(event: PowerUpEvent, origin: { x: number; y: number }, onImpact?: () => void, onContact?: (position: GridPosition) => void): void {
-    if (!this.fxLayer || !this.snapshot) return;
+    if (!this.fxLayer || !this.snapshot) { onImpact?.(); return; }
     const layer = this.fxLayer;
     const targets = event.affectedPositions.filter((position) => this.snapshot?.grid.isValid(position));
-    if (targets.length === 0) return;
+    if (targets.length === 0) { onImpact?.(); return; }
     if (this.reducedMotion) {
       this.recordLightBallZap(targets.length);
+      onImpact?.();
       return;
     }
 
@@ -3255,11 +3714,18 @@ export class BoardScene extends Phaser.Scene {
       this.recordPresentation("powerup-impact", "lightBall");
       this.recordPresentation("lightBall-release");
       this.cueBoardAudio("lightBallRelease", blastCuePlayback("lightBall", targets.length));
-      audioService.vibrate(18);
+      haptics.pulse("blast");
       if (this.fxScreen) {
         this.recordPresentation("screen-flash", "alpha=0.22;durationMs=80");
         screenFlash(this, this.fxScreen, { alpha: 0.22, durationMs: 80, tint: 0xe6d8ff }, this.vfxCleanup);
       }
+      this.recordPresentation("blast-bloom", "lightBall");
+      blastCore(this, this.fxLayer, origin.x, origin.y, {
+        radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * LIGHTBALL_BLOOM_BOARD_SHARE,
+        durationMs: BLAST_BLOOM_MS,
+        tint: 0xf15bd7
+      }, this.vfxCleanup);
+      this.spillBlast(origin, SPILL_LIGHTBALL_RADIUS_CELLS, SPILL_LIGHTBALL_SHARDS, 0xf15bd7, `lightBall:${positionKey(event.origin)}`);
       shockwave(this, this.fxLayer, origin.x, origin.y, {
         radiusPx: Math.max(this.boardBounds.width, this.boardBounds.height) * 0.72,
         durationMs: LIGHTBALL_FULL_SHOCKWAVE_MS,
@@ -3299,6 +3765,7 @@ export class BoardScene extends Phaser.Scene {
       this.recordPresentation("powerup-charge", "lightBall");
       this.recordPresentation("lightBall-charge", undefined, LIGHTBALL_DIM_MS);
       this.cueBoardAudio("lightBallCharge");
+      haptics.pulse("launch");
       const charge = this.add.graphics({ x: origin.x, y: origin.y });
       const radius = this.tileSize * 0.48;
       charge.lineStyle(7, 0x70f2ea, 0.6);
@@ -3461,6 +3928,7 @@ export class BoardScene extends Phaser.Scene {
     const canvas = this.game.canvas;
     const down = (event: PointerEvent) => {
       if (this.activePointerId !== null || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+      this.clearHint();
       const pointer = this.pointerFromDomEvent(event);
       if (this.pendingBooster) {
         const didTarget = this.activateBoosterAtPointer(this.pendingBooster, pointer);
@@ -3484,12 +3952,14 @@ export class BoardScene extends Phaser.Scene {
       event.preventDefault();
       this.releaseDomPointerCapture(canvas, event.pointerId);
       this.handlePointerUp(this.pointerFromDomEvent(event));
+      this.restartHintTimer();
     };
     const cancel = (event: PointerEvent) => {
       if (this.activePointerId !== event.pointerId) return;
       this.activePointerId = null;
       this.releaseDomPointerCapture(canvas, event.pointerId);
       if (this.drag && !this.drag.committed) this.snapBackDrag(this.drag);
+      this.restartHintTimer();
     };
 
     this.domPointerHandlers = { cancel, down, move, up };
@@ -3503,6 +3973,10 @@ export class BoardScene extends Phaser.Scene {
       this.clearDragWatchdog();
       this.clearPresentationTrace();
       this.clearLockedCellVisuals();
+      this.lockGlowPulse?.remove();
+      this.lockGlowPulse = null;
+      this.clearHint();
+      this.lockGlows = [];
     };
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, shutdown);
     this.events.once(Phaser.Scenes.Events.DESTROY, shutdown);
@@ -3525,25 +3999,48 @@ export class BoardScene extends Phaser.Scene {
       __gwPreviewPowerUpCombo?: ((combo: CanonicalComboKey) => void) | null;
       __gwPreviewPresentationEffect?: ((effect: PresentationEffectKey) => void) | null;
       __gwStopBoardScene?: (() => void) | null;
+      __gwPieceDisplacement?: ((row: number, col: number) => { dx: number; dy: number; scale: number } | null) | null;
     };
     target.__gwBoardReady = ready;
     target.__gwBoardCellClientPoint = ready ? (row, col) => this.cellClientPoint(row, col) : null;
     target.__gwPreviewPowerUpCombo = ready ? (combo) => this.previewPowerUpCombo(combo) : null;
     target.__gwPreviewPresentationEffect = ready ? (effect) => this.previewPresentationEffect(effect) : null;
     target.__gwStopBoardScene = ready ? () => this.scene.stop() : null;
+    target.__gwPieceDisplacement = ready ? (row, col) => this.pieceDisplacement({ row, col }) : null;
+  }
+
+  /** Test mode: how far a piece sits from the middle of its cell, and its scale. */
+  private pieceDisplacement(position: GridPosition): { dx: number; dy: number; scale: number } | null {
+    const node = this.occupantNodes.get(positionKey(position));
+    if (!node?.active) return null;
+    const home = this.cellCenter(position);
+    return { dx: node.x - home.x, dy: node.y - home.y, scale: node.scaleX };
   }
 
   private cellClientPoint(row: number, col: number): { x: number; y: number } | null {
     if (!this.snapshot) return null;
     if (row < 0 || row >= this.snapshot.grid.rows || col < 0 || col >= this.snapshot.grid.cols) return null;
-    const center = this.cellCenter({ row, col });
+    return this.scenePointOnPage(this.cellCenter({ row, col }));
+  }
+
+  private scenePointOnPage(point: { x: number; y: number }): { x: number; y: number } {
     const rect = this.game.canvas.getBoundingClientRect();
     const sceneWidth = Math.max(1, this.scale.width);
     const sceneHeight = Math.max(1, this.scale.height);
     return {
-      x: rect.left + (center.x / sceneWidth) * rect.width,
-      y: rect.top + (center.y / sceneHeight) * rect.height
+      x: rect.left + (point.x / sceneWidth) * rect.width,
+      y: rect.top + (point.y / sceneHeight) * rect.height
     };
+  }
+
+  /** The part of a blast that escapes the canvas (src/game/blastSpill.ts). Dark board only. */
+  private spillBlast(at: { x: number; y: number }, radiusCells: number, shards: number, tint: number, seed: string, headingDeg?: number): void {
+    if (this.boardTheme !== "darkRealism" || this.reducedMotion) return;
+    const page = this.scenePointOnPage(at);
+    const cssTile = this.tileSize * (this.game.canvas.getBoundingClientRect().width / Math.max(1, this.scale.width));
+    const flown = this.blastSpill.burst(page.x, page.y, { radiusPx: cssTile * radiusCells, shards, tint, seed,
+      ...(headingDeg === undefined ? {} : { headingDeg, spreadDeg: SPILL_ROCKET_SPREAD_DEG }) });
+    if (flown > 0) this.recordPresentation("blast-spill", `${seed}:${flown}`);
   }
 
   private setDomPointerCapture(canvas: HTMLCanvasElement, pointerId: number): void {
@@ -3758,6 +4255,7 @@ export class BoardScene extends Phaser.Scene {
     const movedDistance = Phaser.Math.Distance.Between(pointer.x, pointer.y, drag.pointerStart.x, drag.pointerStart.y);
     if (cell?.powerUp && movedDistance < this.tileSize * 0.16) {
       this.releaseDrag(drag);
+      haptics.pulse("tap");
       this.onAction({ kind: "tap", at: drag.start });
       return;
     }
@@ -3773,6 +4271,7 @@ export class BoardScene extends Phaser.Scene {
   // purely as a safety net in case that handoff never arrives.
   private commitSwap(drag: ActiveDrag, target: GridPosition): void {
     drag.committed = true;
+    haptics.pulse("swap");
     drag.blockedMarker?.destroy();
     drag.blockedMarker = null;
     this.commitSettled = false;
@@ -4108,6 +4607,7 @@ export class BoardScene extends Phaser.Scene {
     const frameBorder = this.v2Texture(frame) ? frame?.frameBorder ?? 0 : 0;
     const margin = frameBorder > 0 ? 4 / this.scale.zoom : 12;
     this.tileSize = boardTileSize(width, height, rows, cols, margin, frameBorder);
+    setVfxTileSize(this, this.tileSize);
     // On whole pixels under the frame, so its lengths and the cells meet without a soft seam.
     const snap = frameBorder > 0 ? Math.round : (value: number) => value;
     this.boardBounds.setTo(
@@ -4276,10 +4776,8 @@ function comboTint(key: CanonicalComboKey): number {
   return 0x58e6ff;
 }
 
-function comboVibration(key: CanonicalComboKey): number[] {
-  if (key === "tnt+tnt" || key === "lightBall+lightBall") return [24, 35, 34];
-  if (key.includes("tnt")) return [20, 30, 28];
-  return [16, 28, 22];
+function comboHaptic(key: CanonicalComboKey): HapticKind {
+  return key === "tnt+tnt" || key === "lightBall+lightBall" ? "bigCombo" : "combo";
 }
 
 function hiddenPositionsFor(action: BoardAction): Set<string> {
@@ -4404,6 +4902,7 @@ function canPreviewTarget(cell: CellState): boolean {
 }
 
 function canTargetBooster(cell: CellState): boolean {
+  if (cell.overlay && !cell.generator) return Boolean(cell.baseTile || cell.powerUp);
   return cell.isMovable && !cell.generator && Boolean(cell.baseTile || cell.powerUp);
 }
 

@@ -63,6 +63,21 @@ export function computeCentroidStagger(
  * Mirrors iOS BoardNode.swift animateRowDestruction rotation jitter.
  * iOS: BoardNode.swift — animateRowDestruction()
  */
+export function seededRandom(seed: string): () => number {
+  let state = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    state ^= seed.charCodeAt(index);
+    state = Math.imul(state, 16777619);
+  }
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 export function seededAngleJitter(
   position: GridPosition,
   seed: string,
@@ -148,6 +163,45 @@ export function cascadePresentationPlan(
  */
 export function orderCascadeMoves<T extends Pick<MoveEvent, "from" | "to">>(moves: ReadonlyArray<T>): T[] {
   return [...moves].sort((a, b) => b.to.row - a.to.row);
+}
+
+/**
+ * Where each refilling piece waits before it falls, as a row above the board: the piece going
+ * deepest in a column waits at row -1, the next at row -2, so a refill arrives spaced like the
+ * column it joins. Keyed `row,col` of the destination. A column cut by anything that does not let
+ * a piece through (a pane, a lock or a honeypot) has a run of its own below the cut, whose refill
+ * waits above that run (hidden until it passes the run's top edge), so that nothing falls through it.
+ */
+export function refillStartRows(
+  spawns: ReadonlyArray<Pick<CascadePresentationSpawn, "position">>,
+  /** The first row of the open run of cells a spawn falls through: below a pane, lock or honeypot that is not row 0. */
+  topOf: (position: GridPosition) => number = () => 0
+): Map<string, number> {
+  const taken = new Map<string, number>();
+  const rows = new Map<string, number>();
+  for (const { position } of [...spawns].sort((a, b) => b.position.row - a.position.row)) {
+    const top = topOf(position);
+    const run = `${top},${position.col}`;
+    const above = (taken.get(run) ?? 0) + 1;
+    taken.set(run, above);
+    rows.set(`${position.row},${position.col}`, top - above);
+  }
+  return rows;
+}
+
+/**
+ * Each falling piece's place in its column, counting up from the lowest landing: the order in which
+ * a column lets go. Keyed `row,col` of the destination.
+ */
+export function fallOrderInColumn(destinations: ReadonlyArray<GridPosition>): Map<string, number> {
+  const placed = new Map<number, number>();
+  const order = new Map<string, number>();
+  for (const { row, col } of [...destinations].sort((a, b) => b.row - a.row)) {
+    const place = placed.get(col) ?? 0;
+    placed.set(col, place + 1);
+    order.set(`${row},${col}`, place);
+  }
+  return order;
 }
 
 /**

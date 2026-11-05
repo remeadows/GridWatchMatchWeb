@@ -38,11 +38,11 @@ describe("connected match pacing", () => {
     expect(plan.openHoldMs).toBeGreaterThan(0);
   });
 
-  it("uses a shorter but visible recognition beat for later settled waves", () => {
+  it("gives only later settled waves a recognition beat: a swap already shows where its match is", () => {
     const initial = matchPacingPlan(first, 0);
     const cascade = matchPacingPlan(first, 1);
     expect(cascade.recognitionHoldMs).toBeGreaterThan(0);
-    expect(cascade.recognitionHoldMs).toBeLessThan(initial.recognitionHoldMs);
+    expect(initial.recognitionHoldMs).toBe(0);
     expect(cascade.compressionMs).toBe(initial.compressionMs);
     expect(cascade.impacts.every(hit => hit.compressionStartAtMs >= cascade.recognitionHoldMs)).toBe(true);
     expect(matchPacingPlan([], 1).impacts).toEqual([]);

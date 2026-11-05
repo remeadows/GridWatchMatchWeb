@@ -175,12 +175,19 @@ describe("ordered engine resolution", () => {
     expect(objectiveTotals).toEqual(Object.fromEntries(delta.objectiveEvents.map(event => [event.objectiveId, event.progressDelta])));
   });
 
-  it("records propagation when malware survives outside the TNT blast", () => {
+  it("records propagation when a swap leaves malware alive, and none after a booster", () => {
     const fixture = specimen("generator-and-lock");
     const level = structuredClone(fixture.level);
     level.cellMap[1][1].underlay = "malware_1";
+    const swaps = new BoardEngine(level, fixture.seed).validMoves().filter(move => move.kind === "swap");
+    const spreading = swaps.filter(move => {
+      const { steps } = new BoardEngine(level, fixture.seed).applyWithResolution(move);
+      return steps.some(step => step.kind === "malware" && step.cellChanges.length > 0);
+    });
+    expect(spreading.length).toBeGreaterThan(0);
+    // Boosters never trigger a spread: the TNT used by the specimen records no malware growth.
     const { steps } = new BoardEngine(level, fixture.seed).applyWithResolution(fixture.actions[0]);
-    expect(steps.some(step => step.kind === "malware" && step.cellChanges.length > 0)).toBe(true);
+    expect(steps.some(step => step.kind === "malware" && step.cellChanges.length > 0)).toBe(false);
     expect(fixture.level.cellMap[1][1].underlay).toBeNull();
   });
 });
@@ -206,12 +213,12 @@ for (const method of ["apply", "applyWithResolution"] as const) {
       expect(canonical(outcome(engine, fixture.actions.at(-1)!))).toEqual(fixture.expected);
     });
 
-    it("matches all 34,054 frozen actions over 100 levels and 20 sensitivity seeds", () => {
+    it("matches all 34,164 frozen actions over 100 levels and 20 sensitivity seeds", () => {
       const runs = read<CorpusRun[]>("src/tests/fixtures/resolution/corpus.json");
       const levels = new Map<number, LevelDefinition>();
       let actions = 0;
       for (const run of runs) {
-        if (!levels.has(run.level)) levels.set(run.level, read(`public/levels/level_${String(run.level).padStart(3, "0")}.json`));
+        if (!levels.has(run.level)) levels.set(run.level, read(`src/tests/fixtures/resolution/levels/level_${String(run.level).padStart(3, "0")}.json`));
         const engine = new BoardEngine(levels.get(run.level)!, run.seed);
         expect(digest(snapshotRecord(engine.snapshot))).toBe(run.initialHash);
         run.actions.forEach((action, index) => {
@@ -219,7 +226,7 @@ for (const method of ["apply", "applyWithResolution"] as const) {
           actions++;
         });
       }
-      expect(actions).toBe(34054);
+      expect(actions).toBe(34164);
       expect(runs).toHaveLength(2000);
     }, 120000);
   });

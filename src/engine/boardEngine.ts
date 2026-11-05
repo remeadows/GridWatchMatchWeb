@@ -28,6 +28,8 @@ import {
   type BoardPowerUpActivation,
   type BoardResolution,
   type BoardResolutionStep,
+  type BlockerClear,
+  type BlockerKind,
   type BoardSnapshot,
   type BoosterType,
   type CellDefinition,
@@ -44,6 +46,7 @@ import {
 
 interface ResolutionAccumulator {
   clears: ClearEvent[];
+  blockerClears: BlockerClear[];
   moves: BoardDelta["moves"];
   spawns: SpawnEvent[];
   powerUpEvents: BoardDelta["powerUpEvents"];
@@ -70,6 +73,10 @@ export class BoardEngine {
   private chainDepthValue = 0;
   private actionHistory: BoardAction[] = [];
   private moveLimitBonus = 0;
+  /** Panes already hit in the move being resolved: a pane loses at most one layer per move. */
+  private panesHitThisMove = new Set<string>();
+  /** True once the move being resolved has destroyed a malware cell; a move that removes none lets it spread. */
+  private malwareRemovedThisMove = false;
 
   constructor(level: LevelDefinition, rngSeed: bigint | number | string) {
     validateLevel(level);
@@ -97,15 +104,44 @@ export class BoardEngine {
       }
     }
 
-    fillInitialTiles(this.grid, this.spawnRule, level.id, this.rng);
-    repairInitialMatches(this.grid, this.spawnRule, level.id, this.rng);
-    repairInitialDeadlock(this.grid, this.rng);
-    this.assignDebugTileIds();
-
     for (const objective of level.objectives) {
       this.objectiveTargetsValue[objective.id] = (this.objectiveTargetsValue[objective.id] ?? 0) + objective.target;
       this.objectiveProgressValue[objective.id] = this.objectiveProgressValue[objective.id] ?? 0;
     }
+
+    fillInitialTiles(this.grid, this.spawnRule, level.id, this.rng);
+    repairInitialMatches(this.grid, this.spawnRule, level.id, this.rng);
+    repairInitialDeadlock(this.grid, this.rng);
+    if (validMovesStatic(this.grid).length === 0 && this.grid.allPositions.some((position) => this.grid.get(position).overlay !== null)) {
+      this.shuffleUntilPlayable(emptyAccumulator());
+    }
+    this.assignDebugTileIds();
+  }
+
+  /**
+   * An independent copy that plays exactly like this engine from here on: same board, goals, move limit, rng and
+   * history. It skips level setup. Every field must be listed: a field added to the class needs a line here.
+   * With `rngSeed`, the fork draws its refills from a fresh generator in that state instead (zero allowed): a
+   * lookahead that cannot see which pieces will really drop next.
+   */
+  fork(options: { rngSeed?: bigint } = {}): BoardEngine {
+    const fields = {
+      level: this.level,
+      grid: this.grid.clone(cloneCell),
+      moveCountValue: this.moveCountValue,
+      objectiveProgressValue: { ...this.objectiveProgressValue },
+      objectiveTargetsValue: { ...this.objectiveTargetsValue },
+      spawnRule: this.spawnRule,
+      rng: SeededRNG.fromState(options.rngSeed ?? this.rng.state),
+      nextDebugTileId: this.nextDebugTileId,
+      chainDepthValue: this.chainDepthValue,
+      actionHistory: this.actionHistory.map(cloneAction),
+      moveLimitBonus: this.moveLimitBonus,
+      panesHitThisMove: new Set(this.panesHitThisMove),
+      malwareRemovedThisMove: this.malwareRemovedThisMove,
+      lastSwapPreferredPositions: this.lastSwapPreferredPositions.map((position) => ({ ...position }))
+    };
+    return Object.assign(Object.create(BoardEngine.prototype) as BoardEngine, fields);
   }
 
   get snapshot(): BoardSnapshot {
@@ -119,6 +155,7 @@ export class BoardEngine {
       moveLimit: this.level.moveLimit + this.moveLimitBonus,
       objectiveProgress: { ...this.objectiveProgressValue },
       objectiveTargets: { ...this.objectiveTargetsValue },
+      malwareLeft: grid.allPositions.filter((position) => grid.get(position).underlay !== null).length,
       spawnWeights: { ...this.spawnRule.weights },
       rngSeed,
       chainDepth: this.chainDepthValue
@@ -137,6 +174,8 @@ export class BoardEngine {
 
   private applyInternal(action: BoardAction, capture?: ResolutionCapture): BoardDelta {
     const accumulator = emptyAccumulator();
+    this.panesHitThisMove.clear();
+    this.malwareRemovedThisMove = false;
     let initialResolution = emptyPowerUpResolution();
     let preferredPowerUpCreationPositions: GridPosition[] = [];
 
@@ -161,10 +200,18 @@ export class BoardEngine {
     }
     this.resolveBoard(initialResolution, preferredPowerUpCreationPositions, accumulator, capture);
 
+    // Malware spreads only when the player ignored it: not after a booster, not after a move that destroyed any.
+    if (action.kind !== "activateBooster" && !this.malwareRemovedThisMove) this.spreadMalwareOneCell();
+    if (capture) capture.record("malware", this.snapshot, accumulator);
+
     let shuffleAttempts = 0;
     if (this.validMovesForGrid(this.grid).length === 0) {
-      shuffleAttempts = this.shuffleUntilPlayable();
+      shuffleAttempts = this.shuffleUntilPlayable(accumulator);
       if (capture) capture.record("shuffle", this.snapshot, accumulator);
+    }
+
+    if (this.objectiveTargetsValue.malware !== undefined) {
+      this.objectiveProgressValue.malware = this.snapshot.malwareLeft === 0 ? 1 : 0;
     }
 
     const isWin = Object.entries(this.objectiveTargetsValue).every(([key, target]) => (this.objectiveProgressValue[key] ?? 0) >= target);
@@ -175,6 +222,7 @@ export class BoardEngine {
 
     const delta: BoardDelta = {
       clears: accumulator.clears,
+      blockerClears: accumulator.blockerClears,
       moves: accumulator.moves,
       spawns: accumulator.spawns,
       powerUpEvents: accumulator.powerUpEvents,
@@ -272,8 +320,13 @@ export class BoardEngine {
     }
     const powerUp = mapBoosterToPowerUp(booster);
     const cell = this.grid.get(origin);
-    if (!cell.isMovable || cell.generator !== null || !hasOccupant(cell)) {
+    // A pane is a valid target: the piece under it stays, and the pane takes the power-up's hit.
+    const isPane = cell.overlay !== null && cell.generator === null && !cell.debugDesignLocked && hasOccupant(cell);
+    if (!isPane && (!cell.isMovable || cell.generator !== null || !hasOccupant(cell))) {
       throw new BoardEngineError("invalidTap", "Booster target is blocked");
+    }
+    if (isPane) {
+      return triggerSinglePowerUp(powerUp, origin, this.grid, this.level.objectives, this.objectiveProgressValue, this.rng, { kind: "tap" });
     }
     setPowerUp(cell, powerUp);
     if (cell.debugTileId === null) {
@@ -329,6 +382,8 @@ export class BoardEngine {
       const clearPositions = sortedPositions(pendingClear);
       const chainedPowerUps: { origin: GridPosition; powerUp: PowerUpType; source: PowerUpType }[] = [];
       const recentlyCleared: GridPosition[] = [];
+      // A new power-up's anchor is not cleared, but it is still part of the match.
+      const recentlyMatched: GridPosition[] = creations.map((creation) => creation.position);
 
       for (const position of clearPositions) {
         if (!this.grid.isValid(position)) continue;
@@ -337,21 +392,18 @@ export class BoardEngine {
         const clearedByPowerUp = sourcePowerUp !== null;
 
         if (cell.overlay) {
-          if (clearedByPowerUp) {
-            cell.overlay = cell.overlay.hp <= 1 ? null : { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
-            this.grid.set(position, cell);
-            continue;
-          }
-          if (cell.overlay.hp > 1) {
-            cell.overlay = { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
-            this.grid.set(position, cell);
-            continue;
-          }
-          cell.overlay = null;
-          this.grid.set(position, cell);
+          // A pane keeps its piece: a power-up that reaches the pane's own cell removes a layer, nothing more.
+          this.hitPane(position, accumulator);
+          continue;
         }
 
         const underlayDestroyedAtCell = decrementUnderlayIfPresent(cell);
+        if (underlayDestroyedAtCell) {
+          this.malwareRemovedThisMove = true;
+          this.countBlocker("malware", position, accumulator);
+        }
+        // A locked piece is immovable with no overlay or generator; read it before the clear below frees it.
+        const wasLocked = !cell.isMovable && cell.generator === null;
 
         if (cell.powerUp && sourcePowerUp) {
           chainedPowerUps.push({ origin: position, powerUp: clonePowerUp(cell.powerUp)!, source: sourcePowerUp });
@@ -364,7 +416,6 @@ export class BoardEngine {
           const contributions = objectiveContributions(
             eventTileType,
             position,
-            underlayDestroyedAtCell,
             this.level.objectives,
             this.objectiveProgressValue,
             this.grid.rows - 1
@@ -381,6 +432,7 @@ export class BoardEngine {
             objectiveId: contributions[0] ?? null
           });
           recentlyCleared.push(position);
+          if (!clearedByPowerUp) recentlyMatched.push(position);
         }
 
         setBaseTile(cell, null);
@@ -389,9 +441,10 @@ export class BoardEngine {
         cell.debugDesignLocked = false;
         if (cell.generator === null) cell.isMovable = true;
         this.grid.set(position, cell);
+        if (wasLocked && hadOccupant) this.countBlocker("lock", position, accumulator);
       }
 
-      this.applyAdjacentUnderlayDamage(recentlyCleared, accumulator);
+      this.applyAdjacentDamage(recentlyCleared, recentlyMatched, accumulator);
       if (capture) {
         capture.record("clear", this.snapshot, accumulator, clearPositions);
         capture.beginActivationBatch();
@@ -430,8 +483,6 @@ export class BoardEngine {
       if (capture) capture.record("gravity", this.snapshotAt(gravity.afterGravityGrid, beforeSpawnRng), accumulator);
       accumulator.spawns.push(...gravity.spawns);
       if (capture) capture.record("refill", this.snapshot, accumulator);
-      this.spreadMalwareOneStep();
-      if (capture) capture.record("malware", this.snapshot, accumulator);
       cascadeDepth += 1;
     }
 
@@ -439,14 +490,54 @@ export class BoardEngine {
 
   }
 
-  private applyAdjacentUnderlayDamage(clearedPositions: GridPosition[], accumulator: ResolutionAccumulator): void {
+  private hitPane(position: GridPosition, accumulator: ResolutionAccumulator): void {
+    const key = positionKey(position);
+    if (this.panesHitThisMove.has(key)) return;
+    const cell = this.grid.get(position);
+    if (!cell.overlay) return;
+    this.panesHitThisMove.add(key);
+    if (cell.overlay.hp > 1) {
+      cell.overlay = { kind: "encryptedVolume", hp: cell.overlay.hp - 1 };
+    } else {
+      cell.overlay = null;
+      cell.isMovable = cell.generator === null;
+      this.countBlocker("pane", position, accumulator);
+    }
+    this.grid.set(position, cell);
+  }
+
+  /**
+   * Records a removed blocker for the display and, for panes and locks, counts it toward its goal while the goal
+   * is still open. Malware progress is not counted here: it is set once at the end of the move.
+   */
+  private countBlocker(kind: BlockerKind, position: GridPosition, accumulator: ResolutionAccumulator): void {
+    const goalId = kind === "pane" ? "panes" : kind === "lock" ? "locks" : "malware";
+    const target = this.objectiveTargetsValue[goalId];
+    let objectiveId: string | null = null;
+    if (target !== undefined) {
+      if (kind === "malware") {
+        objectiveId = goalId;
+      } else if ((this.objectiveProgressValue[goalId] ?? 0) < target) {
+        objectiveId = goalId;
+        this.objectiveProgressValue[goalId] = (this.objectiveProgressValue[goalId] ?? 0) + 1;
+        accumulator.objectiveDeltas[goalId] = (accumulator.objectiveDeltas[goalId] ?? 0) + 1;
+      }
+    }
+    accumulator.blockerClears.push({ position: { ...position }, kind, objectiveId });
+  }
+
+  /**
+   * Malware loses a layer next to anything cleared. A pane loses a layer next to a match only:
+   * a power-up clearing a neighbouring cell does not chip it.
+   */
+  private applyAdjacentDamage(recentlyCleared: GridPosition[], recentlyMatched: GridPosition[], accumulator: ResolutionAccumulator): void {
     const offsets = [
       { row: -1, col: 0 },
       { row: 1, col: 0 },
       { row: 0, col: -1 },
       { row: 0, col: 1 }
     ];
-    for (const position of clearedPositions) {
+    for (const position of recentlyCleared) {
       for (const offset of offsets) {
         const neighbor = { row: position.row + offset.row, col: position.col + offset.col };
         if (!this.grid.isValid(neighbor)) continue;
@@ -454,79 +545,97 @@ export class BoardEngine {
         if (!cell.underlay) continue;
         if (cell.underlay.hp <= 1) {
           cell.underlay = null;
-          if (this.objectiveTargetsValue.spread !== undefined) {
-            this.objectiveProgressValue.spread = (this.objectiveProgressValue.spread ?? 0) + 1;
-            accumulator.objectiveDeltas.spread = (accumulator.objectiveDeltas.spread ?? 0) + 1;
-          }
+          this.malwareRemovedThisMove = true;
+          this.countBlocker("malware", neighbor, accumulator);
         } else {
           cell.underlay = { kind: "malwarePropagation", hp: cell.underlay.hp - 1 };
         }
         this.grid.set(neighbor, cell);
       }
     }
+    for (const position of recentlyMatched) {
+      for (const offset of offsets) {
+        const neighbor = { row: position.row + offset.row, col: position.col + offset.col };
+        if (!this.grid.isValid(neighbor)) continue;
+        if (this.grid.get(neighbor).overlay) this.hitPane(neighbor, accumulator);
+      }
+    }
   }
 
-  private spreadMalwareOneStep(): void {
+  /** Malware grows into one empty neighbouring cell, chosen from a sorted list so the draw is deterministic. */
+  private spreadMalwareOneCell(): void {
     const offsets = [
       { row: -1, col: 0 },
       { row: 1, col: 0 },
       { row: 0, col: -1 },
       { row: 0, col: 1 }
     ];
-    const placements: GridPosition[] = [];
+    const candidates = new Map<string, GridPosition>();
     for (const source of this.grid.allPositions) {
       const cell = this.grid.get(source);
       if (!cell.underlay || cell.underlay.hp <= 0) continue;
-      const neighbors: GridPosition[] = [];
       for (const offset of offsets) {
         const candidate = { row: source.row + offset.row, col: source.col + offset.col };
         if (!this.grid.isValid(candidate)) continue;
         const candidateCell = this.grid.get(candidate);
-        if (candidateCell.underlay === null && candidateCell.generator === null) neighbors.push(candidate);
-      }
-      if (neighbors.length > 0) placements.push(neighbors[this.rng.nextInt(neighbors.length)]);
-    }
-    for (const position of placements) {
-      const cell = this.grid.get(position);
-      if (cell.underlay === null) {
-        cell.underlay = { kind: "malwarePropagation", hp: 1 };
-        this.grid.set(position, cell);
+        if (candidateCell.underlay === null && candidateCell.generator === null) candidates.set(positionKey(candidate), candidate);
       }
     }
+    if (candidates.size === 0) return;
+    const sorted = sortedPositions(new Set(candidates.keys()));
+    const chosen = sorted[this.rng.nextInt(sorted.length)];
+    const target = this.grid.get(chosen);
+    target.underlay = { kind: "malwarePropagation", hp: 1 };
+    this.grid.set(chosen, target);
   }
 
   private validMovesForGrid(board: Grid2D<CellState>): BoardAction[] {
     return validMovesForGrid(board);
   }
 
-  private shuffleUntilPlayable(): number {
-    const movablePositions = this.grid.allPositions.filter((position) => {
-      const cell = this.grid.get(position);
-      return cell.isMovable && cell.generator === null;
-    });
-    if (movablePositions.length <= 1) return 0;
-    const occupants = movablePositions.map((position) => {
-      const cell = this.grid.get(position);
-      return {
-        baseTile: cell.baseTile,
-        powerUp: clonePowerUp(cell.powerUp),
-        debugTileId: cell.debugTileId,
-        debugDesignLocked: cell.debugDesignLocked
-      };
-    });
-    for (let attempt = 1; attempt <= 256; attempt += 1) {
-      this.rng.shuffle(occupants);
-      movablePositions.forEach((position, index) => {
+  private shuffleUntilPlayable(accumulator: ResolutionAccumulator): number {
+    let totalAttempts = 0;
+    while (true) {
+      const movablePositions = this.grid.allPositions.filter((position) => {
         const cell = this.grid.get(position);
-        setBaseTile(cell, occupants[index].baseTile);
-        if (occupants[index].powerUp) setPowerUp(cell, occupants[index].powerUp);
-        cell.debugTileId = occupants[index].debugTileId;
-        cell.debugDesignLocked = occupants[index].debugDesignLocked;
-        this.grid.set(position, cell);
+        return cell.isMovable && cell.generator === null;
       });
-      if (detectMatches(this.grid).length === 0 && this.validMovesForGrid(this.grid).length > 0) return attempt;
+      if (movablePositions.length > 1) {
+        const occupants = movablePositions.map((position) => {
+          const cell = this.grid.get(position);
+          return {
+            baseTile: cell.baseTile,
+            powerUp: clonePowerUp(cell.powerUp),
+            debugTileId: cell.debugTileId,
+            debugDesignLocked: cell.debugDesignLocked
+          };
+        });
+        for (let attempt = 1; attempt <= 256; attempt += 1) {
+          totalAttempts += 1;
+          this.rng.shuffle(occupants);
+          movablePositions.forEach((position, index) => {
+            const cell = this.grid.get(position);
+            setBaseTile(cell, occupants[index].baseTile);
+            if (occupants[index].powerUp) setPowerUp(cell, occupants[index].powerUp);
+            cell.debugTileId = occupants[index].debugTileId;
+            cell.debugDesignLocked = occupants[index].debugDesignLocked;
+            this.grid.set(position, cell);
+          });
+          if (detectMatches(this.grid).length === 0 && this.validMovesForGrid(this.grid).length > 0) return totalAttempts;
+        }
+      }
+      // No arrangement works: open the first pane in row order so its piece joins the shuffle.
+      const pane = this.grid.allPositions.find((position) => this.grid.get(position).overlay !== null);
+      if (!pane) {
+        if (movablePositions.length <= 1) return 0;
+        throw new BoardEngineError("noMovesAvailable", "No valid moves available.");
+      }
+      const paneCell = this.grid.get(pane);
+      paneCell.overlay = null;
+      paneCell.isMovable = paneCell.generator === null;
+      this.grid.set(pane, paneCell);
+      this.countBlocker("pane", pane, accumulator);
     }
-    throw new BoardEngineError("noMovesAvailable", "No valid moves available.");
   }
 
   private assignDebugTileIds(): void {
@@ -550,6 +659,7 @@ class ResolutionCapture {
   readonly steps: BoardResolutionStep[] = [];
   private current: BoardSnapshot;
   private clearOffset = 0;
+  private blockerOffset = 0;
   private spawnOffset = 0;
   private eventCount = 0;
   private activationCount = 0;
@@ -634,6 +744,7 @@ class ResolutionCapture {
     const clears = accumulator.clears.slice(this.clearOffset).map(clear => ({
       ...clear, position: { ...clear.position }, occupantId: before.grid.get(clear.position).debugTileId
     }));
+    const blockerClears = accumulator.blockerClears.slice(this.blockerOffset).map(blocker => ({ ...blocker, position: { ...blocker.position } }));
     const spawns = accumulator.spawns.slice(this.spawnOffset).map(spawn => ({
       ...spawn, position: { ...spawn.position }, asPowerUp: clonePowerUp(spawn.asPowerUp), occupantId: after.grid.get(spawn.position).debugTileId
     }));
@@ -666,10 +777,11 @@ class ResolutionCapture {
       };
     });
     this.steps.push({ ordinal: this.steps.length, cascadeDepth: after.chainDepth, kind, before, after,
-      clears, moves, spawns, objectiveEvents, cellChanges, hits, activations: this.activations });
+      clears, blockerClears, moves, spawns, objectiveEvents, cellChanges, hits, activations: this.activations });
     this.activations = [];
     this.current = after;
     this.clearOffset = accumulator.clears.length;
+    this.blockerOffset = accumulator.blockerClears.length;
     this.spawnOffset = accumulator.spawns.length;
   }
 }
@@ -690,6 +802,7 @@ function sameCell(left: CellState, right: CellState): boolean {
 function emptyAccumulator(): ResolutionAccumulator {
   return {
     clears: [],
+    blockerClears: [],
     moves: [],
     spawns: [],
     powerUpEvents: [],
@@ -724,7 +837,7 @@ function parseCell(definition: CellDefinition, levelId: number): CellState {
   cell.overlay = parseOverlay(definition.overlay, levelId);
   cell.underlay = parseUnderlay(definition.underlay, levelId);
   cell.generator = definition.generator;
-  cell.isMovable = definition.generator === null ? !definition.locked : false;
+  cell.isMovable = definition.generator === null ? !definition.locked && cell.overlay === null : false;
   cell.debugDesignLocked = definition.locked;
   return cell;
 }
@@ -877,7 +990,6 @@ function fallbackTileType(cell: CellState, grid: Grid2D<CellState>, position: Gr
 function objectiveContributions(
   tileType: TileType,
   position: GridPosition,
-  underlayDestroyed: boolean,
   objectives: ObjectiveDefinition[],
   progress: Record<string, number>,
   bottomRow: number
@@ -888,8 +1000,6 @@ function objectiveContributions(
     if ((objective.id === "collect" || objective.id.startsWith("collect_")) && objective.tileType === tileType) {
       contributions.push(objective.id);
     } else if (objective.id === "clear") {
-      contributions.push(objective.id);
-    } else if (objective.id === "spread" && underlayDestroyed) {
       contributions.push(objective.id);
     } else if (objective.id === "guide" && position.row === bottomRow) {
       contributions.push(objective.id);
@@ -951,6 +1061,48 @@ function validMovesForGrid(board: Grid2D<CellState>): BoardAction[] {
     if (cell.isMovable && cell.powerUp !== null) actions.push({ kind: "tap", at: position });
   }
   return actions.sort(compareActions);
+}
+
+/** A move worth pointing at when the player has been looking at the board for a while. */
+export interface BoardHint {
+  action: Extract<BoardAction, { kind: "swap" } | { kind: "tap" }>;
+  /** The pieces to outline, where they sit now: the swapped pair plus the rest of the match it makes. */
+  cells: GridPosition[];
+}
+
+/**
+ * Picks the hint: two power-ups swapped together first, then the swap making the biggest match, then
+ * a power-up swapped into a plain piece, then a power-up tapped. Ties go to the first move in board order.
+ */
+export function findHint(board: Grid2D<CellState>): BoardHint | null {
+  let best: { hint: BoardHint; score: number } | null = null;
+  for (const action of validMovesForGrid(board)) {
+    let hint: BoardHint;
+    let score: number;
+    if (action.kind === "tap") {
+      hint = { action, cells: [{ ...action.at }] };
+      score = 20;
+    } else if (action.kind === "swap") {
+      const { from, to } = action;
+      const bothPowerUps = board.get(from).powerUp !== null && board.get(to).powerUp !== null;
+      const candidate = board.clone(cloneCell);
+      candidate.swap(from, to);
+      const fromKey = positionKey(from);
+      const toKey = positionKey(to);
+      const matched = new Set<string>();
+      for (const group of detectMatches(candidate)) {
+        if (!group.positions.has(fromKey) && !group.positions.has(toKey)) continue;
+        // After the swap, the piece at `from` is the one that started at `to`, and the other way round.
+        for (const key of group.positions) matched.add(key === fromKey ? toKey : key === toKey ? fromKey : key);
+      }
+      matched.add(fromKey);
+      matched.add(toKey);
+      hint = { action, cells: bothPowerUps ? sortedPositions([fromKey, toKey]) : sortedPositions(matched) };
+      score = bothPowerUps ? 1000 : matched.size > 2 ? matched.size * 10 : 25;
+    } else continue;
+    if (!best || score > best.score) best = { hint, score };
+  }
+  return best?.hint ?? null;
 }
 
 function compareActions(lhs: BoardAction, rhs: BoardAction): number {

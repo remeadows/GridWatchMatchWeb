@@ -73,7 +73,7 @@ reviews:
         - handle: remeadows
           type: user
       instructions: >
-        Assign on changes to src/game/, src/engine/, src/state/, scripts/sync-ios-assets.mjs,
+        Assign on changes to src/game/, src/engine/, src/state/,
         or anything touching animation parity with iOS.
 
   suggested_labels: true
@@ -89,8 +89,6 @@ reviews:
       instructions: Apply when PR touches src/engine/ (cascade, match detection, gravity, RNG, power-ups).
     - label: save-data
       instructions: Apply when PR touches src/state/save.ts or progress persistence.
-    - label: ios-asset-sync
-      instructions: Apply when PR touches scripts/sync-ios-assets.mjs or src/data/assetManifest.generated.ts.
     - label: perf
       instructions: Apply when PR touches the render path, asset loading, or animation timing.
     - label: tests
@@ -125,8 +123,6 @@ reviews:
     - "!**/*.ttf"
     - "!**/*.otf"
     - "!**/*.woff*"
-    # Generated files — keep authoring, skip review
-    - "!src/data/assetManifest.generated.ts"
 
   # -------------------------------------------------------------------------
   # Path-scoped review instructions
@@ -301,13 +297,6 @@ reviews:
         Power-up descriptions must reflect actual engine behavior
         (rocket = row/column clear, TNT = blast, propeller = 2x2 origin,
         lightball = all-of-color, locked block / zero-day = sealed obstacle).
-
-    - path: "scripts/sync-ios-assets.mjs"
-      instructions: >
-        iOS asset sync script. Must be idempotent. Failure modes:
-        missing source path → fail loudly with the expected sibling repo
-        location; manifest mismatch → fail; checksum drift → log.
-        Never silently overwrite user-edited assets. Output a diff summary.
 
     # ---- Services
     - path: "src/services/audio.ts"

@@ -45,7 +45,7 @@ for (const specimen of specimens) {
 let actions = 0;
 const corpus = read('src/tests/fixtures/resolution/corpus.json');
 for (const run of corpus) {
-  const level = read(`public/levels/level_${String(run.level).padStart(3, '0')}.json`);
+  const level = read(`src/tests/fixtures/resolution/levels/level_${String(run.level).padStart(3, '0')}.json`);
   const engine = new BoardEngine(level, run.seed);
   assert.equal(digest(snapshotRecord(engine.snapshot)), run.initialHash);
   assert.equal(run.actions.length, run.outcomes.length);

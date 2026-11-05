@@ -22,6 +22,19 @@ describe("slot projections", () => {
     expect(projection(save, "campaign")).toEqual(campaign);
     expect(projection(save, "settings")).toEqual(toSettingsPayload(save));
   });
+  it("keeps Haptics on this device: never sent, never replaced by the cloud", () => {
+    const local = played();
+    local.settings.hapticsEnabled = false;
+    expect(toSettingsPayload(local)).not.toHaveProperty("hapticsEnabled");
+    expect(projection(local, "settings")).not.toHaveProperty("hapticsEnabled");
+    const fromCloud = applyCloudPayload(local, "settings", { musicEnabled: true, sfxEnabled: true, voiceEnabled: true, reducedMotion: false, hapticsEnabled: true });
+    expect(fromCloud.settings.hapticsEnabled).toBe(false);
+    expect(fromCloud.settings.musicEnabled).toBe(true);
+    expect(freshSlot(local, "settings").settings.hapticsEnabled).toBe(false);
+    const switched = structuredClone(local);
+    switched.settings.hapticsEnabled = true;
+    expect(changedSlots(local, switched)).toEqual([]);
+  });
   it("applies a cloud payload through normalizeSave, keeping the other slot", () => {
     const local = played();
     const merged = applyCloudPayload(local, "campaign", { ...toCampaignPayload(defaultSaveState()), coins: 7, selectedHeroId: "vera" });
@@ -32,7 +45,8 @@ describe("slot projections", () => {
     expect(merged.settings.musicEnabled).toBe(false);          // settings untouched
     expect(merged.boosters.rocket).toBe(3);                    // defaults filled in
     const withSettings = applyCloudPayload(local, "settings", { musicEnabled: true, sfxEnabled: false, voiceEnabled: true, reducedMotion: true });
-    expect(withSettings.settings).toEqual({ musicEnabled: true, sfxEnabled: false, voiceEnabled: true, reducedMotion: true });
+    // Haptics is not in the cloud payload: the device keeps its own.
+    expect(withSettings.settings).toEqual({ musicEnabled: true, sfxEnabled: false, voiceEnabled: true, hapticsEnabled: true, reducedMotion: true });
     expect(withSettings.coins).toBe(40);
   });
   it("tolerates junk from the cloud by falling back to defaults", () => {

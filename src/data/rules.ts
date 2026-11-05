@@ -1,3 +1,9 @@
+import type { BlockerKind } from "../engine/types";
+import { blockerIntros } from "./blockerIntros";
+
+/** The order the rules list the blockers in. */
+const blockerKinds: BlockerKind[] = ["pane", "lock", "malware"];
+
 export const rulesSections = [
   {
     title: "Match Tiles",
@@ -24,8 +30,7 @@ export const rulesSections = [
   {
     title: "Threats",
     rows: [
-      "Encrypted volumes need repeated hits or power-up damage.",
-      "Malware spreads if the grid is left exposed.",
+      ...blockerKinds.map((kind) => `${blockerIntros[kind].title}: ${blockerIntros[kind].body}`),
       "Honeypots generate mission targets below them."
     ]
   },

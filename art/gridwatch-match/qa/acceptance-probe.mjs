@@ -9,7 +9,7 @@
 //   background      the page is hidden and shown again mid-level, then a real swap must still work
 //   full-loop       menu -> quick deploy -> win -> next level -> back -> home -> reload -> the menu
 //                   shows the saved progress
-//   grayscale       a screenshot of level 100 with colour removed, to judge shapes by eye
+//   grayscale       a screenshot of level 180 with colour removed, to judge shapes by eye
 //   recording       a short video of one swap and its cascade on level 1
 import { createRequire } from "node:module";
 const [repo, base, out] = process.argv.slice(2);
@@ -41,11 +41,11 @@ const textures = (page) => page.evaluate(() => performance.getEntriesByType("res
 // --- missing assets -------------------------------------------------------------------------
 for (const [name, pattern] of [["missing-assets", /\/match-v2\/(tiles|powerups|cells|board)\//], ["one-missing", /\/match-v2\/(board\/board_frame|cells\/cell_lock|tiles\/tile_threat)\.png/]]) {
   const refused = [];
-  const { context, page, errors } = await open("&level=34", (p) => p.route(pattern, (route) => { refused.push(route.request().url().split("/").pop()); return route.abort(); }));
+  const { context, page, errors } = await open("&level=17", (p) => p.route(pattern, (route) => { refused.push(route.request().url().split("/").pop()); return route.abort(); }));
   await ready(page);
   await page.waitForTimeout(500);
   await page.locator('[data-testid="board-canvas"] canvas').screenshot({ path: `${out}-${name}.png` });
-  // level 34 shows the lock, overlay and underlay fallbacks; level 1 has a known good first swap
+  // level 17 shows the lock, overlay and underlay fallbacks; level 1 has a known good first swap
   await page.goto(`${base}/?gwTestMode=1&level=1`, { waitUntil: "networkidle" });
   await ready(page);
   const before = await movesText(page);
@@ -121,7 +121,7 @@ for (const [name, pattern] of [["missing-assets", /\/match-v2\/(tiles|powerups|c
 
 // --- grayscale and recording ----------------------------------------------------------------
 {
-  const { context, page } = await open("&level=100");
+  const { context, page } = await open("&level=180");
   await ready(page);
   await page.addStyleTag({ content: "html { filter: grayscale(1); }" });
   await page.waitForTimeout(500);
