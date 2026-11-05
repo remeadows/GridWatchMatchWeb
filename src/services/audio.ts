@@ -328,15 +328,8 @@ export class AudioService {
     // (arriving from the Nexus menu in Chrome or Edge). Elsewhere it is refused until the page is
     // touched, so it is started on the first event the browser counts as one: a mouse press, a
     // finger or pen lifting, a key. `click` is the net under those.
-    // The hidden switch that gives an iPhone its haptic tick is clicked from code; that is not the player.
-    const fromHaptics = (event: Event) => {
-      const target = event.target as { closest?: (selector: string) => unknown } | null;
-      return typeof target?.closest === "function" && target.closest("[data-gw-haptic]") !== null;
-    };
     const listen = (type: string, startMusic: (event: Event) => boolean) =>
-      document.addEventListener(type, (event) => {
-        if (!fromHaptics(event)) this.unlockMusic({ startMusic: startMusic(event) });
-      }, { capture: true, passive: true });
+      document.addEventListener(type, (event) => this.unlockMusic({ startMusic: startMusic(event) }), { capture: true, passive: true });
     const byMouse = (event: Event) => (event as PointerEvent).pointerType === "mouse";
     listen("pointerdown", byMouse);
     listen("pointerup", (event) => !byMouse(event));

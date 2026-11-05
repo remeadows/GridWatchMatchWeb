@@ -1598,7 +1598,7 @@ function SettingsScreen({ save, commitSave }: { save: SaveState; commitSave: (sa
   return (
     <section className="content-column narrow">
       <PageHeader title="Settings" subtitle="Local browser settings and progress controls." />
-      {Object.entries(save.settings).map(([key, value]) => (
+      {Object.entries(save.settings).filter(([key]) => key !== "hapticsEnabled" || haptics.supported).map(([key, value]) => (
         <label className="setting-row" key={key}>
           <span>{settingLabel(key as keyof SaveState["settings"])}</span>
           <input type="checkbox" checked={value} onChange={(event) => updateSetting(key as keyof SaveState["settings"], event.currentTarget.checked)} />

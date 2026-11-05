@@ -82,7 +82,7 @@ test("after 6 seconds without a move the board shows a hint, which goes on a tou
   expect(await hint()).toBeNull();
 });
 
-test("a swap and its match are felt, and Haptics off in Settings keeps the phone still", async ({ page }) => {
+test("a swap and its match are felt, and Haptics off in Settings keeps the phone still; no switch where nothing can vibrate", async ({ page }) => {
   // Russ, 2026-11-05: "phone haptics so when pieces move, explode, fall, etc the player feels it".
   const felt = () => page.evaluate(() => (window as Window & { __gwHaptics?: string[] }).__gwHaptics ?? []);
   await page.goto("./?gwTestMode=1&level=1");
@@ -95,6 +95,12 @@ test("a swap and its match are felt, and Haptics off in Settings keeps the phone
 
   await page.goto("./?gwTestMode=1");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByLabel("Sound Effects")).toBeVisible();
+  if (!(await page.evaluate(() => typeof navigator.vibrate === "function"))) {
+    // Safari on an iPhone (the mobile project runs WebKit) cannot vibrate: the switch is not offered.
+    await expect(page.getByLabel("Haptics")).toHaveCount(0);
+    return;
+  }
   await expect(page.getByLabel("Haptics")).toBeChecked();
   await page.getByLabel("Haptics").uncheck();
   await page.goto("./?gwTestMode=1&level=1");
